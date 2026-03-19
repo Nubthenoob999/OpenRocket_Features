@@ -499,10 +499,15 @@ class SimulationOptionsPanel extends JPanel {
 		}
 		String dragDetail = buildLookupDetail(options.getDragLookupCsvPath(), options.getDragLookupTable());
 		String stabilityDetail = buildLookupDetail(options.getStabilityLookupCsvPath(), options.getStabilityLookupTable());
+		String romPrerequisite = options.isRomDragPrerequisiteReady()
+				? "ROM prerequisite: ready (Cd(M, AoA) drag table loaded)"
+				: "ROM prerequisite: missing Cd(M, AoA) drag table";
 		String summary = "<html>"
 				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryDrag"), dragDetail)
 				+ "<br>"
 				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryStability"), stabilityDetail)
+				+ "<br>"
+				+ romPrerequisite
 				+ "</html>";
 		aerodynamicLookupSummaryLabel.setText(summary);
 	}

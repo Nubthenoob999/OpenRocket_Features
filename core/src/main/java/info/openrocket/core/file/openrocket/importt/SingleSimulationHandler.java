@@ -9,11 +9,15 @@ import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.Simulation.Status;
+import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
+import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
 import info.openrocket.core.file.DocumentLoadingContext;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
 import info.openrocket.core.file.simplesax.ElementHandler;
 import info.openrocket.core.file.simplesax.PlainTextHandler;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
+import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.simulation.extension.SimulationExtension;
@@ -35,6 +39,10 @@ class SingleSimulationHandler extends AbstractElementHandler {
 	private SimulationConditionsHandler conditionHandler;
 	private ConfigHandler configHandler;
 	private FlightDataHandler dataHandler;
+	private DragSurface romDragSurface;
+	private String romGeometryHash;
+	private double romLooRmse;
+	private long romBuildTimestamp;
 
 	private final List<SimulationExtension> extensions = new ArrayList<>();
 
@@ -52,7 +60,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			WarningSet warnings) {
 
 		if (element.equals("name") || element.equals("simulator") ||
-				element.equals("calculator") || element.equals("listener")) {
+				element.equals("calculator") || element.equals("listener") || element.equals("romdragsurface")) {
 			return PlainTextHandler.INSTANCE;
 		} else if (element.equals("conditions")) {
 			conditionHandler = new SimulationConditionsHandler(doc.getRocket(), context);
@@ -80,11 +88,36 @@ class SingleSimulationHandler extends AbstractElementHandler {
 				warnings.add("Unknown simulator '" + content.trim() + "' specified, ignoring.");
 			}
 		} else if (element.equals("calculator")) {
-			if (!content.trim().equals("BarrowmanCalculator")) {
+			String calc = content.trim();
+			if (!calc.equals("BarrowmanCalculator") && !calc.equals("RomAerodynamicCalculator")) {
 				warnings.add("Unknown calculator '" + content.trim() + "' specified, ignoring.");
 			}
 		} else if (element.equals("listener") && content.trim().length() > 0) {
 			extensions.add(compatibilityExtension(content.trim()));
+		} else if (element.equals("romdragsurface")) {
+			String payload = content != null ? content.trim() : "";
+			if (!payload.isEmpty()) {
+				romGeometryHash = attributes.get("geometryhash");
+				try {
+					romLooRmse = Double.parseDouble(attributes.getOrDefault("looRmse", "0"));
+				} catch (RuntimeException ex) {
+					romLooRmse = 0.0;
+				}
+				try {
+					romBuildTimestamp = Long.parseLong(attributes.getOrDefault("builttimestamp", "0"));
+				} catch (RuntimeException ex) {
+					romBuildTimestamp = 0L;
+				}
+				try {
+					romDragSurface = DragSurfaceSerializer.deserializeFromBase64Gzip(
+							payload,
+							romGeometryHash,
+							romLooRmse,
+							romBuildTimestamp);
+				} catch (IllegalStateException ex) {
+					warnings.add("Failed to parse romdragsurface, ignoring. Reason: " + ex.getMessage());
+				}
+			}
 		} else if (element.equals("extension") && !StringUtils.isEmpty(attributes.get("extensionid"))) {
 			String id = attributes.get("extensionid");
 			id = id.replace("net.sf.openrocket", "info.openrocket.core");
@@ -126,6 +159,21 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		} else {
 			warnings.add("Simulation conditions not defined, using defaults.");
 			options = new SimulationOptions();
+		}
+
+		if (romDragSurface != null) {
+			String expectedHash;
+			if (idToSet != null && !idToSet.hasError()) {
+				FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
+				expectedHash = RomGeometryParameters.fromRocket(config).geometryHash();
+			} else {
+				expectedHash = RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration()).geometryHash();
+			}
+			if (expectedHash.equals(romGeometryHash)) {
+				options.setRomDragSurface(romDragSurface);
+			} else {
+				warnings.add("Ignoring romdragsurface due to geometry hash mismatch.");
+			}
 		}
 
 		if (name == null)

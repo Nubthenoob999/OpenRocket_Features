@@ -13,11 +13,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 
 import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
+import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
 import info.openrocket.core.database.motor.MotorDatabase;
 import info.openrocket.core.database.motor.ThrustCurveMotorSetDatabase;
 import info.openrocket.core.document.OpenRocketDocument;
@@ -254,6 +258,66 @@ public class OpenRocketSaverTest {
 		ScriptingExtension ext = (ScriptingExtension) rocketDocLoaded.getSimulations().get(0).getSimulationExtensions().get(0);
 		assertEquals(true, ext.isEnabled());
 		assertEquals(ext.getScript(), "TESTING");
+	}
+
+	@Test
+	public void testRomDragSurfaceIsSavedAndRestored() throws IOException {
+		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = rocketDoc.getSimulations().get(0);
+		String geometryHash = RomGeometryParameters.fromRocket(
+				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
+		DragSurface surface = createRomSurface(
+				geometryHash,
+				0.42,
+				0.28,
+				1.75);
+		simulation.getOptions().setRomDragSurface(surface);
+
+		StorageOptions options = new StorageOptions();
+		File file = saveRocket(rocketDoc, options);
+
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		assertTrue(xml.contains("<calculator>RomAerodynamicCalculator</calculator>"));
+		assertTrue(xml.contains("<romdragsurface version=\"1\""));
+		assertTrue(xml.contains("geometryhash=\"" + surface.geometryHash + "\""));
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSimulation = loaded.getSimulations().get(0);
+		DragSurface restored = loadedSimulation.getOptions().getRomDragSurface();
+
+		assertNotNull(restored);
+		assertEquals(surface.geometryHash, restored.geometryHash);
+		assertEquals(surface.machAxis.length, restored.machAxis.length);
+		assertEquals(surface.logReAxis.length, restored.logReAxis.length);
+		assertEquals(surface.alphaAxis.length, restored.alphaAxis.length);
+		assertEquals(surface.cdPlumeOff[1][1][1], restored.cdPlumeOff[1][1][1], 0.0);
+		assertEquals(surface.cdPlumeOn[0][0][1], restored.cdPlumeOn[0][0][1], 0.0);
+	}
+
+	@Test
+	public void testRomDragSurfaceIgnoredWhenGeometryHashMismatches() throws IOException {
+		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = rocketDoc.getSimulations().get(0);
+		String geometryHash = RomGeometryParameters.fromRocket(
+				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
+		simulation.getOptions().setRomDragSurface(createRomSurface(
+				geometryHash,
+				0.41,
+				0.26,
+				0.5));
+
+		StorageOptions options = new StorageOptions();
+		File file = saveRocket(rocketDoc, options);
+
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		String rewritten = xml.replaceFirst(
+				"geometryhash=\"[0-9a-fA-F]{64}\"",
+				"geometryhash=\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"");
+		Files.writeString(file.toPath(), rewritten, StandardCharsets.UTF_8);
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSimulation = loaded.getSimulations().get(0);
+		assertEquals(false, loadedSimulation.getOptions().hasRomDragSurface());
 	}
 	
 	
@@ -497,6 +561,25 @@ public class OpenRocketSaverTest {
 			fail("IOException: " + e);
 		}
 		throw new RuntimeException("Could not load motor");
+	}
+
+	private static DragSurface createRomSurface(String hash, double cdOff, double cdOn, double looRmse) {
+		double[] mach = new double[] { 0.05, 0.8, 1.8 };
+		double[] re = new double[] { 4.0, 6.0 };
+		double[] alpha = new double[] { 0.0, 8.0 };
+
+		double[][][] off = new double[mach.length][re.length][alpha.length];
+		double[][][] on = new double[mach.length][re.length][alpha.length];
+		for (int im = 0; im < mach.length; im++) {
+			for (int ir = 0; ir < re.length; ir++) {
+				for (int ia = 0; ia < alpha.length; ia++) {
+					off[im][ir][ia] = cdOff + 0.01 * im + 0.005 * ir + 0.002 * ia;
+					on[im][ir][ia] = cdOn + 0.01 * im + 0.005 * ir + 0.002 * ia;
+				}
+			}
+		}
+
+		return new DragSurface(mach, re, alpha, off, on, hash, looRmse);
 	}
 	
 	public static class EmptyComponentDbProvider implements Provider<ComponentPresetDao> {

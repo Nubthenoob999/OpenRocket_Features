@@ -14,6 +14,7 @@ import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.Transformation;
 
+
 public class RailButtonCalc extends RocketComponentCalc {
 	private final static Logger log = LoggerFactory.getLogger(RailButtonCalc.class);
 

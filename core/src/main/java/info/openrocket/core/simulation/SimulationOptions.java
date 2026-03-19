@@ -26,8 +26,10 @@ import info.openrocket.core.aerodynamics.BarrowmanDragCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanStabilityCalculator;
 import info.openrocket.core.aerodynamics.LookupTableDragCalculator;
 import info.openrocket.core.aerodynamics.LookupTableStabilityCalculator;
+import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.aerodynamics.lookup.CsvMachAoALookup;
 import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
+import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
@@ -108,6 +110,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private Path stabilityLookupCsvPath;
 	private MachAoALookup dragLookupTable;
 	private MachAoALookup stabilityLookupTable;
+	private DragSurface romDragSurface;
 	private List<String> dragLookupCsvRows;
 	private List<String> stabilityLookupCsvRows;
 
@@ -479,6 +482,35 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		return dragLookupTable != null;
 	}
 
+	/**
+	 * Returns whether a drag lookup table is present and contains angle-of-attack
+	 * data in addition to Mach. This is the required prerequisite shape for ROM
+	 * drag surface workflows.
+	 */
+	public boolean hasDragLookupWithAoA() {
+		return dragLookupTable != null && dragLookupTable.hasAoA();
+	}
+
+	/**
+	 * Returns whether the Cd(M, AoA) prerequisite for ROM drag workflows is met.
+	 */
+	public boolean isRomDragPrerequisiteReady() {
+		return hasDragLookupWithAoA();
+	}
+
+	/**
+	 * Ensures that the Cd(M, AoA) prerequisite for ROM drag workflows is met.
+	 *
+	 * @throws IllegalStateException when no Mach-AoA drag lookup table is configured.
+	 */
+	public void verifyRomDragPrerequisite() {
+		if (isRomDragPrerequisiteReady()) {
+			return;
+		}
+		throw new IllegalStateException(
+				"ROM prerequisite not satisfied: configure a drag lookup table with Mach and AoA (Cd(M, AoA)) data.");
+	}
+
 	public List<String> getDragLookupCsvRows() {
 		return dragLookupCsvRows != null ? new ArrayList<>(dragLookupCsvRows) : null;
 	}
@@ -521,6 +553,22 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	public List<String> getStabilityLookupCsvRows() {
 		return stabilityLookupCsvRows != null ? new ArrayList<>(stabilityLookupCsvRows) : null;
+	}
+
+	public DragSurface getRomDragSurface() {
+		return romDragSurface;
+	}
+
+	public boolean hasRomDragSurface() {
+		return romDragSurface != null;
+	}
+
+	public void setRomDragSurface(DragSurface romDragSurface) {
+		if (this.romDragSurface == romDragSurface) {
+			return;
+		}
+		this.romDragSurface = romDragSurface;
+		fireChangeEvent();
 	}
 
 	private void updateDragLookup(Path path, MachAoALookup table) {
@@ -584,6 +632,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.windModelType = this.windModelType;
 			copy.dragLookupCsvPath = this.dragLookupCsvPath;
 			copy.dragLookupTable = this.dragLookupTable;
+			copy.romDragSurface = this.romDragSurface;
 			copy.dragLookupCsvRows = this.dragLookupCsvRows != null ? new ArrayList<>(this.dragLookupCsvRows) : null;
 			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
 			copy.stabilityLookupTable = this.stabilityLookupTable;
@@ -699,6 +748,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			this.stabilityLookupCsvPath = src.stabilityLookupCsvPath;
 			this.stabilityLookupTable = src.stabilityLookupTable;
 		}
+		if (this.romDragSurface != src.romDragSurface) {
+			isChanged = true;
+			this.romDragSurface = src.romDragSurface;
+		}
 
 		if (isChanged) {
 			// Only copy the randomSeed if something else has changed.
@@ -802,6 +855,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 						: new BarrowmanStabilityCalculator(),
 				dragLookupTable != null ? new LookupTableDragCalculator(dragLookupTable)
 						: new BarrowmanDragCalculator()));
+		RomAerodynamicCalculator romCalculator = new RomAerodynamicCalculator();
+		if (romDragSurface != null) {
+			romCalculator.installSurface(romDragSurface);
+		}
+		conditions.setRomAerodynamicCalculator(romCalculator);
 		conditions.setMassCalculator(new MassCalculator());
 
 		conditions.setTimeStep(getTimeStep());

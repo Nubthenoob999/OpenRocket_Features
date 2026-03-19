@@ -32,6 +32,8 @@ import info.openrocket.core.document.StorageOptions;
 import info.openrocket.core.file.RocketSaver;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
@@ -332,7 +334,7 @@ public class OpenRocketSaver extends RocketSaver {
 		// TODO: MEDIUM: Other simulators/calculators
 		
 		writeln("<simulator>RK4Simulator</simulator>");
-		writeln("<calculator>BarrowmanCalculator</calculator>");
+		writeln("<calculator>" + (cond.hasRomDragSurface() ? "RomAerodynamicCalculator" : "BarrowmanCalculator") + "</calculator>");
 		
 		writeln("<conditions>");
 		indent++;
@@ -412,6 +414,15 @@ public class OpenRocketSaver extends RocketSaver {
 		
 		indent--;
 		writeln("</conditions>");
+
+		DragSurface romSurface = cond.getRomDragSurface();
+		if (romSurface != null) {
+			String encoded = DragSurfaceSerializer.serializeToBase64Gzip(romSurface);
+			writeln("<romdragsurface version=\"1\" geometryhash=\"" + TextUtil.escapeXML(romSurface.geometryHash)
+					+ "\" builttimestamp=\"" + romSurface.buildTimestampMs + "\" looRmse=\""
+					+ TextUtil.doubleToString(romSurface.looRmsePercent) + "\">"
+					+ encoded + "</romdragsurface>");
+		}
 		
 		for (SimulationExtension extension : simulation.getSimulationExtensions()) {
 			Config config = extension.getConfig();

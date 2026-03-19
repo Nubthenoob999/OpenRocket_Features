@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import info.openrocket.core.aerodynamics.AerodynamicCalculator;
+import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
@@ -54,6 +55,7 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private GravityModel gravityModel;
 
 	private AerodynamicCalculator aerodynamicCalculator;
+	private RomAerodynamicCalculator romAerodynamicCalculator;
 	private MassCalculator massCalculator;
 
 	private double timeStep = RK4SimulationStepper.RECOMMENDED_TIME_STEP;
@@ -69,6 +71,9 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private ModID modIDadd = ModID.INVALID;
 
 	public AerodynamicCalculator getAerodynamicCalculator() {
+		if (romAerodynamicCalculator != null && romAerodynamicCalculator.hasSurface()) {
+			return romAerodynamicCalculator;
+		}
 		return aerodynamicCalculator;
 	}
 
@@ -76,6 +81,17 @@ public class SimulationConditions implements Monitorable, Cloneable {
 		if (this.aerodynamicCalculator != null)
 			this.modIDadd = new ModID();
 		this.aerodynamicCalculator = aerodynamicCalculator;
+	}
+
+	public RomAerodynamicCalculator getRomAerodynamicCalculator() {
+		return romAerodynamicCalculator;
+	}
+
+	public void setRomAerodynamicCalculator(RomAerodynamicCalculator romAerodynamicCalculator) {
+		if (this.romAerodynamicCalculator != null) {
+			this.modIDadd = new ModID();
+		}
+		this.romAerodynamicCalculator = romAerodynamicCalculator;
 	}
 
 	public MassCalculator getMassCalculator() {

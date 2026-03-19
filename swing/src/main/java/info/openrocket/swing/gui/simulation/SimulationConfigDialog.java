@@ -67,9 +67,10 @@ public class SimulationConfigDialog extends JDialog {
 
 	private static final int LAUNCH_CONDITIONS_IDX = 0;
 	private static final int SIMULATION_OPTIONS_IDX = 1;
-	private static final int WARNINGS_IDX = 2;
-	private static final int PLOT_IDX = 3;
-	private static final int EXPORT_IDX = 4;
+	private static final int AERODYNAMICS_IDX = 2;
+	private static final int WARNINGS_IDX = 3;
+	private static final int PLOT_IDX = 4;
+	private static final int EXPORT_IDX = 5;
 
 	private final SimulationPlotPanel plotTab;
 	private final SimulationExportPanel exportTab;
@@ -120,6 +121,9 @@ public class SimulationConfigDialog extends JDialog {
 
 		//// Simulation options
 		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"), new SimulationOptionsPanel(document, simulationList[0]));
+
+		//// ROM Aerodynamics prestep
+		tabbedPane.addTab("Aerodynamics", new RomPrestepPanel(simulationList[0]));
 
 		//// Simulation Warnings
 		final SimulationWarningsPanel warningsTab = new SimulationWarningsPanel(simulationList[0]);
@@ -184,6 +188,7 @@ public class SimulationConfigDialog extends JDialog {
 				switch (selectedIndex) {
 					case LAUNCH_CONDITIONS_IDX:
 					case SIMULATION_OPTIONS_IDX:
+					case AERODYNAMICS_IDX:
 						okButton.setText(trans.get("dlg.but.ok"));
 						cancelButton.setText(trans.get("dlg.but.cancel"));
 						cancelButton.setVisible(true);
