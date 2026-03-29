@@ -68,6 +68,12 @@ public class DragSurfaceSerializerTest {
     }
 
     @Test
+    public void testDeserializeRejectsEmptyPayload() {
+        assertThrows(IllegalStateException.class, () ->
+                DragSurfaceSerializer.deserializeFromBase64Gzip("", HASH, 0.0, 0L));
+    }
+
+    @Test
     public void testDeserializeRejectsInvalidDimensions() {
         String encoded = gzipAndEncode(invalidDimensionBlob());
 

@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
+import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.logging.SimulationAbort;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
@@ -506,6 +507,17 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		 * below 20% of the max. velocity.
 		 */
 		WarningSet warnings = status.recordWarnings() ? new WarningSet() : null;
+		if (status.getSimulationConditions().getAerodynamicCalculator() instanceof RomAerodynamicCalculator romCalculator) {
+			boolean burning = false;
+			for (MotorClusterState motorState : status.getActiveMotors()) {
+				if (motorState.getThrust(status.getSimulationTime()) > 0.0) {
+					burning = true;
+					break;
+				}
+			}
+			romCalculator.updatePlumeState(burning, status.getSimulationConditions().getTimeStep());
+			romCalculator.setCurrentSimulationTime(status.getSimulationTime());
+		}
 
 		// Calculate aerodynamic forces
 		store.forces = status.getSimulationConditions().getAerodynamicCalculator()

@@ -1,5 +1,6 @@
 *.DS_Store
 *~
+*.zip
 
 # /
 /bin
@@ -114,3 +115,11 @@ docs/build
 **/AGENTS.md
 **/CLAUDE.md
 **/GEMINI.md
+
+# Requested global test/data artifact ignores
+**/*.ork
+**/*.csv
+**/*.log
+**/*.json
+**/*.zip
+

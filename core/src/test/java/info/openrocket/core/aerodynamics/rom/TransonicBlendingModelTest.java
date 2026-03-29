@@ -16,12 +16,11 @@ public class TransonicBlendingModelTest {
 
 	@Test
 	public void testWeightsAreProperlyBoundedAndSummed() {
-		double mLow = 0.0;
+		double mLow = 0.01;
 		assertTrue(TransonicBlendingModel.sigmaSubsonic(mLow) > 0.99);
 		assertTrue(TransonicBlendingModel.sigmaSupersonic(mLow) < 0.01);
 
-		for (int i = 0; i <= 50; i++) {
-			double mach = 3.0 * i / 50.0;
+		for (double mach = 0.01; mach <= 4.0; mach += 0.01) {
 			double sum = TransonicBlendingModel.sigmaSubsonic(mach)
 					+ TransonicBlendingModel.sigmaTransonic(mach)
 					+ TransonicBlendingModel.sigmaSupersonic(mach);
@@ -41,11 +40,26 @@ public class TransonicBlendingModelTest {
 	}
 
 	@Test
+	public void testBlendRecoversRegimeExtremes() {
+		double sub = 0.25;
+		double trans = 0.50;
+		double sup = 0.35;
+		RomTestFixtures.assertRelativeError(
+				TransonicBlendingModel.blend(0.1, sub, trans, sup), sub, 0.001);
+		RomTestFixtures.assertRelativeError(
+				TransonicBlendingModel.blend(3.5, sub, trans, sup), sup, 0.001);
+	}
+
+	@Test
 	public void testTransonicPeakDependsOnNoseShape() {
 		RomGeometryParameters g = sampleGeometry();
+		g.noseShape = RomGeometryParameters.NoseShape.VON_KARMAN;
+		double vonKarman = TransonicBlendingModel.transonicPeakCd(0.30, g);
+		g.noseShape = RomGeometryParameters.NoseShape.OGIVE;
 		double ogive = TransonicBlendingModel.transonicPeakCd(0.30, g);
 		g.noseShape = RomGeometryParameters.NoseShape.CONICAL;
 		double conical = TransonicBlendingModel.transonicPeakCd(0.30, g);
 		assertTrue(conical > ogive);
+		assertTrue(ogive > vonKarman);
 	}
 }

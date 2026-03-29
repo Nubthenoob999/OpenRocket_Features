@@ -138,4 +138,29 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		rom.installSurface(constantSurface(0.33, 0.22));
 		assertSame(rom, conditions.getAerodynamicCalculator());
 	}
+
+	@Test
+	public void testComputationSnapshotsCaptureBeforeAndAfterCd() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		double baselineCd = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet()).getCD();
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(0.41, 0.29));
+		rom.setCurrentSimulationTime(1.25);
+		rom.updatePlumeState(false, 0.0);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+
+		assertEquals(1, rom.getComputationSnapshots().size());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+		assertEquals(1.25, snapshot.getTimeSeconds(), 1e-12);
+		assertEquals(baselineCd, snapshot.getCdBefore(), 1e-9);
+		assertEquals(0.41, snapshot.getCdAfter(), 1e-9);
+
+		rom.clearComputationSnapshots();
+		assertTrue(rom.getComputationSnapshots().isEmpty());
+	}
 }

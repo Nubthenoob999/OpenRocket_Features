@@ -12,12 +12,14 @@ import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -29,6 +31,7 @@ import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.l10n.Translator;
+import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.models.gravity.GravityModelType;
 import info.openrocket.core.simulation.RK4SimulationStepper;
 import info.openrocket.core.simulation.SimulationOptions;
@@ -71,6 +74,8 @@ class SimulationOptionsPanel extends JPanel {
 	private JPanel currentExtensions;
 	final JPopupMenu extensionMenu;
 	JMenu extensionMenuCopyExtension;
+	private JCheckBox monteCarloEnabledCheckBox;
+	private JButton monteCarloConfigureButton;
 
 	private JSpinner gravitySpinner;
 	private UnitSelector gravityUnit;
@@ -330,9 +335,41 @@ class SimulationOptionsPanel extends JPanel {
 		
 		sub.add(resetBtn, "align left, split 2");
 		sub.add(saveBtn, "wrap");
-		
-		
-		
+
+		//// Monte Carlo analysis
+		sub = new JPanel(new MigLayout("fill, gap rel unrel", "[grow][grow 0]", "[]"));
+		sub.setBorder(BorderFactory.createTitledBorder("Monte Carlo analysis"));
+		this.add(sub, "growx, aligny 0");
+
+		monteCarloEnabledCheckBox = new JCheckBox("Enable Monte Carlo analysis");
+		monteCarloEnabledCheckBox.setToolTipText("Turn Monte Carlo batch analysis on or off for this simulation.");
+		monteCarloEnabledCheckBox.addActionListener(e -> {
+			MonteCarloExtension ext = ensureMonteCarloExtension();
+			ext.setEnabled(monteCarloEnabledCheckBox.isSelected());
+			updateCurrentExtensions();
+			updateMonteCarloControls();
+		});
+		sub.add(monteCarloEnabledCheckBox, "growx");
+
+		monteCarloConfigureButton = new JButton("Configure Monte Carlo...");
+		monteCarloConfigureButton.addActionListener(e -> {
+			MonteCarloExtension ext = ensureMonteCarloExtension();
+			ext.setEnabled(true);
+			SwingSimulationExtensionConfigurator configurator = findConfigurator(ext);
+			if (configurator != null) {
+				configurator.configure(ext, simulation, SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
+				updateCurrentExtensions();
+				updateMonteCarloControls();
+			} else {
+				JOptionPane.showMessageDialog(
+						SwingUtilities.windowForComponent(SimulationOptionsPanel.this),
+						"Monte Carlo configurator plugin was not found.",
+						"Monte Carlo",
+						JOptionPane.WARNING_MESSAGE);
+			}
+		});
+		sub.add(monteCarloConfigureButton, "gapleft para");
+
 		//// Simulation extensions
 		sub = new JPanel(new MigLayout("fill, gap 0 0"));
 		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.SimExt")));
@@ -361,6 +398,7 @@ class SimulationOptionsPanel extends JPanel {
 		sub.add(scroll, "growx");
 		
 		updateCurrentExtensions();
+		updateMonteCarloControls();
 
 		options.addChangeListener(e -> SwingUtilities.invokeLater(this::updateLookupSummary));
 		updateLookupSummary();
@@ -502,14 +540,12 @@ class SimulationOptionsPanel extends JPanel {
 		String romPrerequisite = options.isRomDragPrerequisiteReady()
 				? "ROM prerequisite: ready (Cd(M, AoA) drag table loaded)"
 				: "ROM prerequisite: missing Cd(M, AoA) drag table";
-		String summary = "<html>"
-				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryDrag"), dragDetail)
-				+ "<br>"
+		String summary = String.format(trans.get("AerodynamicLookupDialog.lbl.summaryDrag"), dragDetail)
+				+ "\n"
 				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryStability"), stabilityDetail)
-				+ "<br>"
-				+ romPrerequisite
-				+ "</html>";
-		aerodynamicLookupSummaryLabel.setText(summary);
+				+ "\n"
+				+ romPrerequisite;
+		aerodynamicLookupSummaryLabel.setText(wrapHtml(summary));
 	}
 
 	private String buildLookupDetail(Path path, MachAoALookup table) {
@@ -520,7 +556,51 @@ class SimulationOptionsPanel extends JPanel {
 		String detail = AerodynamicLookupDialog.formatLookupSummary(trans, table);
 		return fileName + " - " + detail;
 	}
-	
+
+	private static String wrapHtml(String text) {
+		return "<html><div style='width: 360px;'>" + escapeHtml(text).replace("\n", "<br>") + "</div></html>";
+	}
+
+	private static String escapeHtml(String text) {
+		if (text == null) {
+			return "";
+		}
+		return text.replace("&", "&amp;")
+				.replace("<", "&lt;")
+				.replace(">", "&gt;");
+	}
+
+	private MonteCarloExtension findMonteCarloExtension() {
+		for (SimulationExtension extension : simulation.getSimulationExtensions()) {
+			if (extension instanceof MonteCarloExtension monteCarloExtension) {
+				return monteCarloExtension;
+			}
+		}
+		return null;
+	}
+
+	private MonteCarloExtension ensureMonteCarloExtension() {
+		MonteCarloExtension extension = findMonteCarloExtension();
+		if (extension != null) {
+			return extension;
+		}
+
+		extension = new MonteCarloExtension();
+		simulation.getSimulationExtensions().add(extension);
+		return extension;
+	}
+
+	private void updateMonteCarloControls() {
+		if (monteCarloEnabledCheckBox == null || monteCarloConfigureButton == null) {
+			return;
+		}
+
+		MonteCarloExtension extension = findMonteCarloExtension();
+		boolean enabled = extension != null && extension.isEnabled();
+		monteCarloEnabledCheckBox.setSelected(enabled);
+		monteCarloConfigureButton.setEnabled(true);
+	}
+
 	private void updateCurrentExtensions() {
 		currentExtensions.removeAll();
 		
@@ -535,6 +615,7 @@ class SimulationOptionsPanel extends JPanel {
 		}
 
 		updateExtensionMenuCopyExtension(this.extensionMenu);
+		updateMonteCarloControls();
 
 		// Both needed:
 		this.revalidate();

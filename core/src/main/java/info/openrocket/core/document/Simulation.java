@@ -23,6 +23,7 @@ import info.openrocket.core.simulation.BasicEventSimulationEngine;
 import info.openrocket.core.simulation.DefaultSimulationOptionFactory;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.RK4SimulationStepper;
+import info.openrocket.core.simulation.RomSimulationLogExporter;
 import info.openrocket.core.simulation.SimulationConditions;
 import info.openrocket.core.simulation.SimulationEngine;
 import info.openrocket.core.simulation.SimulationOptions;
@@ -472,6 +473,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			throws SimulationException {
 		mutex.lock("simulate");
 		SimulationEngine simulator = null;
+		SimulationConditions simulationConditions = null;
 		simulatedData = null;
 		try {
 			
@@ -489,8 +491,11 @@ public class Simulation implements ChangeSource, Cloneable {
 				throw new RuntimeException(e);
 			}
 
-			SimulationConditions simulationConditions = options.toSimulationConditions();
+			simulationConditions = options.toSimulationConditions();
 			simulationConditions.setSimulation(this);
+			if (simulationConditions.getRomAerodynamicCalculator() != null) {
+				simulationConditions.getRomAerodynamicCalculator().clearComputationSnapshots();
+			}
 			
 			for (SimulationExtension extension : simulationExtensions) {
 				extension.initialize(simulationConditions);
@@ -516,6 +521,10 @@ public class Simulation implements ChangeSource, Cloneable {
 			simulatedConfigurationModID = getActiveConfiguration().getModID();
 			if (simulator != null) {
 				simulatedData = simulator.getFlightData();
+			}
+			if (simulationConditions != null && simulationConditions.getRomAerodynamicCalculator() != null) {
+				RomSimulationLogExporter.exportIfAvailable(this, options, simulatedConditions,
+						simulationConditions.getRomAerodynamicCalculator());
 			}
 			
 			status = Status.UPTODATE;

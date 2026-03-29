@@ -34,6 +34,8 @@ import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
+import info.openrocket.core.aerodynamics.rom.core.io.AeroSurfaceSerializer;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
@@ -379,6 +381,7 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("launchlongitude", cond.getLaunchLongitude());
 		writeElement("geodeticmethod", cond.getGeodeticComputation().name().toLowerCase(Locale.ENGLISH));
 		writeElement("simulationsteppermethod", cond.getSimulationStepperMethodChoice().name().toLowerCase(Locale.ENGLISH));
+		writeElement("romsurfacemode", cond.getRomSurfaceMode().toStorageValue());
 
 		if (cond.isISAAtmosphere()) {
 			writeln("<atmosphere model=\"isa\"/>");
@@ -415,13 +418,24 @@ public class OpenRocketSaver extends RocketSaver {
 		indent--;
 		writeln("</conditions>");
 
-		DragSurface romSurface = cond.getRomDragSurface();
+		DragSurface romSurface = cond.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.THREE_D
+				? cond.getRomDragSurface() : null;
 		if (romSurface != null) {
 			String encoded = DragSurfaceSerializer.serializeToBase64Gzip(romSurface);
 			writeln("<romdragsurface version=\"1\" geometryhash=\"" + TextUtil.escapeXML(romSurface.geometryHash)
 					+ "\" builttimestamp=\"" + romSurface.buildTimestampMs + "\" looRmse=\""
 					+ TextUtil.doubleToString(romSurface.looRmsePercent) + "\">"
 					+ encoded + "</romdragsurface>");
+		}
+
+		AeroSurface4D surface4D = cond.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.FOUR_D
+				? cond.getRomAeroSurface4D() : null;
+		if (surface4D != null) {
+			byte[] encodedBytes = AeroSurfaceSerializer.serialize(surface4D);
+			String encoded = new String(encodedBytes, java.nio.charset.StandardCharsets.UTF_8);
+			writeln("<romdragsurface4d version=\"3\" geometryhash=\"" + TextUtil.escapeXML(surface4D.geometryHash)
+					+ "\" builttimestamp=\"" + surface4D.buildTimestampMs + "\" fincount=\""
+					+ surface4D.finCount + "\">" + encoded + "</romdragsurface4d>");
 		}
 		
 		for (SimulationExtension extension : simulation.getSimulationExtensions()) {

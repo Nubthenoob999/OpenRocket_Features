@@ -18,6 +18,14 @@ import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
 import info.openrocket.core.rocketcomponent.position.AxialMethod;
 
+/**
+ * Bridge class: extracts geometry parameters from the live OpenRocket component
+ * tree and packages them for use with the rom.core physics models via
+ * {@link info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput}.
+ *
+ * <p>To convert: call {@link #toRomGeometryInput()} after constructing via
+ * {@link #fromRocket(FlightConfiguration)}.
+ */
 public class RomGeometryParameters {
 
 	// Body dimensions (SI units throughout)
@@ -71,12 +79,14 @@ public class RomGeometryParameters {
 		double maxRadius = 0.0;
 		double roughness = g.surfaceRoughness;
 
-		double finRootChordSum = 0.0;
-		double finTipChordSum = 0.0;
-		double finSpanSum = 0.0;
-		double finThicknessSum = 0.0;
-		double finSweepSum = 0.0;
-		int finSetCount = 0;
+		int finCount = 0;
+		double finRoot = 0.0;
+		double finTip = 0.0;
+		double finSpan = 0.0;
+		double finThick = 0.0;
+		double finSweep = 0.0;
+		double finWetArea = 0.0;
+		boolean primaryFinSetCaptured = false;
 
 		for (RocketComponent component : config.getAllComponents()) {
 			if (component instanceof SymmetricComponent) {
@@ -114,18 +124,28 @@ public class RomGeometryParameters {
 
 			if (component instanceof FinSet) {
 				FinSet fins = (FinSet) component;
-				g.finCount += fins.getFinCount();
-				g.finWettedArea += 2.0 * fins.getPlanformArea();
+				finCount += fins.getFinCount();
 
-				if (component instanceof TrapezoidFinSet) {
-					TrapezoidFinSet trapezoid = (TrapezoidFinSet) component;
-					finRootChordSum += trapezoid.getRootChord();
-					finTipChordSum += trapezoid.getTipChord();
-					finSpanSum += trapezoid.getSpan();
-					finThicknessSum += trapezoid.getThickness();
-					finSweepSum += trapezoid.getSweepAngle();
-					finSetCount++;
+				if (!primaryFinSetCaptured || finRoot == 0.0) {
+					if (component instanceof TrapezoidFinSet) {
+						TrapezoidFinSet trapezoid = (TrapezoidFinSet) component;
+						finRoot = trapezoid.getRootChord();
+						finTip = trapezoid.getTipChord();
+						finSpan = trapezoid.getSpan();
+						finThick = trapezoid.getThickness();
+						finSweep = trapezoid.getSweepAngle();
+					} else {
+						finRoot = fins.getLength();
+						finTip = 0.0;
+						finSpan = fins.getSpan();
+						finThick = 0.003;
+						finSweep = 0.0;
+					}
+					primaryFinSetCaptured = true;
 				}
+
+				double cMean = (finRoot + finTip) / 2.0;
+				finWetArea += cMean * finSpan * 2.0 * fins.getFinCount();
 			}
 		}
 
@@ -138,13 +158,13 @@ public class RomGeometryParameters {
 		g.finessRatio = (g.maxDiameter > 0.0) ? (g.bodyLength / g.maxDiameter) : 0.0;
 		g.surfaceRoughness = roughness;
 
-		if (finSetCount > 0) {
-			g.finRootChord = finRootChordSum / finSetCount;
-			g.finTipChord = finTipChordSum / finSetCount;
-			g.finSpan = finSpanSum / finSetCount;
-			g.finThickness = finThicknessSum / finSetCount;
-			g.finSweepAngle = finSweepSum / finSetCount;
-		}
+		g.finCount = finCount;
+		g.finRootChord = finRoot;
+		g.finTipChord = finTip;
+		g.finSpan = finSpan;
+		g.finThickness = finThick;
+		g.finSweepAngle = finSweep;
+		g.finWettedArea = finWetArea;
 
 		double totalExitArea = 0.0;
 		for (MotorConfiguration motorConfiguration : config.getActiveMotors()) {
@@ -199,8 +219,66 @@ public class RomGeometryParameters {
 		}
 	}
 
+	public String geometryHash(RomSurfaceMode mode) {
+		if (mode == null) {
+			return geometryHash();
+		}
+		return mode.tagGeometryHash(geometryHash());
+	}
+
 	private static void append(StringBuilder sb, double value) {
 		sb.append(String.format(Locale.ROOT, "%.12e", value)).append('|');
+	}
+
+	public info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput toRomGeometryInput() {
+		info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape coreShape;
+		switch (this.noseShape) {
+			case CONICAL:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.CONICAL;
+				break;
+			case OGIVE:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.OGIVE;
+				break;
+			case VON_KARMAN:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.VON_KARMAN;
+				break;
+			case PARABOLIC:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.PARABOLIC;
+				break;
+			case ELLIPSOID:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.ELLIPSOID;
+				break;
+			case HAACK:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.HAACK;
+				break;
+			default:
+				coreShape = info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput.NoseShape.OGIVE;
+		}
+
+		double finAxialEst = Math.max(0.0,
+				this.bodyLength - this.finRootChord - Math.max(this.boattailLength, 0.0));
+
+		return new info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput(
+				this.bodyLength,
+				this.maxDiameter,
+				this.baseArea,
+				this.wetArea,
+				this.noseLength,
+				coreShape,
+				this.finessRatio,
+				this.referenceArea,
+				this.boattailLength,
+				this.boattailBaseDiameter,
+				this.finCount,
+				this.finRootChord,
+				this.finTipChord,
+				this.finSpan,
+				this.finThickness,
+				this.finSweepAngle,
+				this.finWettedArea,
+				finAxialEst,
+				this.motorExitArea,
+				this.surfaceRoughness);
 	}
 
 	private static NoseShape mapNoseShape(Transition.Shape shape) {

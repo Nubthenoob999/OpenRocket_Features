@@ -106,6 +106,50 @@ test {
     useJUnitPlatform()
 }
 
+tasks.register('romTest', Test) {
+    useJUnitPlatform()
+    description = 'Runs all ROM tests under info.openrocket.core.aerodynamics.rom.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/rom/**'
+}
+
+tasks.register('romPhysicsTest', Test) {
+    useJUnitPlatform()
+    description = 'Runs fast ROM physics/kernel tests (no full-grid LOO sweep).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/rom/SkinFrictionModelTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/BaseDragModelTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/WaveDragModelTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/InducedDragModelTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/TransonicBlendingModelTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/PchipInterpolator1DTest.class'
+}
+
+tasks.register('romIntegrationTest', Test) {
+    useJUnitPlatform()
+    description = 'Runs ROM integration tests that build/query/serialize drag surfaces.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/rom/DragGridEvaluatorTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/DragSurfaceInterpolatorTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/DragSurfaceSerializerTest.class'
+    include 'info/openrocket/core/aerodynamics/rom/RomValidationPipelineTest.class'
+}
+
+tasks.register('romLooValidationTest', Test) {
+    useJUnitPlatform()
+    description = 'Runs ROM leave-one-out validation gates (G7/G8).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/rom/LooValidationTest.class'
+}
+
 // ─── JaCoCo coverage ─────────────────────────────────────────────────────────
 
 jacoco {
@@ -195,6 +239,38 @@ tasks.register('serializeEnginesValidate') {
 tasks.register('copyReadmeMain', Copy) {
     from('../') { include 'ReleaseNotes.md' }
     into './src/main/resources'
+}
+
+tasks.register('phaseTwoGenerateReports', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass.set('info.openrocket.core.tuning.PhaseTwoBatchRunner')
+    def configPath = project.hasProperty('phaseTwoConfig') ?
+        project.property('phaseTwoConfig').toString() :
+        file('src/test/java/info/openrocket/core/tuning/jsonFiles_tuning/phase-two-config.example.json').absolutePath
+    def outputPath = project.hasProperty('phaseTwoReportsDir') ?
+        project.property('phaseTwoReportsDir').toString() :
+        file('build/reports/phase-two').absolutePath
+    args(configPath, outputPath)
+    standardInput = System.in
+    description = 'Generates phase-two report CSV/XML/log artifacts from the phase-two config (override via -PphaseTwoConfig and -PphaseTwoReportsDir).'
+    group = 'verification'
+}
+
+tasks.register('phaseTwoGui', JavaExec) {
+    dependsOn phaseTwoGenerateReports
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass.set('info.openrocket.core.tuning.PhaseTwoTestGuiLauncher')
+    jvmArgs('-Djava.awt.headless=false')
+    if (project.hasProperty('reportsDir')) {
+        args(project.property('reportsDir').toString())
+    } else {
+        args(file('build/reports/phase-two').absolutePath)
+    }
+    standardInput = System.in
+    description = 'Launches the phase-two Swing test GUI for report inspection.'
+    group = 'verification'
 }
 
 // ─── External component database (submodule) ─────────────────────────────────

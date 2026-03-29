@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="phase-two-rom-validation" tests="2" failures="0">
+  <testcase classname="PhaseTwoBatch" name="ab_jackpot_launch_2">
+  </testcase>
+  <testcase classname="PhaseTwoBatch" name="fluctus_jackpot_launch_2">
+  </testcase>
+</testsuite>

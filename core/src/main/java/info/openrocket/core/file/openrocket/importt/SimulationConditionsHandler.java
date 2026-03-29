@@ -14,6 +14,7 @@ import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.simulation.SimulationStepperMethod;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import java.util.List;
 
 class SimulationConditionsHandler extends AbstractElementHandler {
@@ -25,6 +26,7 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 	private GravityHandler gravityHandler;
 	private CsvLookupHandler dragLookupHandler;
 	private CsvLookupHandler stabilityLookupHandler;
+	private boolean romSurfaceModeSpecified;
 
 	public SimulationConditionsHandler(Rocket rocket, DocumentLoadingContext context) {
 		this.context = context;
@@ -35,6 +37,10 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 
 	public SimulationOptions getConditions() {
 		return options;
+	}
+
+	public boolean wasRomSurfaceModeSpecified() {
+		return romSurfaceModeSpecified;
 	}
 
 	@Override
@@ -162,6 +168,10 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 				} else {
 					warnings.add("Unknown Simulation Stepper '" + content + "'");
 				}
+			}
+			case "romsurfacemode" -> {
+				options.setRomSurfaceMode(RomSurfaceMode.fromStorageValue(content));
+				romSurfaceModeSpecified = true;
 			}
 			case "atmosphere" -> atmosphereHandler.storeSettings(options, warnings);
 			case "gravity" -> {

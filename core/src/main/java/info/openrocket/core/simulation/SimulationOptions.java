@@ -30,6 +30,8 @@ import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.aerodynamics.lookup.CsvMachAoALookup;
 import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
@@ -111,6 +113,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private MachAoALookup dragLookupTable;
 	private MachAoALookup stabilityLookupTable;
 	private DragSurface romDragSurface;
+	private AeroSurface4D romAeroSurface4D;
+	private RomSurfaceMode romSurfaceMode = RomSurfaceMode.THREE_D;
 	private List<String> dragLookupCsvRows;
 	private List<String> stabilityLookupCsvRows;
 
@@ -560,7 +564,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	}
 
 	public boolean hasRomDragSurface() {
-		return romDragSurface != null;
+		return romDragSurface != null || romAeroSurface4D != null;
 	}
 
 	public void setRomDragSurface(DragSurface romDragSurface) {
@@ -568,6 +572,35 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			return;
 		}
 		this.romDragSurface = romDragSurface;
+		fireChangeEvent();
+	}
+
+	public AeroSurface4D getRomAeroSurface4D() {
+		return romAeroSurface4D;
+	}
+
+	public boolean hasRomAeroSurface4D() {
+		return romAeroSurface4D != null;
+	}
+
+	public void setRomAeroSurface4D(AeroSurface4D romAeroSurface4D) {
+		if (this.romAeroSurface4D == romAeroSurface4D) {
+			return;
+		}
+		this.romAeroSurface4D = romAeroSurface4D;
+		fireChangeEvent();
+	}
+
+	public RomSurfaceMode getRomSurfaceMode() {
+		return romSurfaceMode;
+	}
+
+	public void setRomSurfaceMode(RomSurfaceMode romSurfaceMode) {
+		RomSurfaceMode normalized = romSurfaceMode != null ? romSurfaceMode : RomSurfaceMode.THREE_D;
+		if (this.romSurfaceMode == normalized) {
+			return;
+		}
+		this.romSurfaceMode = normalized;
 		fireChangeEvent();
 	}
 
@@ -633,6 +666,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.dragLookupCsvPath = this.dragLookupCsvPath;
 			copy.dragLookupTable = this.dragLookupTable;
 			copy.romDragSurface = this.romDragSurface;
+			copy.romAeroSurface4D = this.romAeroSurface4D;
+			copy.romSurfaceMode = this.romSurfaceMode;
 			copy.dragLookupCsvRows = this.dragLookupCsvRows != null ? new ArrayList<>(this.dragLookupCsvRows) : null;
 			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
 			copy.stabilityLookupTable = this.stabilityLookupTable;
@@ -752,6 +787,14 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.romDragSurface = src.romDragSurface;
 		}
+		if (this.romAeroSurface4D != src.romAeroSurface4D) {
+			isChanged = true;
+			this.romAeroSurface4D = src.romAeroSurface4D;
+		}
+		if (this.romSurfaceMode != src.romSurfaceMode) {
+			isChanged = true;
+			this.romSurfaceMode = src.romSurfaceMode;
+		}
 
 		if (isChanged) {
 			// Only copy the randomSeed if something else has changed.
@@ -783,6 +826,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.maximumAngle, o.maximumAngle) &&
 				MathUtil.equals(this.timeStep, o.timeStep) &&
 				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime)) &&
+				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
 				this.averageWindModel.equals(o.averageWindModel) &&
 				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel) &&
@@ -856,8 +900,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				dragLookupTable != null ? new LookupTableDragCalculator(dragLookupTable)
 						: new BarrowmanDragCalculator()));
 		RomAerodynamicCalculator romCalculator = new RomAerodynamicCalculator();
-		if (romDragSurface != null) {
+		if (romSurfaceMode == RomSurfaceMode.THREE_D && romDragSurface != null) {
 			romCalculator.installSurface(romDragSurface);
+		}
+		if (romSurfaceMode == RomSurfaceMode.FOUR_D && romAeroSurface4D != null) {
+			romCalculator.installSurface4D(romAeroSurface4D);
 		}
 		conditions.setRomAerodynamicCalculator(romCalculator);
 		conditions.setMassCalculator(new MassCalculator());

@@ -30,11 +30,11 @@ public class BaseDragModel {
 		}
 		if (mach <= 1.0) {
 			double dm = mach - 0.6;
-			return 1.0 + 215.8 * Math.pow(dm, 6.0);
+			return 1.0 + 175.0 * Math.pow(dm, 6.0);
 		}
 		if (mach <= 2.0) {
 			double dm = mach - 1.0;
-			return 2.0881 * dm * dm * dm - 3.7938 * dm * dm + 1.4618 * dm + 1.8839;
+			return 1.75 * dm * dm * dm - 3.20 * dm * dm + 1.35 * dm + 1.72;
 		}
 		// Decay for M > 2: match at M=2 then 1/M scaling
 		double fb2 = transonicMultiplier(2.0);

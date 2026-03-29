@@ -2,7 +2,7 @@ package info.openrocket.core.aerodynamics.rom;
 
 public class InducedDragModel {
 
-	private static volatile double protuberanceFactor = 1.04;
+	private static volatile double protuberanceFactor = 1.02;
 
 	/**
 	 * AoA-dependent drag increment.
@@ -48,7 +48,7 @@ public class InducedDragModel {
 		double cd_induced = cl * cl / (Math.PI * ar * e);
 
 		// Add body AoA drag (sin^2 approximation for cross-flow)
-		double cd_body_aoa = 0.1 * Math.sin(alphaRad) * Math.sin(alphaRad);
+		double cd_body_aoa = 0.075 * Math.sin(alphaRad) * Math.sin(alphaRad);
 
 		return cd_induced + cd_body_aoa;
 	}

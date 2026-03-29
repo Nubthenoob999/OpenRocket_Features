@@ -1,5 +1,6 @@
 package info.openrocket.core.simulation;
 
+import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.logging.SimulationAbort;
 import info.openrocket.core.logging.Warning;
@@ -717,6 +718,17 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
          * below 20% of the max. velocity.
          */
         WarningSet warnings = status.recordWarnings() ? new WarningSet() : null;
+		if (status.getSimulationConditions().getAerodynamicCalculator() instanceof RomAerodynamicCalculator romCalculator) {
+                        boolean burning = false;
+                        for (MotorClusterState motorState : status.getActiveMotors()) {
+                                if (motorState.getThrust(status.getSimulationTime()) > 0.0) {
+                                        burning = true;
+                                        break;
+                                }
+                        }
+                        romCalculator.updatePlumeState(burning, status.getSimulationConditions().getTimeStep());
+			romCalculator.setCurrentSimulationTime(status.getSimulationTime());
+		}
 
         // Calculate aerodynamic forces
         store.forces = status.getSimulationConditions().getAerodynamicCalculator()

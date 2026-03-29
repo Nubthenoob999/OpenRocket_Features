@@ -17,6 +17,7 @@ import javax.swing.table.DefaultTableModel;
 import org.junit.jupiter.api.Test;
 
 import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.util.TestRockets;
@@ -88,6 +89,27 @@ public class RomPrestepPanelTest extends BaseTestCase {
         assertFalse(warning.isVisible());
     }
 
+    @Test
+    public void testValidationParsesBetaColumnFor4DSurface() throws Exception {
+        OpenRocketDocument doc = TestRockets.makeTestRocket_v104_withSimulationData();
+        Simulation simulation = doc.getSimulations().get(0);
+        simulation.getOptions().setRomAeroSurface4D(constantSurface4D(HASH));
+
+        RomPrestepPanel panel = onEdt(() -> new RomPrestepPanel(simulation));
+
+        JTextArea input = field(panel, "validationInput", JTextArea.class);
+        DefaultTableModel model = field(panel, "validationModel", DefaultTableModel.class);
+
+        onEdtRun(() -> {
+            input.setText("1.0,1.0e6,15,0.4500\n");
+            invoke(panel, "runValidationCompare");
+        });
+
+        assertEquals(1, model.getRowCount());
+        assertEquals("15.0000", String.valueOf(model.getValueAt(0, 2)));
+        assertEquals("0.4500", String.valueOf(model.getValueAt(0, 4)));
+    }
+
     private static DragSurface constantSurface(double cdOff, double cdOn) {
         return surfaceWithHash(cdOff, cdOn, HASH);
     }
@@ -109,6 +131,34 @@ public class RomPrestepPanelTest extends BaseTestCase {
         }
 
         return new DragSurface(mach, logRe, alpha, off, on, hash, 0.0);
+    }
+
+    private static AeroSurface4D constantSurface4D(String hash) {
+        double[] mach = new double[] { 0.0, 2.0 };
+        double[] logRe = new double[] { 4.0, 8.0 };
+        double[] alpha = new double[] { 0.0, 10.0 };
+        double[] beta = new double[] { 0.0, 15.0 };
+
+        double[][][][] off = new double[mach.length][logRe.length][alpha.length][beta.length];
+        double[][][][] on = new double[mach.length][logRe.length][alpha.length][beta.length];
+        double[][][][] body = new double[mach.length][logRe.length][alpha.length][beta.length];
+        double[][][][] cn = new double[mach.length][logRe.length][alpha.length][beta.length];
+        double[][][][] cm = new double[mach.length][logRe.length][alpha.length][beta.length];
+
+        for (int i = 0; i < mach.length; i++) {
+            for (int j = 0; j < logRe.length; j++) {
+                for (int k = 0; k < alpha.length; k++) {
+                    off[i][j][k][0] = 0.4000;
+                    off[i][j][k][1] = 0.4500;
+                    on[i][j][k][0] = 0.3000;
+                    on[i][j][k][1] = 0.3500;
+                    body[i][j][k][0] = 0.3600;
+                    body[i][j][k][1] = 0.4100;
+                }
+            }
+        }
+
+        return new AeroSurface4D(mach, logRe, alpha, beta, off, on, body, cn, cm, hash, 4);
     }
 
     private static void invoke(Object target, String methodName) {

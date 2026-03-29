@@ -8,6 +8,9 @@ import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -18,6 +21,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
@@ -36,6 +40,14 @@ import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.aerodynamics.rom.DragSurfaceInterpolator;
 import info.openrocket.core.aerodynamics.rom.InducedDragModel;
 import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceHashUtil;
+import info.openrocket.core.aerodynamics.rom.adapter.GeometryAdapter;
+import info.openrocket.core.aerodynamics.rom.adapter.SurfaceAdapter;
+import info.openrocket.core.aerodynamics.rom.core.eval.AeroGridEvaluator4D;
+import info.openrocket.core.aerodynamics.rom.core.io.CsvExporter;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4DInterpolator;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.util.MathUtil;
@@ -64,6 +76,10 @@ class RomPrestepPanel extends JPanel {
             "Use component finish", "Polished", "Smooth", "Paint", "Unfinished", "Rough"
     });
     private final JSpinner protuberanceSpinner = new JSpinner(new SpinnerNumberModel(1.04, 1.00, 1.20, 0.01));
+    private final JComboBox<String> buildMode = new JComboBox<>(new String[] {
+            "3D (Mach, Re, alpha)",
+            "4D (Mach, Re, alpha, beta)"
+    });
 
     private final JButton buildButton = new JButton("Build aerodynamic surface");
     private final JProgressBar progressBar = new JProgressBar(0, 100);
@@ -75,8 +91,9 @@ class RomPrestepPanel extends JPanel {
     private final JPanel validationPanel = new JPanel(new MigLayout("fill, insets 0"));
     private final JTextArea validationInput = new JTextArea(6, 40);
     private final JButton compareButton = new JButton("Compare");
+    private final JButton exportCsvButton = new JButton("Export 4D CSV");
     private final DefaultTableModel validationModel = new DefaultTableModel(
-            new Object[] { "M", "Re", "Cd_CFD", "Cd_ROM", "% error" }, 0) {
+            new Object[] { "M", "Re", "beta", "Cd_CFD", "Cd_ROM", "% error" }, 0) {
         private static final long serialVersionUID = 1L;
 
         @Override
@@ -87,6 +104,7 @@ class RomPrestepPanel extends JPanel {
     private final JLabel validationSummary = new JLabel("Mean absolute error: n/a");
 
     private long lastBuildMs = 300;
+    private boolean updatingModeSelection;
 
     RomPrestepPanel(Simulation simulation) {
         super(new BorderLayout());
@@ -113,6 +131,7 @@ class RomPrestepPanel extends JPanel {
 
         surfaceStatusValue.setForeground(new Color(120, 120, 120));
         geometryWarning.setForeground(new Color(180, 30, 30));
+        geometryWarning.setText("<html><div style='width: 220px;'>Geometry has changed - rebuild required</div></html>");
 
         panel.add(new JLabel("Aerodynamic surface:"));
         panel.add(surfaceStatusValue, "wrap");
@@ -148,6 +167,9 @@ class RomPrestepPanel extends JPanel {
 
         panel.add(new JLabel("Surface roughness:"));
         panel.add(roughnessOverride);
+        panel.add(new JLabel("Build mode:"));
+        panel.add(buildMode, "wrap");
+
         panel.add(new JLabel("Protuberance factor:"));
         panel.add(protuberanceSpinner, "wrap");
 
@@ -188,7 +210,8 @@ class RomPrestepPanel extends JPanel {
 
         validationPanel.add(new JLabel("CFD CSV rows (M,Re,Cd):"), "wrap");
         validationPanel.add(new JScrollPane(validationInput), "growx, wrap");
-        validationPanel.add(compareButton, "split 2");
+        validationPanel.add(compareButton, "split 3");
+        validationPanel.add(exportCsvButton);
         validationPanel.add(validationSummary, "wrap");
         validationPanel.add(tableScroll, "growx");
 
@@ -201,8 +224,10 @@ class RomPrestepPanel extends JPanel {
 
     private void wireEvents() {
         buildButton.addActionListener(e -> buildSurfaceAsync());
+        buildMode.addActionListener(e -> handleBuildModeSelectionChanged());
         validationToggle.addActionListener(e -> validationPanel.setVisible(validationToggle.isSelected()));
         compareButton.addActionListener(e -> runValidationCompare());
+        exportCsvButton.addActionListener(e -> exportSurfaceCsv());
     }
 
     private void refreshFromModel() {
@@ -220,23 +245,44 @@ class RomPrestepPanel extends JPanel {
 
         geometryValue.setText(g.geometryHash().substring(0, 8));
 
-        DragSurface current = simulation.getOptions().getRomDragSurface();
-        if (current == null) {
-            surfaceStatusValue.setText("Not computed");
+        RomSurfaceMode selectedMode = simulation.getOptions().getRomSurfaceMode();
+        setBuildModeSelection(selectedMode);
+
+        DragSurface current = selectedMode == RomSurfaceMode.THREE_D
+                ? simulation.getOptions().getRomDragSurface() : null;
+        AeroSurface4D current4D = selectedMode == RomSurfaceMode.FOUR_D
+                ? simulation.getOptions().getRomAeroSurface4D() : null;
+        if (current == null && current4D == null) {
+            boolean hasOtherModeSurface = simulation.getOptions().getRomDragSurface() != null
+                    || simulation.getOptions().getRomAeroSurface4D() != null;
+            surfaceStatusValue.setText(hasOtherModeSurface
+                    ? "Selected ROM mode changed - rebuild required"
+                    : "Not computed");
             surfaceStatusValue.setForeground(new Color(120, 120, 120));
-            geometryWarning.setVisible(false);
+            geometryWarning.setText(hasOtherModeSurface
+                    ? "ROM dimensionality changed - rebuild required"
+                    : "Geometry has changed - rebuild required");
+            geometryWarning.setVisible(hasOtherModeSurface);
             previewChart.clear();
             return;
         }
 
-        String ts = TS_FORMAT.format(Instant.ofEpochMilli(current.buildTimestampMs).atZone(ZoneId.systemDefault()));
-        surfaceStatusValue.setText("Ready - built " + ts);
+        long buildMs = current4D != null ? current4D.buildTimestampMs : current.buildTimestampMs;
+        String ts = TS_FORMAT.format(Instant.ofEpochMilli(buildMs).atZone(ZoneId.systemDefault()));
+        surfaceStatusValue.setText("Ready - built " + ts
+                + (selectedMode == RomSurfaceMode.FOUR_D ? " (4D)" : " (3D)"));
         surfaceStatusValue.setForeground(new Color(20, 120, 20));
 
-        boolean mismatch = !g.geometryHash().equals(current.geometryHash);
+        String hash = current4D != null ? current4D.geometryHash : current.geometryHash;
+        boolean mismatch = !RomSurfaceHashUtil.matchesGeometry(hash, g.geometryHash());
+        geometryWarning.setText("Geometry has changed - rebuild required");
         geometryWarning.setVisible(mismatch);
 
-        rebuildPreview(current);
+        if (current4D != null) {
+            rebuildPreview(current4D);
+        } else {
+            rebuildPreview(current);
+        }
     }
 
     private void buildSurfaceAsync() {
@@ -245,8 +291,17 @@ class RomPrestepPanel extends JPanel {
         applyRoughnessOverride(g);
         InducedDragModel.setProtuberanceFactor(((Number) protuberanceSpinner.getValue()).doubleValue());
 
+        RomSurfaceMode selectedMode = simulation.getOptions().getRomSurfaceMode();
         DragSurface existing = simulation.getOptions().getRomDragSurface();
-        if (existing != null && g.geometryHash().equals(existing.geometryHash)) {
+        AeroSurface4D existing4D = simulation.getOptions().getRomAeroSurface4D();
+        boolean use4D = selectedMode == RomSurfaceMode.FOUR_D;
+
+        if (use4D && existing4D != null && RomSurfaceHashUtil.matchesGeometry(existing4D.geometryHash, g.geometryHash())) {
+            surfaceStatusValue.setText("Ready - already current");
+            surfaceStatusValue.setForeground(new Color(20, 120, 20));
+            return;
+        }
+        if (!use4D && existing != null && RomSurfaceHashUtil.matchesGeometry(existing.geometryHash, g.geometryHash())) {
             surfaceStatusValue.setText("Ready - already current");
             surfaceStatusValue.setForeground(new Color(20, 120, 20));
             return;
@@ -260,17 +315,35 @@ class RomPrestepPanel extends JPanel {
 
         Thread worker = new Thread(() -> {
             try {
-                DragSurface surface = DragGridEvaluator.evaluate(g,
-                        fraction -> SwingUtilities.invokeLater(() -> progressBar.setValue((int) Math.round(fraction * 100.0))));
+                if (use4D) {
+                    AeroSurface4D surface4D = AeroGridEvaluator4D.evaluate(
+                            GeometryAdapter.toInput(g),
+                            g.geometryHash(),
+                            fraction -> SwingUtilities.invokeLater(() -> progressBar.setValue((int) Math.round(fraction * 100.0))));
 
-                SwingUtilities.invokeLater(() -> {
-                    simulation.getOptions().setRomDragSurface(surface);
-                    lastBuildMs = Math.max(1L, (System.nanoTime() - startNs) / 1_000_000L);
-                    estimatedTime.setText(String.format(Locale.ROOT, "~%.1f s", lastBuildMs / 1000.0));
-                    refreshFromModel();
-                    progressBar.setVisible(false);
-                    buildButton.setEnabled(true);
-                });
+                    SwingUtilities.invokeLater(() -> {
+                        simulation.getOptions().setRomAeroSurface4D(surface4D);
+                        simulation.getOptions().setRomDragSurface(SurfaceAdapter.toBetaZeroDragSurface(surface4D));
+                        lastBuildMs = Math.max(1L, (System.nanoTime() - startNs) / 1_000_000L);
+                        estimatedTime.setText(String.format(Locale.ROOT, "~%.1f s", lastBuildMs / 1000.0));
+                        refreshFromModel();
+                        progressBar.setVisible(false);
+                        buildButton.setEnabled(true);
+                    });
+                } else {
+                    DragSurface surface = DragGridEvaluator.evaluate(g,
+                            fraction -> SwingUtilities.invokeLater(() -> progressBar.setValue((int) Math.round(fraction * 100.0))));
+
+                    SwingUtilities.invokeLater(() -> {
+                        simulation.getOptions().setRomDragSurface(surface);
+                        simulation.getOptions().setRomAeroSurface4D(null);
+                        lastBuildMs = Math.max(1L, (System.nanoTime() - startNs) / 1_000_000L);
+                        estimatedTime.setText(String.format(Locale.ROOT, "~%.1f s", lastBuildMs / 1000.0));
+                        refreshFromModel();
+                        progressBar.setVisible(false);
+                        buildButton.setEnabled(true);
+                    });
+                }
             } catch (RuntimeException ex) {
                 SwingUtilities.invokeLater(() -> {
                     surfaceStatusValue.setText("Build failed: " + ex.getMessage());
@@ -286,14 +359,16 @@ class RomPrestepPanel extends JPanel {
 
     private void runValidationCompare() {
         DragSurface surface = simulation.getOptions().getRomDragSurface();
+        AeroSurface4D surface4D = simulation.getOptions().getRomAeroSurface4D();
         validationModel.setRowCount(0);
         validationSummary.setText("Mean absolute error: n/a");
-        if (surface == null) {
+        if (surface == null && surface4D == null) {
             validationSummary.setText("Mean absolute error: n/a (no surface built)");
             return;
         }
 
-        DragSurfaceInterpolator interpolator = new DragSurfaceInterpolator(surface);
+        DragSurfaceInterpolator interpolator = surface != null ? new DragSurfaceInterpolator(surface) : null;
+        AeroSurface4DInterpolator interpolator4D = surface4D != null ? new AeroSurface4DInterpolator(surface4D) : null;
         String[] lines = validationInput.getText().split("\\r?\\n");
 
         int count = 0;
@@ -311,13 +386,20 @@ class RomPrestepPanel extends JPanel {
             try {
                 double mach = Double.parseDouble(parts[0].trim());
                 double re = Double.parseDouble(parts[1].trim());
-                double cdRef = Double.parseDouble(parts[2].trim());
-                double cdRom = interpolator.queryCdPlumeOff(mach, re, 0.0);
+                double beta = parts.length >= 4 ? Double.parseDouble(parts[2].trim()) : 0.0;
+                double cdRef = Double.parseDouble(parts.length >= 4 ? parts[3].trim() : parts[2].trim());
+                double cdRom;
+                if (interpolator4D != null) {
+                    cdRom = interpolator4D.queryCdPlumeOff(mach, re, 0.0, beta);
+                } else {
+                    cdRom = interpolator.queryCdPlumeOff(mach, re, 0.0);
+                }
                 double errPct = Math.abs(cdRom - cdRef) * 100.0 / Math.max(1e-9, Math.abs(cdRef));
 
                 validationModel.addRow(new Object[] {
                         formatDec(mach),
                         formatSci(re),
+                        formatDec(beta),
                         formatDec(cdRef),
                         formatDec(cdRom),
                         formatDec(errPct)
@@ -347,11 +429,83 @@ class RomPrestepPanel extends JPanel {
             off[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0);
             on[i] = interpolator.queryCdPlumeOn(mach[i], re, 0.0);
         }
-        previewChart.setSeries(mach, off, on);
+        previewChart.setSeries(mach, off, on, null);
+    }
+
+    private void rebuildPreview(AeroSurface4D surface) {
+        AeroSurface4DInterpolator interpolator = new AeroSurface4DInterpolator(surface);
+        double[] mach = new double[81];
+        double[] off0 = new double[81];
+        double[] on0 = new double[81];
+        double[] off15 = new double[81];
+
+        double re = 1e6;
+        for (int i = 0; i < mach.length; i++) {
+            mach[i] = 4.0 * i / (mach.length - 1);
+            off0[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0, 0.0);
+            on0[i] = interpolator.queryCdPlumeOn(mach[i], re, 0.0, 0.0);
+            off15[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0, 15.0);
+        }
+        previewChart.setSeries(mach, off0, on0, off15);
+    }
+
+    private void exportSurfaceCsv() {
+        AeroSurface4D surface = simulation.getOptions().getRomAeroSurface4D();
+        if (surface == null) {
+            validationSummary.setText("Mean absolute error: n/a (build a 4D surface before export)");
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export 4D ROM CSV");
+        chooser.setSelectedFile(new java.io.File("rom_surface_4d.csv"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        Path target = chooser.getSelectedFile().toPath();
+        try (FileOutputStream out = new FileOutputStream(target.toFile())) {
+            CsvExporter.exportToCsv(surface, out);
+            validationSummary.setText("Exported 4D CSV: " + target.getFileName());
+        } catch (IOException ex) {
+            validationSummary.setText("CSV export failed: " + ex.getMessage());
+        }
     }
 
     private FlightConfiguration activeConfiguration() {
         return simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId());
+    }
+
+    private void handleBuildModeSelectionChanged() {
+        if (updatingModeSelection) {
+            return;
+        }
+        RomSurfaceMode selectedMode = getSelectedBuildMode();
+        if (simulation.getOptions().getRomSurfaceMode() == selectedMode) {
+            return;
+        }
+
+        simulation.getOptions().setRomSurfaceMode(selectedMode);
+        simulation.getOptions().setRomDragSurface(null);
+        simulation.getOptions().setRomAeroSurface4D(null);
+        refreshFromModel();
+    }
+
+    private void setBuildModeSelection(RomSurfaceMode mode) {
+        int index = mode == RomSurfaceMode.FOUR_D ? 1 : 0;
+        if (buildMode.getSelectedIndex() == index) {
+            return;
+        }
+        updatingModeSelection = true;
+        try {
+            buildMode.setSelectedIndex(index);
+        } finally {
+            updatingModeSelection = false;
+        }
+    }
+
+    private RomSurfaceMode getSelectedBuildMode() {
+        return buildMode.getSelectedIndex() == 1 ? RomSurfaceMode.FOUR_D : RomSurfaceMode.THREE_D;
     }
 
     private void applyRoughnessOverride(RomGeometryParameters g) {
@@ -387,18 +541,21 @@ class RomPrestepPanel extends JPanel {
         private double[] mach;
         private double[] off;
         private double[] on;
+        private double[] offBeta;
 
         void clear() {
             this.mach = null;
             this.off = null;
             this.on = null;
+            this.offBeta = null;
             repaint();
         }
 
-        void setSeries(double[] mach, double[] off, double[] on) {
+        void setSeries(double[] mach, double[] off, double[] on, double[] offBeta) {
             this.mach = mach;
             this.off = off;
             this.on = on;
+            this.offBeta = offBeta;
             repaint();
         }
 
@@ -445,6 +602,9 @@ class RomPrestepPanel extends JPanel {
 
                 drawSeries(g2, left, top, pw, ph, mach, off, new Color(25, 90, 180), null);
                 drawSeries(g2, left, top, pw, ph, mach, on, new Color(190, 80, 20), new float[] { 6f, 6f });
+                if (offBeta != null) {
+                    drawSeries(g2, left, top, pw, ph, mach, offBeta, new Color(40, 140, 60), new float[] { 2f, 4f });
+                }
             } finally {
                 g2.dispose();
             }

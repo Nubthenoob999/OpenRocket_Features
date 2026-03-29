@@ -68,6 +68,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.models.atmosphere;
 	exports info.openrocket.core.models.gravity;
 	exports info.openrocket.core.models.wind;
+	exports info.openrocket.core.montecarlo;
 	exports info.openrocket.core.motor;
 	exports info.openrocket.core.optimization.general;
 	exports info.openrocket.core.optimization.general.multidim;
@@ -107,6 +108,12 @@ open module info.openrocket.core {
   exports info.openrocket.core.thrustcurve.serialization;
 	exports info.openrocket.core.aerodynamics.lookup;
 	exports info.openrocket.core.aerodynamics.rom;
+	exports info.openrocket.core.aerodynamics.rom.adapter;
+	exports info.openrocket.core.aerodynamics.rom.core.eval;
+	exports info.openrocket.core.aerodynamics.rom.core.geometry;
+	exports info.openrocket.core.aerodynamics.rom.core.io;
+	exports info.openrocket.core.aerodynamics.rom.core.physics;
+	exports info.openrocket.core.aerodynamics.rom.core.surface;
 
 	// Service providers
 	// Also edit core/src/main/resources/META-INF/services !! (until gradle-modules-plugin supports service

@@ -22,6 +22,8 @@ import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.database.motor.MotorDatabase;
 import info.openrocket.core.database.motor.ThrustCurveMotorSetDatabase;
 import info.openrocket.core.document.OpenRocketDocument;
@@ -278,6 +280,7 @@ public class OpenRocketSaverTest {
 
 		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
 		assertTrue(xml.contains("<calculator>RomAerodynamicCalculator</calculator>"));
+		assertTrue(xml.contains("<romsurfacemode>3d</romsurfacemode>"));
 		assertTrue(xml.contains("<romdragsurface version=\"1\""));
 		assertTrue(xml.contains("geometryhash=\"" + surface.geometryHash + "\""));
 
@@ -286,6 +289,7 @@ public class OpenRocketSaverTest {
 		DragSurface restored = loadedSimulation.getOptions().getRomDragSurface();
 
 		assertNotNull(restored);
+		assertEquals(RomSurfaceMode.THREE_D, loadedSimulation.getOptions().getRomSurfaceMode());
 		assertEquals(surface.geometryHash, restored.geometryHash);
 		assertEquals(surface.machAxis.length, restored.machAxis.length);
 		assertEquals(surface.logReAxis.length, restored.logReAxis.length);
@@ -318,6 +322,64 @@ public class OpenRocketSaverTest {
 		OpenRocketDocument loaded = loadRocket(file.getPath());
 		Simulation loadedSimulation = loaded.getSimulations().get(0);
 		assertEquals(false, loadedSimulation.getOptions().hasRomDragSurface());
+	}
+
+	@Test
+	public void testRomDragSurface4DIsSavedAndRestored() throws IOException {
+		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = rocketDoc.getSimulations().get(0);
+		String geometryHash = RomGeometryParameters.fromRocket(
+				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
+		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.FOUR_D);
+		AeroSurface4D surface4D = createRomSurface4D(geometryHash);
+		simulation.getOptions().setRomAeroSurface4D(surface4D);
+
+		StorageOptions options = new StorageOptions();
+		File file = saveRocket(rocketDoc, options);
+
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		assertTrue(xml.contains("<calculator>RomAerodynamicCalculator</calculator>"));
+		assertTrue(xml.contains("<romsurfacemode>4d</romsurfacemode>"));
+		assertTrue(xml.contains("<romdragsurface4d version=\"3\""));
+		assertTrue(xml.contains("geometryhash=\"" + surface4D.geometryHash + "\""));
+		assertFalse(xml.contains("<romdragsurface version=\"1\""));
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSimulation = loaded.getSimulations().get(0);
+		AeroSurface4D restored = loadedSimulation.getOptions().getRomAeroSurface4D();
+
+		assertNotNull(restored);
+		assertEquals(RomSurfaceMode.FOUR_D, loadedSimulation.getOptions().getRomSurfaceMode());
+		assertEquals(surface4D.geometryHash, restored.geometryHash);
+		assertEquals(surface4D.machAxis.length, restored.machAxis.length);
+		assertEquals(surface4D.logReAxis.length, restored.logReAxis.length);
+		assertEquals(surface4D.alphaAxis.length, restored.alphaAxis.length);
+		assertEquals(surface4D.betaAxis.length, restored.betaAxis.length);
+		assertEquals(surface4D.cdPlumeOff[1][1][1][1], restored.cdPlumeOff[1][1][1][1], 0.0);
+		assertEquals(surface4D.cdBody[0][1][0][1], restored.cdBody[0][1][0][1], 0.0);
+	}
+
+	@Test
+	public void testRomDragSurface4DIgnoredWhenGeometryHashMismatches() throws IOException {
+		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = rocketDoc.getSimulations().get(0);
+		String geometryHash = RomGeometryParameters.fromRocket(
+				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
+		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.FOUR_D);
+		simulation.getOptions().setRomAeroSurface4D(createRomSurface4D(geometryHash));
+
+		StorageOptions options = new StorageOptions();
+		File file = saveRocket(rocketDoc, options);
+
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		String rewritten = xml.replaceFirst(
+				"(<romdragsurface4d[^>]*geometryhash=\")[0-9a-fA-F]{64}(\")",
+				"$1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff$2");
+		Files.writeString(file.toPath(), rewritten, StandardCharsets.UTF_8);
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSimulation = loaded.getSimulations().get(0);
+		assertEquals(false, loadedSimulation.getOptions().hasRomAeroSurface4D());
 	}
 	
 	
@@ -580,6 +642,34 @@ public class OpenRocketSaverTest {
 		}
 
 		return new DragSurface(mach, re, alpha, off, on, hash, looRmse);
+	}
+
+	private static AeroSurface4D createRomSurface4D(String hash) {
+		double[] mach = new double[] { 0.05, 0.8 };
+		double[] re = new double[] { 4.0, 6.0 };
+		double[] alpha = new double[] { 0.0, 8.0 };
+		double[] beta = new double[] { 0.0, 15.0 };
+
+		double[][][][] off = new double[mach.length][re.length][alpha.length][beta.length];
+		double[][][][] on = new double[mach.length][re.length][alpha.length][beta.length];
+		double[][][][] body = new double[mach.length][re.length][alpha.length][beta.length];
+		double[][][][] cn = new double[mach.length][re.length][alpha.length][beta.length];
+		double[][][][] cm = new double[mach.length][re.length][alpha.length][beta.length];
+
+		for (int im = 0; im < mach.length; im++) {
+			for (int ir = 0; ir < re.length; ir++) {
+				for (int ia = 0; ia < alpha.length; ia++) {
+					off[im][ir][ia][0] = 0.42 + 0.01 * im + 0.005 * ir + 0.002 * ia;
+					off[im][ir][ia][1] = 0.47 + 0.01 * im + 0.005 * ir + 0.002 * ia;
+					on[im][ir][ia][0] = 0.30 + 0.01 * im + 0.005 * ir + 0.002 * ia;
+					on[im][ir][ia][1] = 0.35 + 0.01 * im + 0.005 * ir + 0.002 * ia;
+					body[im][ir][ia][0] = off[im][ir][ia][0] - 0.03;
+					body[im][ir][ia][1] = off[im][ir][ia][1] - 0.03;
+				}
+			}
+		}
+
+		return new AeroSurface4D(mach, re, alpha, beta, off, on, body, cn, cm, hash, 4);
 	}
 	
 	public static class EmptyComponentDbProvider implements Provider<ComponentPresetDao> {

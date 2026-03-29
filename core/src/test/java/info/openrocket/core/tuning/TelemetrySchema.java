@@ -1,0 +1,10 @@
+package info.openrocket.core.tuning;
+
+public enum TelemetrySchema {
+	AB_IMU_INTERLEAVED,
+	AB_EXTENDED,
+	FLUCTUS_SEMICOLON,
+	EASYMINI_ALTIMETER,
+	STRATOLOGGER_COMMA,
+	TAB_DELIMITED_ALTIMETER
+}
