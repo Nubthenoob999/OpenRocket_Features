@@ -22,7 +22,9 @@ import info.openrocket.core.aerodynamics.rom.core.basis.PodBasis;
 public final class GeometricRomSerializer {
 
 	private static final int MAGIC = 0x524F4D34;
-	private static final int VERSION = 1;
+	private static final int VERSION_V1 = 1;
+	private static final int VERSION_V2 = 2;
+	private static final int VERSION = VERSION_V2;
 
 	private GeometricRomSerializer() {
 	}
@@ -49,6 +51,8 @@ public final class GeometricRomSerializer {
 		writeIntLE(out, nRe);
 		writeIntLE(out, nAlpha);
 		writeIntLE(out, nBeta);
+		int centroidLength = regions.get(0).centroidFeatureVector.length;
+		writeIntLE(out, centroidLength);
 
 		writeArrayLE(out, rom.machAxis);
 		writeArrayLE(out, rom.logReAxis);
@@ -60,6 +64,10 @@ public final class GeometricRomSerializer {
 
 		for (int r = 0; r < nRegions; r++) {
 			LocalPodRegion region = regions.get(r);
+			if (region.centroidFeatureVector.length != centroidLength) {
+				throw new IOException("Inconsistent centroid feature length in region " + r
+						+ ": expected " + centroidLength + ", got " + region.centroidFeatureVector.length);
+			}
 			writeArrayLE(out, region.centroidFeatureVector);
 			writeDoubleLE(out, region.sigma);
 			writeIntLE(out, region.basisOff.rank);
@@ -110,7 +118,7 @@ public final class GeometricRomSerializer {
 		if (magic != MAGIC) {
 			throw new IOException("Invalid Geometric ROM magic");
 		}
-		if (version != VERSION) {
+		if (version != VERSION_V1 && version != VERSION_V2) {
 			throw new IOException("Unsupported Geometric ROM version: " + version);
 		}
 
@@ -120,6 +128,10 @@ public final class GeometricRomSerializer {
 		int nRe = readIntLE(in);
 		int nAlpha = readIntLE(in);
 		int nBeta = readIntLE(in);
+		int centroidLength = (version >= VERSION_V2) ? readIntLE(in) : 10;
+		if (centroidLength <= 0 || centroidLength > 4096) {
+			throw new IOException("Invalid centroid feature length: " + centroidLength);
+		}
 
 		double[] machAxis = readArrayLE(in, nMach);
 		double[] logReAxis = readArrayLE(in, nRe);
@@ -131,7 +143,7 @@ public final class GeometricRomSerializer {
 		int[][] magicOn = new int[nRegions][];
 
 		for (int r = 0; r < nRegions; r++) {
-			double[] centroid = readArrayLE(in, 10);
+			double[] centroid = readArrayLE(in, centroidLength);
 			double sigma = readDoubleLE(in);
 			int rankOff = readIntLE(in);
 			int rankOn = readIntLE(in);
