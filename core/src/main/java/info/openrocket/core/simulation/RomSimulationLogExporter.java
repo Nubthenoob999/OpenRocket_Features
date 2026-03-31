@@ -42,6 +42,9 @@ public final class RomSimulationLogExporter {
 
 		DragSurface beforeSurface = beforeOptions.getRomDragSurface();
 		DragSurface afterSurface = afterOptions.getRomDragSurface();
+		long outsideDomainSamples = snapshots.stream()
+				.filter(RomAerodynamicCalculator.RomComputationSnapshot::isOutsideDomain)
+				.count();
 
 		try {
 			Path outputDirectory = resolveOutputDirectory();
@@ -56,7 +59,8 @@ public final class RomSimulationLogExporter {
 			Path summaryFile = outputDirectory.resolve(baseName + "_" + timestamp + "_rom_summary.log");
 			Path traceFile = outputDirectory.resolve(baseName + "_" + timestamp + "_rom_trace.csv");
 
-			writeSummary(summaryFile, simulation, beforeOptions, afterOptions, beforeSurface, afterSurface, snapshots.size());
+			writeSummary(summaryFile, simulation, beforeOptions, afterOptions, beforeSurface, afterSurface,
+					snapshots.size(), outsideDomainSamples);
 			writeTrace(traceFile, snapshots);
 
 			log.info("ROM simulation logs exported: summary={} trace={}", summaryFile, traceFile);
@@ -82,7 +86,8 @@ public final class RomSimulationLogExporter {
 			SimulationOptions afterOptions,
 			DragSurface beforeSurface,
 			DragSurface afterSurface,
-			int sampleCount) throws IOException {
+			int sampleCount,
+			long outsideDomainSamples) throws IOException {
 		StringBuilder out = new StringBuilder(512);
 		out.append("timestamp=")
 				.append(LocalDateTime.now().format(VALUE_TS_FORMAT))
@@ -94,19 +99,30 @@ public final class RomSimulationLogExporter {
 		out.append("before.geometryHash=").append(surfaceHash(beforeSurface)).append('\n');
 		out.append("after.geometryHash=").append(surfaceHash(afterSurface)).append('\n');
 		out.append("samples=").append(sampleCount).append('\n');
+		out.append("outsideDomainSamples=").append(outsideDomainSamples).append('\n');
 		Files.writeString(summaryFile, out.toString(), StandardCharsets.UTF_8);
 	}
 
 	private static void writeTrace(Path traceFile,
 			List<RomAerodynamicCalculator.RomComputationSnapshot> snapshots) throws IOException {
-		StringBuilder out = new StringBuilder(Math.max(2048, snapshots.size() * 96));
-		out.append("time_s,mach,re_l,alpha_deg,plume_state,cd_before,cd_after,cd_plume_off,cd_plume_on\n");
+		StringBuilder out = new StringBuilder(Math.max(2048, snapshots.size() * 128));
+		out.append("time_s,mach,re_l,alpha_deg,theta_query_deg,plume_state,blend_weight,query_mach,query_re_l,query_alpha_deg,query_beta_deg,mach_clamped,re_clamped,alpha_clamped,beta_clamped,cd_before,cd_after,cd_plume_off,cd_plume_on\n");
 		for (RomAerodynamicCalculator.RomComputationSnapshot snapshot : snapshots) {
 			out.append(format(snapshot.getTimeSeconds())).append(',')
 					.append(format(snapshot.getMach())).append(',')
 					.append(format(snapshot.getReynoldsLength())).append(',')
 					.append(format(snapshot.getAlphaDeg())).append(',')
+					.append(format(snapshot.getThetaQueryDeg())).append(',')
 					.append(format(snapshot.getPlumeState())).append(',')
+					.append(format(snapshot.getBlendWeight())).append(',')
+					.append(format(snapshot.getQueryMach())).append(',')
+					.append(format(snapshot.getQueryReynoldsLength())).append(',')
+					.append(format(snapshot.getQueryAlphaDeg())).append(',')
+					.append(format(snapshot.getQueryBetaDeg())).append(',')
+					.append(format(snapshot.isMachClamped())).append(',')
+					.append(format(snapshot.isReynoldsClamped())).append(',')
+					.append(format(snapshot.isAlphaClamped())).append(',')
+					.append(format(snapshot.isBetaClamped())).append(',')
 					.append(format(snapshot.getCdBefore())).append(',')
 					.append(format(snapshot.getCdAfter())).append(',')
 					.append(format(snapshot.getCdPlumeOff())).append(',')
@@ -120,6 +136,10 @@ public final class RomSimulationLogExporter {
 			return "";
 		}
 		return String.format(Locale.US, "%.10f", value);
+	}
+
+	private static String format(boolean value) {
+		return value ? "1" : "0";
 	}
 
 	private static String sanitizeFilePart(String value) {

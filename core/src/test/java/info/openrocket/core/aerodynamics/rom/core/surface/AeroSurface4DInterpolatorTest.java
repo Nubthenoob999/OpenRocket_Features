@@ -108,6 +108,12 @@ public class AeroSurface4DInterpolatorTest {
 		AeroSurface4DInterpolator.QueryResult qr = interpolator.query(mach, reL, alpha, 15.0);
 		assertEquals(qr.cdPlumeOff - qr.cdBody, qr.dCdFin, 1e-12);
 		assertTrue(qr.dCdFin >= -0.005);
+
+		AeroSurface4DInterpolator.QueryResult qrClamped = interpolator.query(99.0, 1e12, 30.0, betaMax + 5.0);
+		assertTrue(qrClamped.machClamped);
+		assertTrue(qrClamped.reynoldsClamped);
+		assertTrue(qrClamped.alphaClamped);
+		assertTrue(qrClamped.betaClamped);
 	}
 
 	private static double relErr(double a, double b) {

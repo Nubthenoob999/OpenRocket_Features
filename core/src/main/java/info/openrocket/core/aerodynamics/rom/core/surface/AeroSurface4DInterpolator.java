@@ -31,30 +31,55 @@ public final class AeroSurface4DInterpolator {
 		public final double dCdFin;
 		public final double CN;
 		public final double Cm;
+		public final double usedMach;
+		public final double usedLogRe;
+		public final double usedAlphaDeg;
+		public final double usedBetaDeg;
+		public final boolean machClamped;
+		public final boolean reynoldsClamped;
+		public final boolean alphaClamped;
+		public final boolean betaClamped;
 
-		QueryResult(double cdOff, double cdOn, double cdBody, double cn, double cm) {
+		QueryResult(double cdOff, double cdOn, double cdBody, double cn, double cm,
+				double usedMach, double usedLogRe, double usedAlphaDeg, double usedBetaDeg,
+				boolean machClamped, boolean reynoldsClamped, boolean alphaClamped, boolean betaClamped) {
 			this.cdPlumeOff = cdOff;
 			this.cdPlumeOn = cdOn;
 			this.cdBody = cdBody;
 			this.dCdFin = cdOff - cdBody;
 			this.CN = cn;
 			this.Cm = cm;
+			this.usedMach = usedMach;
+			this.usedLogRe = usedLogRe;
+			this.usedAlphaDeg = usedAlphaDeg;
+			this.usedBetaDeg = usedBetaDeg;
+			this.machClamped = machClamped;
+			this.reynoldsClamped = reynoldsClamped;
+			this.alphaClamped = alphaClamped;
+			this.betaClamped = betaClamped;
 		}
 	}
 
 	public QueryResult query(double mach, double reL, double alphaDeg, double betaDeg) {
-		double logRe = Math.log10(Math.max(reL, 1e4));
-		double alphaAbs = Math.abs(alphaDeg);
-		double betaAbs = Math.abs(betaDeg);
-		double betaMax = surface.betaAxis[surface.betaAxis.length - 1];
-		double betaClamped = Math.min(betaAbs, betaMax);
+		AxisSample machSample = clampAxis(mach, surface.machAxis);
+		AxisSample reSample = clampLogRe(reL, surface.logReAxis);
+		AxisSample alphaSample = clampAxis(Math.abs(alphaDeg), surface.alphaAxis);
+		AxisSample betaSample = clampAxis(Math.abs(betaDeg), surface.betaAxis);
 
 		return new QueryResult(
-				tensorPchip(slicesCdOff, mach, logRe, alphaAbs, betaClamped),
-				tensorPchip(slicesCdOn, mach, logRe, alphaAbs, betaClamped),
-				tensorPchip(slicesCdBody, mach, logRe, alphaAbs, betaClamped),
-				tensorPchip(slicesCN, mach, logRe, alphaAbs, betaClamped),
-				tensorPchip(slicesCm, mach, logRe, alphaAbs, betaClamped));
+				tensorPchip(slicesCdOff, machSample.value, reSample.value, alphaSample.value, betaSample.value),
+				tensorPchip(slicesCdOn, machSample.value, reSample.value, alphaSample.value, betaSample.value),
+				tensorPchip(slicesCdBody, machSample.value, reSample.value, alphaSample.value, betaSample.value),
+				tensorPchip(slicesCN, machSample.value, reSample.value, alphaSample.value, betaSample.value),
+				tensorPchip(slicesCm, machSample.value, reSample.value, alphaSample.value, betaSample.value),
+				machSample.value,
+				reSample.value,
+				alphaSample.value,
+				betaSample.value,
+				machSample.clamped,
+				reSample.clamped,
+				alphaSample.clamped,
+				betaSample.clamped);
 	}
 
 	public double queryCdPlumeOff(double mach, double reL, double alphaDeg, double betaDeg) {
@@ -138,5 +163,26 @@ public final class AeroSurface4DInterpolator {
 
 		double result = new PchipInterpolator1D(surface.betaAxis, betaRow).evaluate(betaDeg);
 		return Double.isFinite(result) ? result : 0.0;
+	}
+
+	private static AxisSample clampAxis(double value, double[] axis) {
+		if (!Double.isFinite(value)) {
+			return new AxisSample(axis[0], true);
+		}
+		double clamped = Math.max(axis[0], Math.min(axis[axis.length - 1], value));
+		return new AxisSample(clamped, Double.compare(clamped, value) != 0);
+	}
+
+	private static AxisSample clampLogRe(double reL, double[] logReAxis) {
+		if (!Double.isFinite(reL)) {
+			return new AxisSample(logReAxis[0], true);
+		}
+		double safeRe = Math.max(reL, 1e4);
+		double logRe = Math.log10(safeRe);
+		AxisSample sample = clampAxis(logRe, logReAxis);
+		return new AxisSample(sample.value, sample.clamped || Double.compare(safeRe, reL) != 0);
+	}
+
+	private record AxisSample(double value, boolean clamped) {
 	}
 }

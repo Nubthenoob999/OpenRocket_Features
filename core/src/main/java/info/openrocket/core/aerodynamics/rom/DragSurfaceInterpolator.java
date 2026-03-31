@@ -2,9 +2,35 @@ package info.openrocket.core.aerodynamics.rom;
 
 public class DragSurfaceInterpolator {
 
+	private static final double MIN_CD = 0.001;
+
 	private final DragSurface surface;
 	private final PchipInterpolator1D[][] slicesOff;
 	private final PchipInterpolator1D[][] slicesOn;
+
+	public static final class QueryResult {
+		public final double cdPlumeOff;
+		public final double cdPlumeOn;
+		public final double usedMach;
+		public final double usedLogRe;
+		public final double usedAlphaDeg;
+		public final boolean machClamped;
+		public final boolean reynoldsClamped;
+		public final boolean alphaClamped;
+
+		QueryResult(double cdPlumeOff, double cdPlumeOn,
+				double usedMach, double usedLogRe, double usedAlphaDeg,
+				boolean machClamped, boolean reynoldsClamped, boolean alphaClamped) {
+			this.cdPlumeOff = cdPlumeOff;
+			this.cdPlumeOn = cdPlumeOn;
+			this.usedMach = usedMach;
+			this.usedLogRe = usedLogRe;
+			this.usedAlphaDeg = usedAlphaDeg;
+			this.machClamped = machClamped;
+			this.reynoldsClamped = reynoldsClamped;
+			this.alphaClamped = alphaClamped;
+		}
+	}
 
 	public DragSurfaceInterpolator(DragSurface surface) {
 		this.surface = surface;
@@ -29,28 +55,32 @@ public class DragSurfaceInterpolator {
 		}
 	}
 
-	public double queryCdPlumeOff(double mach, double re_L, double alphaDeg) {
-		return query(mach, re_L, alphaDeg, surface.cdPlumeOff, slicesOff);
+	public QueryResult query(double mach, double reL, double alphaDeg) {
+		AxisSample machSample = clampAxis(mach, surface.machAxis);
+		AxisSample reSample = clampLogRe(reL, surface.logReAxis);
+		AxisSample alphaSample = clampAxis(Math.abs(alphaDeg), surface.alphaAxis);
+		double cdOff = interpolate(machSample.value, reSample.value, alphaSample.value, surface.cdPlumeOff, slicesOff);
+		double cdOn = interpolate(machSample.value, reSample.value, alphaSample.value, surface.cdPlumeOn, slicesOn);
+		return new QueryResult(cdOff, cdOn,
+				machSample.value, reSample.value, alphaSample.value,
+				machSample.clamped, reSample.clamped, alphaSample.clamped);
 	}
 
-	public double queryCdPlumeOn(double mach, double re_L, double alphaDeg) {
-		return query(mach, re_L, alphaDeg, surface.cdPlumeOn, slicesOn);
+	public double queryCdPlumeOff(double mach, double reL, double alphaDeg) {
+		return query(mach, reL, alphaDeg).cdPlumeOff;
 	}
 
-	private double query(double mach, double re_L, double alphaDeg,
-						 double[][][] grid,
-						 PchipInterpolator1D[][] slices) {
-		mach = Math.max(surface.machAxis[0], Math.min(surface.machAxis[surface.machAxis.length - 1], mach));
-		double logRe = Math.log10(Math.max(re_L, 1e4));
-		alphaDeg = Math.abs(alphaDeg);
-		alphaDeg = Math.max(surface.alphaAxis[0], Math.min(surface.alphaAxis[surface.alphaAxis.length - 1], alphaDeg));
-		logRe = Math.max(surface.logReAxis[0], Math.min(surface.logReAxis[surface.logReAxis.length - 1], logRe));
+	public double queryCdPlumeOn(double mach, double reL, double alphaDeg) {
+		return query(mach, reL, alphaDeg).cdPlumeOn;
+	}
 
+	private double interpolate(double mach, double logRe, double alphaDeg,
+			double[][][] grid, PchipInterpolator1D[][] slices) {
 		int imExact = exactIndex(surface.machAxis, mach);
 		int irExact = exactIndex(surface.logReAxis, logRe);
 		int iaExact = exactIndex(surface.alphaAxis, alphaDeg);
 		if (imExact >= 0 && irExact >= 0 && iaExact >= 0) {
-			return Math.max(0.001, grid[imExact][irExact][iaExact]);
+			return Math.max(MIN_CD, grid[imExact][irExact][iaExact]);
 		}
 
 		int nR = surface.logReAxis.length;
@@ -67,44 +97,27 @@ public class DragSurfaceInterpolator {
 
 		double cd = new PchipInterpolator1D(surface.alphaAxis, alphaSamples).evaluate(alphaDeg);
 		if (!Double.isFinite(cd)) {
-			return 0.001;
+			return MIN_CD;
 		}
-		return Math.max(0.001, cd);
+		return Math.max(MIN_CD, cd);
 	}
 
-	private static int binarySearchFloor(double[] axis, double value) {
-		int lo = 0;
-		int hi = axis.length - 2;
-		if (value <= axis[0]) {
-			return 0;
+	private static AxisSample clampAxis(double value, double[] axis) {
+		if (!Double.isFinite(value)) {
+			return new AxisSample(axis[0], true);
 		}
-		if (value >= axis[axis.length - 1]) {
-			return axis.length - 2;
-		}
-		while (lo < hi) {
-			int mid = (lo + hi + 1) >>> 1;
-			if (axis[mid] <= value) {
-				lo = mid;
-			} else {
-				hi = mid - 1;
-			}
-		}
-		return lo;
+		double clamped = Math.max(axis[0], Math.min(axis[axis.length - 1], value));
+		return new AxisSample(clamped, Double.compare(clamped, value) != 0);
 	}
 
-	private static double fractional(double[] axis, int i, double value) {
-		double denom = axis[i + 1] - axis[i];
-		if (denom < 1e-14) {
-			return 0.0;
+	private static AxisSample clampLogRe(double reL, double[] logReAxis) {
+		if (!Double.isFinite(reL)) {
+			return new AxisSample(logReAxis[0], true);
 		}
-		double t = (value - axis[i]) / denom;
-		if (Math.abs(t) < 1e-12) {
-			return 0.0;
-		}
-		if (Math.abs(1.0 - t) < 1e-12) {
-			return 1.0;
-		}
-		return Math.max(0.0, Math.min(1.0, t));
+		double safeRe = Math.max(reL, 1e4);
+		double logRe = Math.log10(safeRe);
+		AxisSample sample = clampAxis(logRe, logReAxis);
+		return new AxisSample(sample.value, sample.clamped || Double.compare(safeRe, reL) != 0);
 	}
 
 	private static int exactIndex(double[] axis, double value) {
@@ -116,5 +129,8 @@ public class DragSurfaceInterpolator {
 			}
 		}
 		return -1;
+	}
+
+	private record AxisSample(double value, boolean clamped) {
 	}
 }

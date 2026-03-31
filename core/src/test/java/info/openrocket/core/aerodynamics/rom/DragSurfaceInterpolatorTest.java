@@ -41,6 +41,20 @@ public class DragSurfaceInterpolatorTest {
     }
 
     @Test
+    public void testQueryResultReportsClampedInputs() {
+        DragSurfaceInterpolator interp = new DragSurfaceInterpolator(
+                DragGridEvaluator.evaluate(RomTestFixtures.standardGeometry(), null));
+
+        DragSurfaceInterpolator.QueryResult qr = interp.query(99.0, 1e12, 30.0);
+
+        assertTrue(qr.machClamped);
+        assertTrue(qr.reynoldsClamped);
+        assertTrue(qr.alphaClamped);
+        assertTrue(qr.cdPlumeOff >= 0.001);
+        assertTrue(qr.cdPlumeOn >= 0.001);
+    }
+
+    @Test
     public void testFiniteAndPositiveAcrossDomain() {
         DragSurfaceInterpolator interp = new DragSurfaceInterpolator(
                 DragGridEvaluator.evaluate(RomTestFixtures.standardGeometry(), null));

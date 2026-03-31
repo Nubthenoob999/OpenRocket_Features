@@ -41,7 +41,8 @@ public final class HeadlessOrkSimulationRunner {
 		List<Double> time = branch.get(FlightDataType.TYPE_TIME);
 		List<Double> altitude = branch.get(FlightDataType.TYPE_ALTITUDE);
 		List<Double> velocityZ = branch.get(FlightDataType.TYPE_VELOCITY_Z);
-		List<Double> accelZ = branch.get(FlightDataType.TYPE_ACCELERATION_Z);
+		List<Double> accelZ = deriveVerticalAcceleration(time, velocityZ,
+				branch.get(FlightDataType.TYPE_ACCELERATION_Z));
 		List<Double> pressure = branch.get(FlightDataType.TYPE_AIR_PRESSURE);
 		List<Double> temperature = branch.get(FlightDataType.TYPE_AIR_TEMPERATURE);
 
@@ -58,6 +59,57 @@ public final class HeadlessOrkSimulationRunner {
 			return null;
 		}
 		return values.get(index);
+	}
+
+	static List<Double> deriveVerticalAcceleration(List<Double> time,
+												 List<Double> velocityZ,
+												 List<Double> fallbackAccelZ) {
+		if (time == null || velocityZ == null) {
+			return fallbackAccelZ;
+		}
+
+		java.util.ArrayList<Double> derived = new java.util.ArrayList<>(time.size());
+		for (int i = 0; i < time.size(); i++) {
+			Double acceleration = centralDifference(time, velocityZ, i);
+			if (acceleration == null) {
+				acceleration = valueAt(fallbackAccelZ, i);
+			}
+			derived.add(acceleration);
+		}
+		return derived;
+	}
+
+	private static Double centralDifference(List<Double> time, List<Double> velocityZ, int index) {
+		Double previous = finiteDifference(time, velocityZ, index - 1, index);
+		Double next = finiteDifference(time, velocityZ, index, index + 1);
+		if (previous != null && next != null) {
+			return 0.5 * (previous + next);
+		}
+		if (previous != null) {
+			return previous;
+		}
+		return next;
+	}
+
+	private static Double finiteDifference(List<Double> time, List<Double> velocityZ, int i0, int i1) {
+		if (i0 < 0 || i1 < 0 || i0 >= time.size() || i1 >= time.size()
+				|| i0 >= velocityZ.size() || i1 >= velocityZ.size()) {
+			return null;
+		}
+		Double t0 = time.get(i0);
+		Double t1 = time.get(i1);
+		Double v0 = velocityZ.get(i0);
+		Double v1 = velocityZ.get(i1);
+		if (t0 == null || t1 == null || v0 == null || v1 == null
+				|| !Double.isFinite(t0) || !Double.isFinite(t1)
+				|| !Double.isFinite(v0) || !Double.isFinite(v1)) {
+			return null;
+		}
+		double dt = t1 - t0;
+		if (dt <= 0.0 || !Double.isFinite(dt)) {
+			return null;
+		}
+		return (v1 - v0) / dt;
 	}
 
 	private static synchronized void ensureApplicationInjector() {
