@@ -378,6 +378,26 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("liveweatherselected", cond.isLiveWeatherDataSelected());
 		writeElement("liveweatherdate", cond.getLiveWeatherLaunchDate());
 		writeElement("liveweathertime", cond.getLiveWeatherLaunchTime());
+		writeElement("airbrakesenabled", cond.isAirbrakesEnabled());
+		writeElement("airbrakescfddatafilepath", cond.getCfdDataFilePath());
+		writeElement("airbrakesreferencearea", cond.getReferenceArea());
+		writeElement("airbrakesreferencelength", cond.getReferenceLength());
+		writeElement("airbrakesmaxdeploymentrate", cond.getMaxDeploymentRate());
+		writeElement("airbrakestargetapogee", cond.getTargetApogee());
+		writeElement("airbrakesmaxmachfordeployment", cond.getMaxMachForDeployment());
+		writeElement("airbrakesalwaysopenmode", cond.isAlwaysOpenMode());
+		writeElement("airbrakesalwaysopenpercentage", cond.getAlwaysOpenPercentage());
+		writeElement("airbrakesapogeetolerancemeters", cond.getApogeeToleranceMeters());
+		writeElement("airbrakesdeployafterburnoutonly", cond.isDeployAfterBurnoutOnly());
+		writeElement("airbrakesdeployafterburnoutdelays", cond.getDeployAfterBurnoutDelayS());
+		writeElement("airbrakesdebugenabled", cond.isDebugEnabled());
+		writeElement("airbrakesdbgalwaysopen", cond.isDbgAlwaysOpen());
+		writeElement("airbrakesdbgforceddeployfrac", cond.getDbgForcedDeployFrac());
+		writeElement("airbrakesdbgtracepredictor", cond.isDbgTracePredictor());
+		writeElement("airbrakesdbgtracecontroller", cond.isDbgTraceController());
+		writeElement("airbrakesdbgwritecsv", cond.isDbgWriteCsv());
+		writeElement("airbrakesdbgcsvdir", cond.getDbgCsvDir());
+		writeElement("airbrakesdbgshowconsole", cond.isDbgShowConsole());
 
 		writeElement("launchaltitude", cond.getLaunchAltitude());
 		writeElement("launchlatitude", cond.getLaunchLatitude());

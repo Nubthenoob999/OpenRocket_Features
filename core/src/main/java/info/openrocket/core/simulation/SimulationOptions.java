@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Random;
 
+import info.openrocket.core.airbrakesplugin.AirbrakeConfig;
 import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
 import info.openrocket.core.models.wind.WindModel;
 import info.openrocket.core.models.wind.WindModelType;
@@ -95,6 +96,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private String liveWeatherLaunchDate = "";
 	private String liveWeatherLaunchTime = "";
 	private boolean liveWeatherDataSelected = false;
+	private boolean airbrakesEnabled = false;
+	private AirbrakeConfig airbrakeConfig = new AirbrakeConfig();
 
 	private double timeStep = preferences.getTimeStep();
 	private double maxSimulationTime = preferences.getMaxSimulationTime();
@@ -457,6 +460,261 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		return LocalTime.parse(liveWeatherLaunchTime);
 	}
 
+	public boolean isAirbrakesEnabled() {
+		return airbrakesEnabled;
+	}
+
+	public void setAirbrakesEnabled(boolean airbrakesEnabled) {
+		if (this.airbrakesEnabled == airbrakesEnabled) {
+			return;
+		}
+		this.airbrakesEnabled = airbrakesEnabled;
+		fireChangeEvent();
+	}
+
+	public AirbrakeConfig createAirbrakeConfig() {
+		return airbrakeConfig.clone();
+	}
+
+	public void setAirbrakeConfig(AirbrakeConfig airbrakeConfig) {
+		AirbrakeConfig normalized = airbrakeConfig != null ? airbrakeConfig.clone() : new AirbrakeConfig();
+		if (this.airbrakeConfig.equals(normalized)) {
+			return;
+		}
+		this.airbrakeConfig = normalized;
+		fireChangeEvent();
+	}
+
+	public String getCfdDataFilePath() {
+		return airbrakeConfig.getCfdDataFilePath();
+	}
+
+	public void setCfdDataFilePath(String path) {
+		String normalized = path != null ? path.trim() : "";
+		if (Objects.equals(airbrakeConfig.getCfdDataFilePath(), normalized)) {
+			return;
+		}
+		airbrakeConfig.setCfdDataFilePath(normalized);
+		fireChangeEvent();
+	}
+
+	public double getReferenceArea() {
+		return airbrakeConfig.getReferenceArea();
+	}
+
+	public void setReferenceArea(double area) {
+		if (MathUtil.equals(airbrakeConfig.getReferenceArea(), area)) {
+			return;
+		}
+		airbrakeConfig.setReferenceArea(area);
+		fireChangeEvent();
+	}
+
+	public double getReferenceLength() {
+		return airbrakeConfig.getReferenceLength();
+	}
+
+	public void setReferenceLength(double length) {
+		if (MathUtil.equals(airbrakeConfig.getReferenceLength(), length)) {
+			return;
+		}
+		airbrakeConfig.setReferenceLength(length);
+		fireChangeEvent();
+	}
+
+	public double getMaxDeploymentRate() {
+		return airbrakeConfig.getMaxDeploymentRate();
+	}
+
+	public void setMaxDeploymentRate(double rate) {
+		if (MathUtil.equals(airbrakeConfig.getMaxDeploymentRate(), rate)) {
+			return;
+		}
+		airbrakeConfig.setMaxDeploymentRate(rate);
+		fireChangeEvent();
+	}
+
+	public double getTargetApogee() {
+		return airbrakeConfig.getTargetApogee();
+	}
+
+	public void setTargetApogee(double apogee) {
+		if (MathUtil.equals(airbrakeConfig.getTargetApogee(), apogee)) {
+			return;
+		}
+		airbrakeConfig.setTargetApogee(apogee);
+		fireChangeEvent();
+	}
+
+	public double getMaxMachForDeployment() {
+		return airbrakeConfig.getMaxMachForDeployment();
+	}
+
+	public void setMaxMachForDeployment(double maxMach) {
+		if (MathUtil.equals(airbrakeConfig.getMaxMachForDeployment(), maxMach)) {
+			return;
+		}
+		airbrakeConfig.setMaxMachForDeployment(maxMach);
+		fireChangeEvent();
+	}
+
+	public boolean isAlwaysOpenMode() {
+		return airbrakeConfig.isAlwaysOpenMode();
+	}
+
+	public void setAlwaysOpenMode(boolean alwaysOpenMode) {
+		if (airbrakeConfig.isAlwaysOpenMode() == alwaysOpenMode) {
+			return;
+		}
+		airbrakeConfig.setAlwaysOpenMode(alwaysOpenMode);
+		fireChangeEvent();
+	}
+
+	public double getAlwaysOpenPercentage() {
+		return airbrakeConfig.getAlwaysOpenPercentage();
+	}
+
+	public void setAlwaysOpenPercentage(double alwaysOpenPercentage) {
+		if (MathUtil.equals(airbrakeConfig.getAlwaysOpenPercentage(), alwaysOpenPercentage)) {
+			return;
+		}
+		airbrakeConfig.setAlwaysOpenPercentage(alwaysOpenPercentage);
+		fireChangeEvent();
+	}
+
+	public double getApogeeToleranceMeters() {
+		return airbrakeConfig.getApogeeToleranceMeters();
+	}
+
+	public void setApogeeToleranceMeters(double apogeeToleranceMeters) {
+		if (MathUtil.equals(airbrakeConfig.getApogeeToleranceMeters(), apogeeToleranceMeters)) {
+			return;
+		}
+		airbrakeConfig.setApogeeToleranceMeters(apogeeToleranceMeters);
+		fireChangeEvent();
+	}
+
+	public boolean isDeployAfterBurnoutOnly() {
+		return airbrakeConfig.isDeployAfterBurnoutOnly();
+	}
+
+	public void setDeployAfterBurnoutOnly(boolean deployAfterBurnoutOnly) {
+		if (airbrakeConfig.isDeployAfterBurnoutOnly() == deployAfterBurnoutOnly) {
+			return;
+		}
+		airbrakeConfig.setDeployAfterBurnoutOnly(deployAfterBurnoutOnly);
+		fireChangeEvent();
+	}
+
+	public double getDeployAfterBurnoutDelayS() {
+		return airbrakeConfig.getDeployAfterBurnoutDelayS();
+	}
+
+	public void setDeployAfterBurnoutDelayS(double deployAfterBurnoutDelayS) {
+		if (MathUtil.equals(airbrakeConfig.getDeployAfterBurnoutDelayS(), deployAfterBurnoutDelayS)) {
+			return;
+		}
+		airbrakeConfig.setDeployAfterBurnoutDelayS(deployAfterBurnoutDelayS);
+		fireChangeEvent();
+	}
+
+	public boolean isDebugEnabled() {
+		return airbrakeConfig.isDebugEnabled();
+	}
+
+	public void setDebugEnabled(boolean debugEnabled) {
+		if (airbrakeConfig.isDebugEnabled() == debugEnabled) {
+			return;
+		}
+		airbrakeConfig.setDebugEnabled(debugEnabled);
+		fireChangeEvent();
+	}
+
+	public boolean isDbgAlwaysOpen() {
+		return airbrakeConfig.isDbgAlwaysOpen();
+	}
+
+	public void setDbgAlwaysOpen(boolean dbgAlwaysOpen) {
+		if (airbrakeConfig.isDbgAlwaysOpen() == dbgAlwaysOpen) {
+			return;
+		}
+		airbrakeConfig.setDbgAlwaysOpen(dbgAlwaysOpen);
+		fireChangeEvent();
+	}
+
+	public double getDbgForcedDeployFrac() {
+		return airbrakeConfig.getDbgForcedDeployFrac();
+	}
+
+	public void setDbgForcedDeployFrac(double dbgForcedDeployFrac) {
+		if (MathUtil.equals(airbrakeConfig.getDbgForcedDeployFrac(), dbgForcedDeployFrac)) {
+			return;
+		}
+		airbrakeConfig.setDbgForcedDeployFrac(dbgForcedDeployFrac);
+		fireChangeEvent();
+	}
+
+	public boolean isDbgTracePredictor() {
+		return airbrakeConfig.isDbgTracePredictor();
+	}
+
+	public void setDbgTracePredictor(boolean dbgTracePredictor) {
+		if (airbrakeConfig.isDbgTracePredictor() == dbgTracePredictor) {
+			return;
+		}
+		airbrakeConfig.setDbgTracePredictor(dbgTracePredictor);
+		fireChangeEvent();
+	}
+
+	public boolean isDbgTraceController() {
+		return airbrakeConfig.isDbgTraceController();
+	}
+
+	public void setDbgTraceController(boolean dbgTraceController) {
+		if (airbrakeConfig.isDbgTraceController() == dbgTraceController) {
+			return;
+		}
+		airbrakeConfig.setDbgTraceController(dbgTraceController);
+		fireChangeEvent();
+	}
+
+	public boolean isDbgWriteCsv() {
+		return airbrakeConfig.isDbgWriteCsv();
+	}
+
+	public void setDbgWriteCsv(boolean dbgWriteCsv) {
+		if (airbrakeConfig.isDbgWriteCsv() == dbgWriteCsv) {
+			return;
+		}
+		airbrakeConfig.setDbgWriteCsv(dbgWriteCsv);
+		fireChangeEvent();
+	}
+
+	public String getDbgCsvDir() {
+		return airbrakeConfig.getDbgCsvDir();
+	}
+
+	public void setDbgCsvDir(String dbgCsvDir) {
+		String normalized = dbgCsvDir != null ? dbgCsvDir.trim() : "";
+		if (Objects.equals(airbrakeConfig.getDbgCsvDir(), normalized)) {
+			return;
+		}
+		airbrakeConfig.setDbgCsvDir(normalized);
+		fireChangeEvent();
+	}
+
+	public boolean isDbgShowConsole() {
+		return airbrakeConfig.isDbgShowConsole();
+	}
+
+	public void setDbgShowConsole(boolean dbgShowConsole) {
+		if (airbrakeConfig.isDbgShowConsole() == dbgShowConsole) {
+			return;
+		}
+		airbrakeConfig.setDbgShowConsole(dbgShowConsole);
+		fireChangeEvent();
+	}
+
 	/**
 	 * Returns an atmospheric model corresponding to the launch conditions. The
 	 * atmospheric models may be shared between different calls.
@@ -729,6 +987,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.liveWeatherLaunchDate = this.liveWeatherLaunchDate;
 			copy.liveWeatherLaunchTime = this.liveWeatherLaunchTime;
 			copy.liveWeatherDataSelected = this.liveWeatherDataSelected;
+			copy.airbrakesEnabled = this.airbrakesEnabled;
+			copy.airbrakeConfig = this.airbrakeConfig.clone();
 
 			// Create a new list for listeners
 			copy.listeners = new ArrayList<>();
@@ -823,6 +1083,14 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.liveWeatherDataSelected = src.liveWeatherDataSelected;
 		}
+		if (this.airbrakesEnabled != src.airbrakesEnabled) {
+			isChanged = true;
+			this.airbrakesEnabled = src.airbrakesEnabled;
+		}
+		if (!this.airbrakeConfig.equals(src.airbrakeConfig)) {
+			isChanged = true;
+			this.airbrakeConfig = src.airbrakeConfig.clone();
+		}
 		if (this.maximumAngle != src.maximumAngle) {
 			isChanged = true;
 			this.maximumAngle = src.maximumAngle;
@@ -900,6 +1168,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
 				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
+				this.airbrakesEnabled == o.airbrakesEnabled &&
+				this.airbrakeConfig.equals(o.airbrakeConfig) &&
 				this.averageWindModel.equals(o.averageWindModel) &&
 				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel) &&
 				this.gravityModelType == o.gravityModelType &&
@@ -1009,6 +1279,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    liveWeatherLaunchDate: %s\n", liveWeatherLaunchDate))
 				.concat(String.format("    liveWeatherLaunchTime: %s\n", liveWeatherLaunchTime))
 				.concat(String.format("    liveWeatherDataSelected: %b\n", liveWeatherDataSelected))
+				.concat(String.format("    airbrakesEnabled: %b\n", airbrakesEnabled))
+				.concat(String.format("    airbrakeConfig: %s\n", airbrakeConfig))
 				.concat(String.format("    timeStep:  %f\n", timeStep))
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))

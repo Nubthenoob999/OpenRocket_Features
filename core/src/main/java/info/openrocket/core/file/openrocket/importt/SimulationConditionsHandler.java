@@ -132,6 +132,80 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 			case "liveweatherselected" -> options.setLiveWeatherDataSelected(Boolean.parseBoolean(content));
 			case "liveweatherdate" -> options.setLiveWeatherLaunchDate(content);
 			case "liveweathertime" -> options.setLiveWeatherLaunchTime(content);
+			case "airbrakesenabled" -> options.setAirbrakesEnabled(Boolean.parseBoolean(content));
+			case "airbrakescfddatafilepath" -> options.setCfdDataFilePath(content);
+			case "airbrakesreferencearea" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake reference area defined, ignoring.");
+				} else {
+					options.setReferenceArea(d);
+				}
+			}
+			case "airbrakesreferencelength" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake reference length defined, ignoring.");
+				} else {
+					options.setReferenceLength(d);
+				}
+			}
+			case "airbrakesmaxdeploymentrate" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake max deployment rate defined, ignoring.");
+				} else {
+					options.setMaxDeploymentRate(d);
+				}
+			}
+			case "airbrakestargetapogee" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake target apogee defined, ignoring.");
+				} else {
+					options.setTargetApogee(d);
+				}
+			}
+			case "airbrakesmaxmachfordeployment" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake max Mach defined, ignoring.");
+				} else {
+					options.setMaxMachForDeployment(d);
+				}
+			}
+			case "airbrakesalwaysopenmode" -> options.setAlwaysOpenMode(Boolean.parseBoolean(content));
+			case "airbrakesalwaysopenpercentage" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake always-open percentage defined, ignoring.");
+				} else {
+					options.setAlwaysOpenPercentage(d);
+				}
+			}
+			case "airbrakesapogeetolerancemeters" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake apogee tolerance defined, ignoring.");
+				} else {
+					options.setApogeeToleranceMeters(d);
+				}
+			}
+			case "airbrakesdeployafterburnoutonly" -> options.setDeployAfterBurnoutOnly(Boolean.parseBoolean(content));
+			case "airbrakesdeployafterburnoutdelays" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake burnout delay defined, ignoring.");
+				} else {
+					options.setDeployAfterBurnoutDelayS(d);
+				}
+			}
+			case "airbrakesdebugenabled" -> options.setDebugEnabled(Boolean.parseBoolean(content));
+			case "airbrakesdbgalwaysopen" -> options.setDbgAlwaysOpen(Boolean.parseBoolean(content));
+			case "airbrakesdbgforceddeployfrac" -> {
+				if (Double.isNaN(d)) {
+					warnings.add("Illegal airbrake debug deploy fraction defined, ignoring.");
+				} else {
+					options.setDbgForcedDeployFrac(d);
+				}
+			}
+			case "airbrakesdbgtracepredictor" -> options.setDbgTracePredictor(Boolean.parseBoolean(content));
+			case "airbrakesdbgtracecontroller" -> options.setDbgTraceController(Boolean.parseBoolean(content));
+			case "airbrakesdbgwritecsv" -> options.setDbgWriteCsv(Boolean.parseBoolean(content));
+			case "airbrakesdbgcsvdir" -> options.setDbgCsvDir(content);
+			case "airbrakesdbgshowconsole" -> options.setDbgShowConsole(Boolean.parseBoolean(content));
 
 			case "launchaltitude" -> {
 				if (Double.isNaN(d)) {

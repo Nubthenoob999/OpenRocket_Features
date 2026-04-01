@@ -15,8 +15,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 
+import com.airbrakesplugin.AirbrakeExtension;
 import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
@@ -503,6 +505,83 @@ public class OpenRocketSaverTest {
 		assertTrue(loadedSim.getOptions().isLiveWeatherDataSelected());
 		assertEquals("2026-04-01", loadedSim.getOptions().getLiveWeatherLaunchDate());
 		assertEquals("14:00", loadedSim.getOptions().getLiveWeatherLaunchTime());
+	}
+
+	@Test
+	public void testNativeAirbrakeStateSavedAndLoaded() throws IOException {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+
+		Path csv = Files.createTempFile("airbrakes-save", ".csv");
+		Files.writeString(csv,
+				"Mach,Deployment,Drag\n" +
+				"0.0,0.0,0.0\n" +
+				"0.0,1.0,1.0\n" +
+				"1.0,0.0,0.0\n" +
+				"1.0,1.0,2.0\n");
+
+		Simulation sim = new Simulation(rocket);
+		sim.getOptions().setAirbrakesEnabled(true);
+		sim.getOptions().setCfdDataFilePath(csv.toAbsolutePath().toString());
+		sim.getOptions().setReferenceArea(0.02);
+		sim.getOptions().setReferenceLength(0.3);
+		sim.getOptions().setTargetApogee(1800.0);
+		sim.getOptions().setMaxMachForDeployment(0.95);
+		sim.getOptions().setApogeeToleranceMeters(3.5);
+		sim.getOptions().setDeployAfterBurnoutOnly(true);
+		sim.getOptions().setDeployAfterBurnoutDelayS(1.7);
+		sim.getOptions().setDebugEnabled(true);
+		sim.getOptions().setDbgCsvDir("C:/tmp/airbrake-csv");
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+		rocketDoc.addSimulation(sim);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		assertTrue(xml.contains("<airbrakesenabled>true</airbrakesenabled>"));
+		assertTrue(xml.contains("<airbrakescfddatafilepath>"));
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSim = loaded.getSimulations().get(0);
+		assertTrue(loadedSim.getOptions().isAirbrakesEnabled());
+		assertEquals(csv.toAbsolutePath().toString(), loadedSim.getOptions().getCfdDataFilePath());
+		assertEquals(0.02, loadedSim.getOptions().getReferenceArea(), 1e-12);
+		assertEquals(1800.0, loadedSim.getOptions().getTargetApogee(), 1e-12);
+		assertTrue(loadedSim.getOptions().isDeployAfterBurnoutOnly());
+		assertEquals(1.7, loadedSim.getOptions().getDeployAfterBurnoutDelayS(), 1e-12);
+		assertTrue(loadedSim.getOptions().isDebugEnabled());
+	}
+
+	@Test
+	public void testLegacyAirbrakeExtensionMigratesToNativeOptionsOnLoad() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+
+		Simulation sim = new Simulation(rocket);
+		AirbrakeExtension extension = new AirbrakeExtension();
+		extension.setCfdDataFilePath("C:/legacy/airbrakes.csv");
+		extension.setReferenceArea(0.011);
+		extension.setReferenceLength(0.22);
+		extension.setTargetApogee(1234.0);
+		extension.setMaxMachForDeployment(0.77);
+		extension.setDeployAfterBurnoutOnly(true);
+		extension.setDeployAfterBurnoutDelayS(0.8);
+		extension.setDebugEnabled(true);
+		sim.getSimulationExtensions().add(extension);
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+		rocketDoc.addSimulation(sim);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+
+		Simulation loadedSim = loaded.getSimulations().get(0);
+		assertTrue(loadedSim.getOptions().isAirbrakesEnabled());
+		assertEquals("C:/legacy/airbrakes.csv", loadedSim.getOptions().getCfdDataFilePath());
+		assertEquals(0.011, loadedSim.getOptions().getReferenceArea(), 1e-12);
+		assertEquals(1234.0, loadedSim.getOptions().getTargetApogee(), 1e-12);
+		assertTrue(loadedSim.getOptions().isDeployAfterBurnoutOnly());
+		assertEquals(0.8, loadedSim.getOptions().getDeployAfterBurnoutDelayS(), 1e-12);
+		assertTrue(loadedSim.getOptions().isDebugEnabled());
+		assertEquals(0, loadedSim.getSimulationExtensions().size(), "Legacy airbrake extension should be migrated out");
 	}
 	
 	////////////////////////////////

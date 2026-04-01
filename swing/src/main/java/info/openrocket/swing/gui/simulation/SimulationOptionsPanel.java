@@ -62,6 +62,7 @@ import com.google.inject.Key;
 class SimulationOptionsPanel extends JPanel {
 
 	private static final long serialVersionUID = -5251458539346201239L;
+	private static final String LEGACY_AIRBRAKES_EXTENSION_ID = "com.airbrakesplugin.AirbrakeExtension";
 
 	private static final Translator trans = Application.getTranslator();
 	
@@ -76,6 +77,8 @@ class SimulationOptionsPanel extends JPanel {
 	JMenu extensionMenuCopyExtension;
 	private JCheckBox monteCarloEnabledCheckBox;
 	private JButton monteCarloConfigureButton;
+	private JCheckBox airbrakesEnabledCheckBox;
+	private AirbrakeSettingsPanel airbrakeSettingsPanel;
 
 	private JSpinner gravitySpinner;
 	private UnitSelector gravityUnit;
@@ -297,6 +300,18 @@ class SimulationOptionsPanel extends JPanel {
 		unit = new UnitSelector(m);
 		unit.setToolTipText(tip);
 		subsub.add(unit, "wrap");
+
+		airbrakesEnabledCheckBox = new JCheckBox("Enable airbrakes");
+		airbrakesEnabledCheckBox.setToolTipText("Enable native airbrakes for this simulation.");
+		airbrakesEnabledCheckBox.addActionListener(e -> {
+			options.setAirbrakesEnabled(airbrakesEnabledCheckBox.isSelected());
+			updateAirbrakeControls();
+		});
+		subsub.add(airbrakesEnabledCheckBox, "span 4, gaptop para, wrap");
+
+		airbrakeSettingsPanel = new AirbrakeSettingsPanel(conditions);
+		subsub.add(airbrakeSettingsPanel, "span 4, growx, gapleft para, wrap para");
+		updateAirbrakeControls();
 		
 		// Reset to default button
 		JButton resetBtn = new JButton(trans.get("simedtdlg.but.resettodefault"));
@@ -426,6 +441,9 @@ class SimulationOptionsPanel extends JPanel {
 		for (final SimulationExtensionProvider provider : extensions) {
 			List<String> ids = provider.getIds();
 			for (final String id : ids) {
+				if (LEGACY_AIRBRAKES_EXTENSION_ID.equals(id)) {
+					continue;
+				}
 				List<String> menuItems = provider.getName(id);
 				if (menuItems != null) {
 					JComponent menu = findMenu(basemenu, menuItems);
@@ -599,6 +617,19 @@ class SimulationOptionsPanel extends JPanel {
 		boolean enabled = extension != null && extension.isEnabled();
 		monteCarloEnabledCheckBox.setSelected(enabled);
 		monteCarloConfigureButton.setEnabled(true);
+	}
+
+	private void updateAirbrakeControls() {
+		if (airbrakesEnabledCheckBox == null || airbrakeSettingsPanel == null) {
+			return;
+		}
+
+		boolean enabled = options.isAirbrakesEnabled();
+		airbrakesEnabledCheckBox.setSelected(enabled);
+		airbrakeSettingsPanel.setVisible(enabled);
+		airbrakeSettingsPanel.setControlsEnabled(enabled);
+		airbrakeSettingsPanel.revalidate();
+		airbrakeSettingsPanel.repaint();
 	}
 
 	private void updateCurrentExtensions() {

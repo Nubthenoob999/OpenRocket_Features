@@ -19,6 +19,9 @@ import info.openrocket.core.logging.SimulationAbort;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 
@@ -121,6 +124,32 @@ public class SimulationTest extends BaseTestCase {
 		assertTrue(data.getMaxVelocity() > 0, "Max velocity should be positive");
 		assertTrue(data.getFlightTime() > 0, "Flight time should be positive");
 		assertEquals(Simulation.Status.UPTODATE, simulation.getStatus());
+	}
+
+	@Test
+	public void testNativeAirbrakesAttachListenerAndWriteFlightData() throws SimulationException, IOException {
+		Path csv = Files.createTempFile("airbrakes-sim", ".csv");
+		Files.writeString(csv,
+				"Mach,Deployment,Drag\n" +
+				"0.0,0.0,0.0\n" +
+				"0.0,1.0,2.0\n" +
+				"1.0,0.0,0.0\n" +
+				"1.0,1.0,4.0\n");
+
+		simulation.getOptions().setAirbrakesEnabled(true);
+		simulation.getOptions().setCfdDataFilePath(csv.toAbsolutePath().toString());
+		simulation.getOptions().setReferenceArea(0.01);
+		simulation.getOptions().setTargetApogee(10.0);
+		simulation.simulate();
+
+		FlightDataBranch branch = simulation.getSimulatedData().getBranch(0);
+		FlightDataType airbrakeExt = FlightDataType.getType("airbrakeExt", "airbrakeExt", info.openrocket.core.unit.UnitGroup.UNITS_RELATIVE);
+		FlightDataType predictedApogee = FlightDataType.getType("predictedApogee", "predictedApogee", info.openrocket.core.unit.UnitGroup.UNITS_DISTANCE);
+
+		assertNotNull(branch.get(airbrakeExt));
+		assertNotNull(branch.get(predictedApogee));
+		assertFalse(branch.get(airbrakeExt).isEmpty(), "Airbrake extension data should be recorded");
+		assertFalse(branch.get(predictedApogee).isEmpty(), "Predicted apogee data should be recorded");
 	}
 	@Test
 	public void testBasicSimulationExecution_RK6() throws SimulationException {

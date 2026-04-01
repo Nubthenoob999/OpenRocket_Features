@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
+import com.airbrakesplugin.AirbrakeExtension;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
@@ -33,7 +34,6 @@ import info.openrocket.core.util.StringUtils;
 import com.google.inject.Key;
 
 class SingleSimulationHandler extends AbstractElementHandler {
-
 	private final DocumentLoadingContext context;
 
 	private final OpenRocketDocument doc;
@@ -166,7 +166,9 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			}
 			if (extension != null) {
 				extension.setConfig(configHandler.getConfig());
-				extensions.add(extension);
+				if (!migrateAirbrakesExtension(extension)) {
+					extensions.add(extension);
+				}
 			} else {
 				warnings.add("Simulation extension with id '" + id + "' not found.");
 			}
@@ -270,6 +272,38 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		JavaCode extension = Application.getInjector().getInstance(JavaCode.class);
 		extension.setClassName(className);
 		return extension;
+	}
+
+	private boolean migrateAirbrakesExtension(SimulationExtension extension) {
+		if (!(extension instanceof AirbrakeExtension airbrakeExtension)) {
+			return false;
+		}
+		if (conditionHandler == null) {
+			return false;
+		}
+
+		SimulationOptions options = conditionHandler.getConditions();
+		options.setAirbrakesEnabled(true);
+		options.setCfdDataFilePath(airbrakeExtension.getCfdDataFilePath());
+		options.setReferenceArea(airbrakeExtension.getReferenceArea());
+		options.setReferenceLength(airbrakeExtension.getReferenceLength());
+		options.setMaxDeploymentRate(airbrakeExtension.getMaxDeploymentRate());
+		options.setTargetApogee(airbrakeExtension.getTargetApogee());
+		options.setMaxMachForDeployment(airbrakeExtension.getMaxMachForDeployment());
+		options.setAlwaysOpenMode(airbrakeExtension.isAlwaysOpenMode());
+		options.setAlwaysOpenPercentage(airbrakeExtension.getAlwaysOpenPercentage());
+		options.setApogeeToleranceMeters(airbrakeExtension.getApogeeToleranceMeters());
+		options.setDeployAfterBurnoutOnly(airbrakeExtension.isDeployAfterBurnoutOnly());
+		options.setDeployAfterBurnoutDelayS(airbrakeExtension.getDeployAfterBurnoutDelayS());
+		options.setDebugEnabled(airbrakeExtension.isDebugEnabled());
+		options.setDbgAlwaysOpen(airbrakeExtension.isDbgAlwaysOpen());
+		options.setDbgForcedDeployFrac(airbrakeExtension.getDbgForcedDeployFrac());
+		options.setDbgTracePredictor(airbrakeExtension.isDbgTracePredictor());
+		options.setDbgTraceController(airbrakeExtension.isDbgTraceController());
+		options.setDbgWriteCsv(airbrakeExtension.isDbgWriteCsv());
+		options.setDbgCsvDir(airbrakeExtension.getDbgCsvDir());
+		options.setDbgShowConsole(airbrakeExtension.isDbgShowConsole());
+		return true;
 	}
 
 }

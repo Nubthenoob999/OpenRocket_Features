@@ -1,0 +1,204 @@
+package info.openrocket.core.airbrakesplugin;
+
+import java.util.Objects;
+
+/**
+ * Configuration container for the air-brake plugin.
+ * <p>
+ *   Updated for the <b>bang-bang + apogee-predictor</b> control scheme.
+ *   <ul>
+ *     <li>PID gains kept for backward compatibility but marked {@code @Deprecated}.</li>
+ *     <li>Added <i>apogeeToleranceMeters</i> so the GUI can expose the ±dead-band.</li>
+ *     <li>Renamed accessors to match reflection calls in {@link AirbrakeController}
+ *         (notably <code>getAlwaysOpenPercentage()</code>).</li>
+ *   </ul>
+ * </p>
+ */
+public class AirbrakeConfig implements Cloneable {
+
+    // Core aerodynamic & deployment parameters
+    private String  cfdDataFilePath;
+    private double  referenceArea;
+    private double  referenceLength;
+    private double  maxDeploymentRate;
+
+    // Target & safety gates
+    private double  targetApogee;
+    private double  maxMachForDeployment;
+
+    // Bang-bang controller options
+    private boolean alwaysOpenMode;
+    private double  alwaysOpenPercentage;
+
+    // === Burnout-only deploy option ===
+    /** If true, ignore apogee prediction and deploy only after burnout with a delay. */
+    private boolean deployAfterBurnoutOnly = false;
+    /** Seconds to wait after burnout before forcing full deploy (>= 0). */
+    private double deployAfterBurnoutDelayS = 0.0;
+
+    // Debug
+    private boolean debugEnabled = false;
+    private boolean dbgAlwaysOpen = false;
+    private double  dbgForcedDeployFrac = 1.0;   // 0..1
+    private boolean dbgTracePredictor = true;
+    private boolean dbgTraceController = true;
+    private boolean dbgWriteCsv = true;
+    private String  dbgCsvDir = "";              // empty ⇒ OS temp dir
+    private boolean dbgShowConsole = false;
+    /** ±dead-band around set-point [m]; if {@code null} → default in controller. */
+    private Double  apogeeToleranceMeters;
+
+    /**
+     * Constructor with default values.
+     */
+    public AirbrakeConfig() {
+        this.referenceArea = 0.0;            // m²
+        this.referenceLength = 0.0;          // m
+        this.maxDeploymentRate = 40.0;       // 1/s (fraction per second)
+        this.targetApogee = 0.0;             // m AGL
+        this.maxMachForDeployment = 1.0;     // cap for supersonic
+        this.alwaysOpenMode = false;
+        this.alwaysOpenPercentage = 1;       // 0–1
+        this.apogeeToleranceMeters = null;
+        this.apogeeToleranceMeters = 5.0;    // default tolerance
+
+        // Burnout-only deploy defaults (already set via field initializers)
+        // this.deployAfterBurnoutOnly = false;
+        // this.deployAfterBurnoutDelayS = 0.0;
+    }
+
+    // Getters & setters for the entire plugin
+    public String getCfdDataFilePath()               { return cfdDataFilePath; }
+    public void   setCfdDataFilePath(String path)    { this.cfdDataFilePath = path; }
+
+    public double getReferenceArea()                 { return referenceArea; }
+    public void   setReferenceArea(double area)      { this.referenceArea = area; }
+
+    public double getReferenceLength()               { return referenceLength; }
+    public void   setReferenceLength(double len)     { this.referenceLength = len; }
+
+    public double getMaxDeploymentRate()             { return maxDeploymentRate; }
+    public void   setMaxDeploymentRate(double rate)  { this.maxDeploymentRate = rate; }
+
+    public double getTargetApogee()                  { return targetApogee; }
+    public void   setTargetApogee(double apogee)     { this.targetApogee = apogee; }
+
+    public double getMaxMachForDeployment()          { return maxMachForDeployment; }
+    public void   setMaxMachForDeployment(double m)  { this.maxMachForDeployment = m; }
+
+    // Bang-bang related
+    public boolean isAlwaysOpenMode()                { return alwaysOpenMode; }
+    public void    setAlwaysOpenMode(boolean b)      { this.alwaysOpenMode = b; }
+
+    /** Alias used by controller via reflection. */
+    public double  getAlwaysOpenPercentage()         { return alwaysOpenPercentage; }
+    public void    setAlwaysOpenPercentage(double pct){ this.alwaysOpenPercentage = clamp01(pct); }
+
+    // Burnout-only deploy option
+    public boolean isDeployAfterBurnoutOnly() {
+        return deployAfterBurnoutOnly;
+    }
+    public void setDeployAfterBurnoutOnly(boolean deployAfterBurnoutOnly) {
+        this.deployAfterBurnoutOnly = deployAfterBurnoutOnly;
+    }
+    public double getDeployAfterBurnoutDelayS() {
+        return deployAfterBurnoutDelayS;
+    }
+    public void setDeployAfterBurnoutDelayS(double deployAfterBurnoutDelayS) {
+        this.deployAfterBurnoutDelayS = Math.max(0.0, deployAfterBurnoutDelayS);
+    }
+
+    /** Optional tolerance accessor */
+    public double getApogeeToleranceMeters() { return apogeeToleranceMeters; }
+    public void setApogeeToleranceMeters(double tol) { this.apogeeToleranceMeters = tol; }
+
+    public boolean isDebugEnabled() { return debugEnabled; }
+    public void setDebugEnabled(boolean v) { this.debugEnabled = v; }
+
+    public boolean isDbgAlwaysOpen() { return dbgAlwaysOpen; }
+    public void setDbgAlwaysOpen(boolean v) { this.dbgAlwaysOpen = v; }
+
+    public double getDbgForcedDeployFrac() { return dbgForcedDeployFrac; }
+    public void setDbgForcedDeployFrac(double v) {
+        if (!Double.isFinite(v)) v = 0.0;
+        this.dbgForcedDeployFrac = Math.max(0.0, Math.min(1.0, v));
+    }
+
+    public boolean isDbgTracePredictor() { return dbgTracePredictor; }
+    public void setDbgTracePredictor(boolean v) { this.dbgTracePredictor = v; }
+
+    public boolean isDbgTraceController() { return dbgTraceController; }
+    public void setDbgTraceController(boolean v) { this.dbgTraceController = v; }
+
+    public boolean isDbgWriteCsv() { return dbgWriteCsv; }
+    public void setDbgWriteCsv(boolean v) { this.dbgWriteCsv = v; }
+
+    public String getDbgCsvDir() { return (dbgCsvDir == null ? "" : dbgCsvDir); }
+    public void setDbgCsvDir(String v) { this.dbgCsvDir = (v == null ? "" : v); }
+
+    public boolean isDbgShowConsole() { return dbgShowConsole; }
+    public void setDbgShowConsole(boolean v) { this.dbgShowConsole = v; }
+
+    // Local Helpers and string config
+    private static double clamp01(double v) { return Math.max(0.0, Math.min(1.0, v)); }
+
+    @Override
+    public AirbrakeConfig clone() {
+        try {
+            return (AirbrakeConfig) super.clone();
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError("AirbrakeConfig clone failed", e);
+        }
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof AirbrakeConfig other)) {
+            return false;
+        }
+        return Objects.equals(cfdDataFilePath, other.cfdDataFilePath) &&
+                Double.compare(referenceArea, other.referenceArea) == 0 &&
+                Double.compare(referenceLength, other.referenceLength) == 0 &&
+                Double.compare(maxDeploymentRate, other.maxDeploymentRate) == 0 &&
+                Double.compare(targetApogee, other.targetApogee) == 0 &&
+                Double.compare(maxMachForDeployment, other.maxMachForDeployment) == 0 &&
+                alwaysOpenMode == other.alwaysOpenMode &&
+                Double.compare(alwaysOpenPercentage, other.alwaysOpenPercentage) == 0 &&
+                deployAfterBurnoutOnly == other.deployAfterBurnoutOnly &&
+                Double.compare(deployAfterBurnoutDelayS, other.deployAfterBurnoutDelayS) == 0 &&
+                debugEnabled == other.debugEnabled &&
+                dbgAlwaysOpen == other.dbgAlwaysOpen &&
+                Double.compare(dbgForcedDeployFrac, other.dbgForcedDeployFrac) == 0 &&
+                dbgTracePredictor == other.dbgTracePredictor &&
+                dbgTraceController == other.dbgTraceController &&
+                dbgWriteCsv == other.dbgWriteCsv &&
+                Objects.equals(dbgCsvDir, other.dbgCsvDir) &&
+                dbgShowConsole == other.dbgShowConsole &&
+                Objects.equals(apogeeToleranceMeters, other.apogeeToleranceMeters);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(cfdDataFilePath, referenceArea, referenceLength, maxDeploymentRate, targetApogee,
+                maxMachForDeployment, alwaysOpenMode, alwaysOpenPercentage, deployAfterBurnoutOnly,
+                deployAfterBurnoutDelayS, debugEnabled, dbgAlwaysOpen, dbgForcedDeployFrac, dbgTracePredictor,
+                dbgTraceController, dbgWriteCsv, dbgCsvDir, dbgShowConsole, apogeeToleranceMeters);
+    }
+
+    @Override
+    public String toString() {
+        return "AirbrakeConfig{" +
+                "cfdDataFilePath='" + cfdDataFilePath + '\'' +
+                ", referenceArea=" + referenceArea +
+                ", referenceLength=" + referenceLength +
+                ", maxDeploymentRate=" + maxDeploymentRate +
+                ", targetApogee=" + targetApogee +
+                ", maxMachForDeployment=" + maxMachForDeployment +
+                ", alwaysOpenMode=" + alwaysOpenMode +
+                ", alwaysOpenPercentage=" + alwaysOpenPercentage +
+                ", apogeeToleranceMeters=" + apogeeToleranceMeters +
+                ", deployAfterBurnoutOnly=" + deployAfterBurnoutOnly +
+                ", deployAfterBurnoutDelayS=" + deployAfterBurnoutDelayS +
+                "}";
+    }
+}

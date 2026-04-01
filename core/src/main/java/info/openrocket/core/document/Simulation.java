@@ -6,6 +6,11 @@ import java.util.EventObject;
 import java.util.List;
 import java.util.Objects;
 
+import info.openrocket.core.airbrakesplugin.AirbrakeAerodynamics;
+import info.openrocket.core.airbrakesplugin.AirbrakeConfig;
+import info.openrocket.core.airbrakesplugin.AirbrakeController;
+import info.openrocket.core.airbrakesplugin.AirbrakeSimulationListener;
+import info.openrocket.core.airbrakesplugin.util.ApogeePredictor;
 import info.openrocket.core.simulation.FlightEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -496,6 +501,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			if (simulationConditions.getRomAerodynamicCalculator() != null) {
 				simulationConditions.getRomAerodynamicCalculator().clearComputationSnapshots();
 			}
+			initializeNativeAirbrakes(simulationConditions);
 			
 			for (SimulationExtension extension : simulationExtensions) {
 				extension.initialize(simulationConditions);
@@ -531,6 +537,37 @@ public class Simulation implements ChangeSource, Cloneable {
 			fireChangeEvent();
 
 			mutex.unlock("simulate");
+		}
+	}
+
+	private void initializeNativeAirbrakes(SimulationConditions simulationConditions) throws SimulationException {
+		if (!options.isAirbrakesEnabled()) {
+			return;
+		}
+
+		try {
+			AirbrakeConfig config = options.createAirbrakeConfig();
+			AirbrakeAerodynamics airbrakes = new AirbrakeAerodynamics(config.getCfdDataFilePath());
+			ApogeePredictor predictor = new ApogeePredictor();
+			AirbrakeController.ControlContext noopContext = new AirbrakeController.ControlContext() {
+				@Override
+				public void extend_airbrakes() {
+				}
+
+				@Override
+				public void retract_airbrakes() {
+				}
+			};
+			AirbrakeController controller = new AirbrakeController(config.getTargetApogee(), predictor, noopContext);
+			AirbrakeSimulationListener listener = new AirbrakeSimulationListener(
+					airbrakes,
+					controller,
+					predictor,
+					Math.max(1e-9, config.getReferenceArea()),
+					config);
+			simulationConditions.getSimulationListenerList().add(listener);
+		} catch (Exception e) {
+			throw new SimulationException("Failed to initialize native airbrakes", e);
 		}
 	}
 	

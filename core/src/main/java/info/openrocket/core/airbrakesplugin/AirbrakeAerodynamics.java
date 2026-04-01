@@ -1,0 +1,154 @@
+package info.openrocket.core.airbrakesplugin;
+
+import info.openrocket.core.airbrakesplugin.util.AirDensity;
+import info.openrocket.core.airbrakesplugin.util.ExtrapolationType;
+import info.openrocket.core.airbrakesplugin.util.GenericFunction2D;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
+import java.util.Objects;
+
+/**
+ * AirbrakeAerodynamics
+ *
+ * Interpolates absolute airbrake Drag [N] as a function of (Mach, DeploymentFraction).
+ * - CSV: flexible headers (Mach, Deployment*, Drag/Force) per GenericFunction2D.
+ * - Data may be scattered; loader internally builds a rectangular grid (IDW) for bilinear interp.
+ * - Extrapolation: CONSTANT (edge clamp) by default (configurable).
+ *
+ * Notes:
+ * - DeploymentFraction is expected in [0..1]; values outside are clamped.
+ * - This class returns a FORCE [N], not a coefficient. Convert to ΔCd downstream using OR's q and Aref.
+ */
+public final class AirbrakeAerodynamics {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AirbrakeAerodynamics.class);
+
+    /** Tiny numeric epsilon used for domain nudging when needed. */
+    private static final double EPS = 1e-12;
+
+    /** Drag surface in Newtons (absolute airbrake drag). */
+    private GenericFunction2D dragSurface;
+
+    /** Path kept only for diagnostics/reload if desired. */
+    private Path sourceCsv;
+
+    /**
+     * Build from a CSV file path. The path can be absolute or relative to the working dir
+     * or a deployed resource path that you copy to disk before calling this.
+     */
+    public AirbrakeAerodynamics(String csvFilePath) {
+        Objects.requireNonNull(csvFilePath, "CSV file path must not be null");
+        if (csvFilePath.isBlank()) {
+            throw new IllegalArgumentException("CSV file path is empty");
+        }
+        loadDragSurface(Path.of(csvFilePath), ExtrapolationType.CONSTANT);
+    }
+
+    /**
+     * Alternate constructor if you want to pass an already-resolved Path and choose extrapolation.
+     */
+    public AirbrakeAerodynamics(Path csvPath, ExtrapolationType extrapolation) {
+        loadDragSurface(csvPath, extrapolation == null ? ExtrapolationType.CONSTANT : extrapolation);
+    }
+
+    /**
+     * (Re)load the Drag surface from CSV.
+     */
+    public final void loadDragSurface(Path csvPath, ExtrapolationType extrapolation) {
+        Objects.requireNonNull(csvPath, "CSV path must not be null");
+        Objects.requireNonNull(extrapolation, "Extrapolation must not be null");
+        try {
+            this.dragSurface = GenericFunction2D.fromCsv(csvPath, extrapolation);
+            this.sourceCsv = csvPath;
+            LOG.info("Loaded airbrake Drag surface: {} (extrapolation: {})", csvPath, extrapolation);
+        } catch (Exception e) {
+            LOG.error("Failed to load Drag surface from {}: {}", csvPath, e.toString());
+            throw (e instanceof IllegalArgumentException) ? (IllegalArgumentException) e : new IllegalArgumentException("Cannot load Drag surface: " + csvPath, e);
+        }
+    }
+
+    // -----------------------------------------------------------------------------
+    // Public API
+    // -----------------------------------------------------------------------------
+
+    /**
+     * Interpolate absolute airbrake Drag [N] at the given Mach and deployment fraction.
+     *
+     * @param mach         Freestream Mach number (finite; will be clamped at grid edges).
+     * @param deployFrac   Deployment fraction in [0..1] (will be clamped).
+     * @return Drag in Newtons (>= 0 typically), or 0.0 if the surface is not loaded.
+     */
+    public double getAirbrakeDragN(double mach, double deployFrac) {
+        if (dragSurface == null) {
+            LOG.warn("Drag surface not loaded; returning 0 N");
+            return 0.0;
+        }
+        if (!Double.isFinite(mach)) {
+            LOG.trace("Non-finite Mach={} → using 0.0", mach);
+            mach = 0.0;
+        }
+        if (!Double.isFinite(deployFrac)) {
+            LOG.trace("Non-finite deploy={} → using 0.0", deployFrac);
+            deployFrac = 0.0;
+        }
+        
+        // Clamp deployment to [0..1] and nudge slightly to avoid exact boundaries if needed.
+        double dep = clamp01(deployFrac);
+        dep = nudge(dep, 0.0, 1.0);
+
+        try {
+            double valN = dragSurface.dragN(mach, dep);
+            if (Double.isFinite(valN)) return Math.max(0.0, valN);
+        } catch (Exception ex) {
+            LOG.debug("Drag interpolation failed at Mach={}, Deploy={} from {}: {}",
+                    mach, dep, sourceCsv, ex.toString());
+        }
+        return 0.0;
+    }
+
+    /**
+     * Convenience wrapper used by the SimulationListener:
+     * computes Mach from (speed, altitudeMSL) and returns Drag [N] for the given deployment.
+     *
+     * @param deploymentFrac  deployment fraction [0..1]
+     * @param speed           speed magnitude [m/s]
+     * @param altitudeMSL     altitude above mean sea level [m]
+     * @return Drag in Newtons
+     */
+    public double calculateDragForce(double deploymentFrac, double speed, double altitudeMSL) {
+        if (!isReady()) return 0.0;
+        if (!Double.isFinite(speed) || speed <= 0) return 0.0;
+        if (!Double.isFinite(altitudeMSL)) altitudeMSL = 0.0;
+
+        final double mach = AirDensity.machFromV(speed, altitudeMSL);
+        final double dep = clamp01(deploymentFrac);
+        final double FN = getAirbrakeDragN(mach, dep);
+
+        LOG.trace("calculateDragForce: M={} dep={} → Drag={} N (speed={} m/s, altMSL={} m)", mach, dep, FN, speed, altitudeMSL);
+        return FN;
+    }
+
+    /** @return true if the Drag surface is loaded. */
+    public boolean isReady() {
+        return dragSurface != null;
+    }
+
+    // Local Helpers
+
+    private static double clamp01(double v) {
+        if (v < 0.0) return 0.0;
+        if (v > 1.0) return 1.0;
+        return v;
+    }
+
+    private static double nudge(double v, double min, double max) {
+        // Pull off exact boundaries by an extremely small amount when helpful.
+        if (v <= min) return Math.nextUp(min + EPS);
+        if (v >= max) return Math.nextDown(max - EPS);
+        return v;
+    }
+}
+
