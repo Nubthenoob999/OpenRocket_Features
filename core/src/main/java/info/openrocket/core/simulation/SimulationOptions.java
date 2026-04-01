@@ -1,6 +1,8 @@
 package info.openrocket.core.simulation;
 
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.EventListener;
 import java.util.EventObject;
@@ -90,6 +92,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private double launchTemperature = preferences.getLaunchTemperature();	// In Kelvin
 	private double launchPressure = preferences.getLaunchPressure();		// In Pascal
 	private double launchRelativeHumidity = preferences.getLaunchRelativeHumidity();		//
+	private String liveWeatherLaunchDate = "";
+	private String liveWeatherLaunchTime = "";
+	private boolean liveWeatherDataSelected = false;
 
 	private double timeStep = preferences.getTimeStep();
 	private double maxSimulationTime = preferences.getMaxSimulationTime();
@@ -403,6 +408,55 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public String getLiveWeatherLaunchDate() {
+		return liveWeatherLaunchDate;
+	}
+
+	public void setLiveWeatherLaunchDate(String liveWeatherLaunchDate) {
+		String value = liveWeatherLaunchDate != null ? liveWeatherLaunchDate.trim() : "";
+		if (Objects.equals(this.liveWeatherLaunchDate, value))
+			return;
+		this.liveWeatherLaunchDate = value;
+		fireChangeEvent();
+	}
+
+	public String getLiveWeatherLaunchTime() {
+		return liveWeatherLaunchTime;
+	}
+
+	public void setLiveWeatherLaunchTime(String liveWeatherLaunchTime) {
+		String value = liveWeatherLaunchTime != null ? liveWeatherLaunchTime.trim() : "";
+		if (Objects.equals(this.liveWeatherLaunchTime, value))
+			return;
+		this.liveWeatherLaunchTime = value;
+		fireChangeEvent();
+	}
+
+	public boolean isLiveWeatherDataSelected() {
+		return liveWeatherDataSelected;
+	}
+
+	public void setLiveWeatherDataSelected(boolean liveWeatherDataSelected) {
+		if (this.liveWeatherDataSelected == liveWeatherDataSelected)
+			return;
+		this.liveWeatherDataSelected = liveWeatherDataSelected;
+		fireChangeEvent();
+	}
+
+	public LocalDate getLiveWeatherLaunchDateValue() {
+		if (liveWeatherLaunchDate == null || liveWeatherLaunchDate.isBlank()) {
+			return null;
+		}
+		return LocalDate.parse(liveWeatherLaunchDate);
+	}
+
+	public LocalTime getLiveWeatherLaunchTimeValue() {
+		if (liveWeatherLaunchTime == null || liveWeatherLaunchTime.isBlank()) {
+			return null;
+		}
+		return LocalTime.parse(liveWeatherLaunchTime);
+	}
+
 	/**
 	 * Returns an atmospheric model corresponding to the launch conditions. The
 	 * atmospheric models may be shared between different calls.
@@ -672,6 +726,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
 			copy.stabilityLookupTable = this.stabilityLookupTable;
 			copy.stabilityLookupCsvRows = this.stabilityLookupCsvRows != null ? new ArrayList<>(this.stabilityLookupCsvRows) : null;
+			copy.liveWeatherLaunchDate = this.liveWeatherLaunchDate;
+			copy.liveWeatherLaunchTime = this.liveWeatherLaunchTime;
+			copy.liveWeatherDataSelected = this.liveWeatherDataSelected;
 
 			// Create a new list for listeners
 			copy.listeners = new ArrayList<>();
@@ -754,6 +811,18 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.launchRelativeHumidity = src.launchRelativeHumidity;
 		}
+		if (!Objects.equals(this.liveWeatherLaunchDate, src.liveWeatherLaunchDate)) {
+			isChanged = true;
+			this.liveWeatherLaunchDate = src.liveWeatherLaunchDate;
+		}
+		if (!Objects.equals(this.liveWeatherLaunchTime, src.liveWeatherLaunchTime)) {
+			isChanged = true;
+			this.liveWeatherLaunchTime = src.liveWeatherLaunchTime;
+		}
+		if (this.liveWeatherDataSelected != src.liveWeatherDataSelected) {
+			isChanged = true;
+			this.liveWeatherDataSelected = src.liveWeatherDataSelected;
+		}
 		if (this.maximumAngle != src.maximumAngle) {
 			isChanged = true;
 			this.maximumAngle = src.maximumAngle;
@@ -825,9 +894,12 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.launchTemperature, o.launchTemperature) &&
 				MathUtil.equals(this.maximumAngle, o.maximumAngle) &&
 				MathUtil.equals(this.timeStep, o.timeStep) &&
-				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime)) &&
+				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime) &&
+				Objects.equals(this.liveWeatherLaunchDate, o.liveWeatherLaunchDate) &&
+				Objects.equals(this.liveWeatherLaunchTime, o.liveWeatherLaunchTime)) &&
 				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
+				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
 				this.averageWindModel.equals(o.averageWindModel) &&
 				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel) &&
 				this.gravityModelType == o.gravityModelType &&
@@ -934,6 +1006,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    launchTemperature:  %f\n", launchTemperature))
 				.concat(String.format("    launchPressure:  %f\n", launchPressure))
 				.concat(String.format("    launchHumidity:  %f\n", launchRelativeHumidity))
+				.concat(String.format("    liveWeatherLaunchDate: %s\n", liveWeatherLaunchDate))
+				.concat(String.format("    liveWeatherLaunchTime: %s\n", liveWeatherLaunchTime))
+				.concat(String.format("    liveWeatherDataSelected: %b\n", liveWeatherDataSelected))
 				.concat(String.format("    timeStep:  %f\n", timeStep))
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))

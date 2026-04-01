@@ -129,6 +129,9 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 			case "windmodeltype" -> {
 				options.setWindModelType(WindModelType.fromString(content));
 			}
+			case "liveweatherselected" -> options.setLiveWeatherDataSelected(Boolean.parseBoolean(content));
+			case "liveweatherdate" -> options.setLiveWeatherLaunchDate(content);
+			case "liveweathertime" -> options.setLiveWeatherLaunchTime(content);
 
 			case "launchaltitude" -> {
 				if (Double.isNaN(d)) {

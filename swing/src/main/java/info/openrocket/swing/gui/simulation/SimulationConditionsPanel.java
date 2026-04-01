@@ -470,9 +470,11 @@ public class SimulationConditionsPanel extends JPanel {
 	private static void addWindModelPanel(JPanel panel, SimulationOptionsInterface target,
 										  BooleanModel intoWind, DoubleModel launchRodDirectionModel) {
 		ButtonGroup windModelGroup = new ButtonGroup();
+		boolean hasLiveWeatherPanel = target instanceof SimulationOptions;
 
 		// Wind model to use
-		panel.add(new JLabel(trans.get("simedtdlg.lbl.WindModelSelection")), "spanx, split 3, gapright para");
+		panel.add(new JLabel(trans.get("simedtdlg.lbl.WindModelSelection")),
+				hasLiveWeatherPanel ? "spanx, split 4, gapright para" : "spanx, split 3, gapright para");
 
 		//// Average
 		JRadioButton averageButton = new JRadioButton(trans.get("simedtdlg.radio.AverageWind"));
@@ -483,11 +485,25 @@ public class SimulationConditionsPanel extends JPanel {
 		JRadioButton multiLevelButton = new JRadioButton(trans.get("simedtdlg.radio.MultiLevelWind"));
 		multiLevelButton.setToolTipText(trans.get("simedtdlg.radio.MultiLevelWind.ttip"));
 
+		JRadioButton liveWeatherButton = null;
+		if (hasLiveWeatherPanel) {
+			liveWeatherButton = new JRadioButton(trans.get("simedtdlg.radio.LiveWeatherWind"));
+			liveWeatherButton.setToolTipText(trans.get("simedtdlg.radio.LiveWeatherWind.ttip"));
+		}
+
 		windModelGroup.add(averageButton);
 		windModelGroup.add(multiLevelButton);
+		if (liveWeatherButton != null) {
+			windModelGroup.add(liveWeatherButton);
+		}
 
 		panel.add(averageButton);
-		panel.add(multiLevelButton, "wrap");
+		panel.add(multiLevelButton);
+		if (liveWeatherButton != null) {
+			panel.add(liveWeatherButton, "wrap");
+		} else {
+			panel.add(new JLabel(), "wrap");
+		}
 
 		panel.add(new JSeparator(JSeparator.HORIZONTAL), "spanx, growx, wrap");
 
@@ -495,33 +511,55 @@ public class SimulationConditionsPanel extends JPanel {
 
 		JPanel averagePanel = new JPanel(new MigLayout("fill, ins 0", "[grow][75lp!][30lp!][75lp!]", ""));
 		JPanel multiLevelPanel = new JPanel(new MigLayout("fill, ins 0"));
+		JPanel liveWeatherPanel = new JPanel(new MigLayout("fill, ins 0"));
 
 		addAverageWindSettings(averagePanel, target, intoWind, launchRodDirectionModel);
 		addMultiLevelSettings(multiLevelPanel, target);
+		if (target instanceof SimulationOptions options) {
+			addLiveWeatherSettings(liveWeatherPanel, options, () -> updateMultiLevelSummary(multiLevelPanel, options));
+		}
 
 		windSettingsPanel.add(averagePanel, "Average");
 		windSettingsPanel.add(multiLevelPanel, "MultiLevel");
+		if (hasLiveWeatherPanel) {
+			windSettingsPanel.add(liveWeatherPanel, "LiveWeather");
+		}
 
 		panel.add(windSettingsPanel, "grow, wrap");
 
 		averageButton.addActionListener(e -> {
 			((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "Average");
 			if (target instanceof SimulationOptions) {
-				((SimulationOptions) target).setWindModelType(WindModelType.AVERAGE);
+				SimulationOptions options = (SimulationOptions) target;
+				options.setWindModelType(WindModelType.AVERAGE);
+				options.setLiveWeatherDataSelected(false);
 			}
 		});
 
 		multiLevelButton.addActionListener(e -> {
 			((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "MultiLevel");
 			if (target instanceof SimulationOptions) {
-				((SimulationOptions) target).setWindModelType(WindModelType.MULTI_LEVEL);
+				SimulationOptions options = (SimulationOptions) target;
+				options.setWindModelType(WindModelType.MULTI_LEVEL);
+				options.setLiveWeatherDataSelected(false);
 			}
 		});
+		if (liveWeatherButton != null) {
+			liveWeatherButton.addActionListener(e -> {
+				((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "LiveWeather");
+				if (target instanceof SimulationOptions) {
+					((SimulationOptions) target).setLiveWeatherDataSelected(true);
+				}
+			});
+		}
 
 		// Set initial selection based on current wind model
 		if (target instanceof SimulationOptions) {
 			SimulationOptions options = (SimulationOptions) target;
-			if (options.getWindModelType() == WindModelType.AVERAGE) {
+			if (options.isLiveWeatherDataSelected() && liveWeatherButton != null) {
+				liveWeatherButton.setSelected(true);
+				((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "LiveWeather");
+			} else if (options.getWindModelType() == WindModelType.AVERAGE) {
 				averageButton.setSelected(true);
 				((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "Average");
 			} else {
@@ -622,6 +660,23 @@ public class SimulationConditionsPanel extends JPanel {
 		
 		panel.add(summaryPanel, "grow, wrap");
 		panel.add(editButton, "spanx, growx, wrap");
+	}
+
+	private static void addLiveWeatherSettings(JPanel panel, SimulationOptions options, Runnable onWindProfileApplied) {
+		panel.add(new LiveWeatherSettingsPanel(options, onWindProfileApplied), "growx, wrap");
+	}
+
+	private static void updateMultiLevelSummary(JPanel panel, SimulationOptions options) {
+		for (Component component : panel.getComponents()) {
+			if (component instanceof JPanel summaryPanel) {
+				for (Component summaryComponent : summaryPanel.getComponents()) {
+					if (summaryComponent instanceof JLabel summaryLabel) {
+						updateWindLevelSummary(summaryLabel, options.getMultiLevelWindModel());
+						return;
+					}
+				}
+			}
+		}
 	}
 	
 	private static void updateWindLevelSummary(JLabel label, MultiLevelPinkNoiseWindModel model) {

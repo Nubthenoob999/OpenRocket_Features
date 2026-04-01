@@ -482,6 +482,28 @@ public class OpenRocketSaverTest {
 		assertEquals(280.0, loadedSim.getOptions().getLaunchTemperature(), 1e-12);
 		assertEquals(95000.0, loadedSim.getOptions().getLaunchPressure(), 1e-9);
 	}
+
+	@Test
+	public void testLiveWeatherStateSavedAndLoaded() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+
+		Simulation sim = new Simulation(rocket);
+		sim.getOptions().setLiveWeatherDataSelected(true);
+		sim.getOptions().setLiveWeatherLaunchDate("2026-04-01");
+		sim.getOptions().setLiveWeatherLaunchTime("14:00");
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+		rocketDoc.addSimulation(sim);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+		OpenRocketDocument rocketDocLoaded = loadRocket(file.getPath());
+
+		assertEquals(1, rocketDocLoaded.getSimulations().size());
+		Simulation loadedSim = rocketDocLoaded.getSimulations().get(0);
+		assertTrue(loadedSim.getOptions().isLiveWeatherDataSelected());
+		assertEquals("2026-04-01", loadedSim.getOptions().getLiveWeatherLaunchDate());
+		assertEquals("14:00", loadedSim.getOptions().getLiveWeatherLaunchTime());
+	}
 	
 	////////////////////////////////
 	// Tests for File Version 1.11 //

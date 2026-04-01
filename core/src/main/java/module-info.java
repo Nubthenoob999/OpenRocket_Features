@@ -28,6 +28,7 @@ open module info.openrocket.core {
 	requires org.locationtech.jts;
 	requires org.objectweb.asm.commons;
 	requires java.management;
+	requires java.net.http;
 	requires java.sql;
 
 	// TODO: I'm a JPMS noob, so I just exported each package. Should really check which ones are actually needed.

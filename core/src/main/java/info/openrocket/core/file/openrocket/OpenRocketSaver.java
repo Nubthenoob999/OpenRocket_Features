@@ -375,6 +375,9 @@ public class OpenRocketSaver extends RocketSaver {
 		}
 
 		writeElement("windmodeltype", cond.getWindModelType().toStringValue());
+		writeElement("liveweatherselected", cond.isLiveWeatherDataSelected());
+		writeElement("liveweatherdate", cond.getLiveWeatherLaunchDate());
+		writeElement("liveweathertime", cond.getLiveWeatherLaunchTime());
 
 		writeElement("launchaltitude", cond.getLaunchAltitude());
 		writeElement("launchlatitude", cond.getLaunchLatitude());
