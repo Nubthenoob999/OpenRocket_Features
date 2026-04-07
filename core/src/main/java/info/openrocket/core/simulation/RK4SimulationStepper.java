@@ -4,14 +4,12 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Random;
 
-import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.logging.SimulationAbort;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import info.openrocket.core.logging.Warning;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.masscalc.RigidBody;
@@ -107,6 +105,7 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		 * Get the current atmospheric conditions
 		 */
 		calculateFlightConditions(status, store);
+		store.romStageContext = RomStageAerodynamicsHelper.capture(status);
 
 		/*
 		 * Perform RK4 integration.  Decide the time step length after the first step.
@@ -252,6 +251,7 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		.toImmutable());
 		
 		k4 = computeParameters(status2, store);
+		store.romStageContext.commit(status2);
 		
 
 		//// Sum all together,  y(n+1) = y(n) + h*(k1 + 2*k2 + 2*k3 + k4)/6
@@ -507,17 +507,7 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		 * below 20% of the max. velocity.
 		 */
 		WarningSet warnings = status.recordWarnings() ? new WarningSet() : null;
-		if (status.getSimulationConditions().getAerodynamicCalculator() instanceof RomAerodynamicCalculator romCalculator) {
-			boolean burning = false;
-			for (MotorClusterState motorState : status.getActiveMotors()) {
-				if (motorState.getThrust(status.getSimulationTime()) > 0.0) {
-					burning = true;
-					break;
-				}
-			}
-			romCalculator.updatePlumeState(burning, status.getSimulationConditions().getTimeStep());
-			romCalculator.setCurrentSimulationTime(status.getSimulationTime());
-		}
+		store.romStageContext.apply(status);
 
 		// Calculate aerodynamic forces
 		store.forces = status.getSimulationConditions().getAerodynamicCalculator()

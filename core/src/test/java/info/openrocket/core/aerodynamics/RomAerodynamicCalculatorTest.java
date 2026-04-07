@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import info.openrocket.core.aerodynamics.rom.adapter.SurfaceAdapter;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4DInterpolator;
 import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.models.atmosphere.AtmosphericConditions;
@@ -67,6 +68,45 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 				body[im][ir][1][0] = 0.30;
 				body[im][ir][0][1] = 1.20;
 				body[im][ir][1][1] = 1.20;
+				cn[im][ir][0][0] = 0.08;
+				cn[im][ir][1][0] = 0.28;
+				cn[im][ir][0][1] = 0.18;
+				cn[im][ir][1][1] = 0.38;
+				cm[im][ir][0][0] = -0.02;
+				cm[im][ir][1][0] = -0.12;
+				cm[im][ir][0][1] = -0.05;
+				cm[im][ir][1][1] = -0.15;
+			}
+		}
+
+		return new AeroSurface4D(mach, logRe, alpha, beta, off, on, body, cn, cm,
+				"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", 4);
+	}
+
+	private static AeroSurface4D cnCmSurface() {
+		double[] mach = new double[] { 0.0, 2.0 };
+		double[] logRe = new double[] { 4.0, 8.0 };
+		double[] alpha = new double[] { 0.0, 10.0 };
+		double[] beta = new double[] { 0.0, 45.0 };
+
+		double[][][][] off = new double[mach.length][logRe.length][alpha.length][beta.length];
+		double[][][][] on = new double[mach.length][logRe.length][alpha.length][beta.length];
+		double[][][][] body = new double[mach.length][logRe.length][alpha.length][beta.length];
+		double[][][][] cn = new double[mach.length][logRe.length][alpha.length][beta.length];
+		double[][][][] cm = new double[mach.length][logRe.length][alpha.length][beta.length];
+
+		for (int im = 0; im < mach.length; im++) {
+			for (int ir = 0; ir < logRe.length; ir++) {
+				for (int ia = 0; ia < alpha.length; ia++) {
+					for (int ib = 0; ib < beta.length; ib++) {
+						double baseCd = 0.40 + 0.02 * alpha[ia] + 0.03 * beta[ib];
+						off[im][ir][ia][ib] = baseCd;
+						on[im][ir][ia][ib] = baseCd - 0.10;
+						body[im][ir][ia][ib] = Math.max(0.001, baseCd - 0.03);
+						cn[im][ir][ia][ib] = 0.10 + 0.04 * alpha[ia] + 0.02 * beta[ib];
+						cm[im][ir][ia][ib] = -0.03 - 0.01 * alpha[ia] - 0.02 * beta[ib];
+					}
+				}
 			}
 		}
 
@@ -79,6 +119,13 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		conditions.setAtmosphericConditions(new AtmosphericConditions());
 		conditions.setMach(0.8);
 		conditions.setAOA(Math.toRadians(5.0));
+		return conditions;
+	}
+
+	private static FlightConditions makeConditions(FlightConfiguration config, double aoaDeg, double thetaDeg) {
+		FlightConditions conditions = makeConditions(config);
+		conditions.setAOA(Math.toRadians(aoaDeg));
+		conditions.setTheta(Math.toRadians(thetaDeg));
 		return conditions;
 	}
 
@@ -221,6 +268,58 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		assertEquals(cd4d0, snapshot0.getCdPlumeOff(), 1e-9);
 		assertEquals(cd4d45, snapshot45.getCdPlumeOff(), 1e-9);
 		assertEquals(cd4d90, snapshot90.getCdPlumeOff(), 1e-9);
+		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.HYBRID_4D, snapshot0.getCoefficientMode());
+	}
+
+	@Test
+	public void testFourDSurfaceKeepsBarrowmanCnAndCmWhileRecordingRomValues() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		AeroSurface4D surface4D = cnCmSurface();
+
+		FlightConditions conditions = makeConditions(config, 10.0, 30.0);
+		conditions.setMach(2.0);
+		conditions.setVelocity(650.0);
+
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		AerodynamicForces baselineForces = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet());
+
+		RomAerodynamicCalculator rom4D = new RomAerodynamicCalculator();
+		rom4D.installSurface4D(surface4D);
+		rom4D.updatePlumeState(false, 0.0);
+
+		AerodynamicForces forces = rom4D.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom4D.getComputationSnapshots().get(0);
+		AeroSurface4DInterpolator.QueryResult expected = new AeroSurface4DInterpolator(surface4D)
+				.query(snapshot.getQueryMach(), snapshot.getQueryReynoldsLength(),
+						snapshot.getQueryAlphaDeg(), snapshot.getQueryBetaDeg());
+
+		assertEquals(expected.cdPlumeOff, forces.getCD(), 1e-9);
+		assertEquals(baselineForces.getCN(), forces.getCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), forces.getCm(), 1e-9);
+		assertEquals(expected.CN, snapshot.getQueriedCN(), 1e-9);
+		assertEquals(baselineForces.getCN(), snapshot.getEffectiveCN(), 1e-9);
+		assertEquals(expected.Cm, snapshot.getQueriedCm(), 1e-9);
+		assertEquals(baselineForces.getCm(), snapshot.getEffectiveCm(), 1e-9);
+		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.HYBRID_4D, snapshot.getCoefficientMode());
+	}
+
+	@Test
+	public void testThreeDSurfaceRemainsDragOnlyForCnAndCm() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config, 7.5, 0.0);
+
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		AerodynamicForces baselineForces = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet());
+
+		RomAerodynamicCalculator rom3D = new RomAerodynamicCalculator();
+		rom3D.installSurface(SurfaceAdapter.toBetaZeroDragSurface(cnCmSurface()));
+		rom3D.updatePlumeState(false, 0.0);
+		AerodynamicForces romForces = rom3D.getAerodynamicForces(config, conditions, new WarningSet());
+
+		assertEquals(baselineForces.getCN(), romForces.getCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), romForces.getCm(), 1e-9);
 	}
 
 	@Test
@@ -237,8 +336,11 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		rom.updatePlumeState(false, 0.0);
 
 		AerodynamicForces romForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		AerodynamicForces baselineForces = new BarrowmanCalculator().getAerodynamicForces(config, conditions, new WarningSet());
 
 		assertEquals(0.62, romForces.getCD(), 1e-9);
+		assertEquals(baselineForces.getCN(), romForces.getCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), romForces.getCm(), 1e-9);
 		assertEquals(1, rom.getComputationSnapshots().size());
 		assertEquals(1.0, rom.getComputationSnapshots().get(0).getBlendWeight(), 1e-9);
 		assertEquals(5.0, rom.getComputationSnapshots().get(0).getAlphaDeg(), 1e-9);
@@ -264,8 +366,32 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		AerodynamicForces romForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
 
 		assertEquals(baselineForces.getCD(), romForces.getCD(), 1e-9);
+		assertEquals(baselineForces.getCN(), romForces.getCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), romForces.getCm(), 1e-9);
 		assertEquals(1, rom.getComputationSnapshots().size());
 		assertEquals(0.0, rom.getComputationSnapshots().get(0).getBlendWeight(), 1e-9);
+	}
+
+	@Test
+	public void testLowReLowMachKeepsBarrowmanCnAndCmForFourDSurface() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config, 10.0, 30.0);
+		conditions.setVelocity(5.0);
+
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		AerodynamicForces baselineForces = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet());
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface4D(cnCmSurface());
+		rom.updatePlumeState(false, 0.0);
+		AerodynamicForces romForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+
+		assertEquals(baselineForces.getCN(), romForces.getCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), romForces.getCm(), 1e-9);
+		assertEquals(0.0, snapshot.getBlendWeight(), 1e-9);
+		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.HYBRID_4D, snapshot.getCoefficientMode());
 	}
 
 	@Test
@@ -307,8 +433,32 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		assertEquals(5.0, snapshot.getAlphaDeg(), 1e-9);
 		assertTrue(Double.isFinite(snapshot.getMach()));
 		assertTrue(snapshot.getReynoldsLength() > 0.0);
+		assertTrue(Double.isNaN(snapshot.getQueriedCN()));
+		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.DRAG_ONLY_3D, snapshot.getCoefficientMode());
 
 		rom.clearComputationSnapshots();
 		assertTrue(rom.getComputationSnapshots().isEmpty());
+	}
+
+	@Test
+	public void testComputationSnapshotExposesCnCmAndModeMarker() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		AerodynamicForces baselineForces = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface4D(cnCmSurface());
+		rom.updatePlumeState(false, 0.0);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+		assertTrue(Double.isFinite(snapshot.getQueriedCN()));
+		assertTrue(Double.isFinite(snapshot.getEffectiveCN()));
+		assertTrue(Double.isFinite(snapshot.getQueriedCm()));
+		assertTrue(Double.isFinite(snapshot.getEffectiveCm()));
+		assertEquals(baselineForces.getCN(), snapshot.getEffectiveCN(), 1e-9);
+		assertEquals(baselineForces.getCm(), snapshot.getEffectiveCm(), 1e-9);
+		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.HYBRID_4D, snapshot.getCoefficientMode());
 	}
 }

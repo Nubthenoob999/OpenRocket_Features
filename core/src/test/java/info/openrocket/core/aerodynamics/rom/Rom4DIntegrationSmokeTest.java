@@ -53,9 +53,15 @@ public class Rom4DIntegrationSmokeTest extends BaseTestCase {
 					on[i][j][k][1] = 0.35;
 					body[i][j][k][0] = 0.37;
 					body[i][j][k][1] = 0.42;
+					cn[i][j][k][0] = 0.25;
+					cn[i][j][k][1] = 0.30;
+					cm[i][j][k][0] = -0.04;
+					cm[i][j][k][1] = -0.05;
 				}
 			}
 		}
+		assertTrue(cn[0][0][0][0] > 0.0);
+		assertTrue(cm[0][0][0][0] < 0.0);
 		return new AeroSurface4D(mach, logRe, alpha, beta, off, on, body, cn, cm, hash, 4);
 	}
 }

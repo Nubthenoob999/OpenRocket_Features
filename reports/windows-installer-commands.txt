@@ -1,0 +1,21 @@
+OpenRocket Windows Installer Build Commands
+Date: 2026-04-03
+
+Prerequisites
+- install4j 12 installed (CLI path expected at %LOCALAPPDATA%\Programs\install4j12\bin\install4jc.exe)
+- Run commands from repository root
+
+1) Build distributable JAR from current source
+.\gradlew.bat dist -x checkstyleMain -x checkstyleTest -x test -x core:test -x swing:test --console=plain
+
+2) Build Windows installers (.exe)
+"%LOCALAPPDATA%\Programs\install4j12\bin\install4jc.exe" -v -u --disable-notarization -m windows -d ".\build\installers" -D "JAR_NAME=OpenRocket-25.xx.SNAPSHOT.jar,JAR_FILE_LOCATION=../../build/libs/OpenRocket-25.xx.SNAPSHOT.jar" ".\install4j\25.xx\openrocket-25.xx.install4j"
+
+3) Output files
+- .\build\installers\OpenRocket-25.xx-installer-Windows-x86_64.exe
+- .\build\installers\OpenRocket-25.xx-installer-Windows-Arm64.exe
+- .\build\installers\sha256sums
+- .\build\installers\md5sums
+
+Optional: capture logs and exit code in PowerShell
+New-Item -ItemType Directory -Force -Path .\build\reports | Out-Null; & "$Env:LOCALAPPDATA\Programs\install4j12\bin\install4jc.exe" -v -u --disable-notarization -m windows -d ".\build\installers" -D "JAR_NAME=OpenRocket-25.xx.SNAPSHOT.jar,JAR_FILE_LOCATION=../../build/libs/OpenRocket-25.xx.SNAPSHOT.jar" ".\install4j\25.xx\openrocket-25.xx.install4j" *> .\build\reports\install4j-build-windows.log; "EXIT_CODE=$LASTEXITCODE" | Out-File -FilePath .\build\reports\install4j-build-windows.exitcode -Encoding ascii -Force

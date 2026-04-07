@@ -18,8 +18,10 @@ import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.ModID;
 
 /**
- * Aerodynamic calculator that delegates all stability derivatives to Barrowman
- * and replaces drag coefficient (Cd) using a precomputed ROM drag surface.
+ * Aerodynamic calculator that delegates stability derivatives to Barrowman and overlays
+ * drag coefficients from a precomputed ROM surface. 4D surfaces may be queried for richer
+ * diagnostics, but production force/moment replacement stays on the validated Barrowman path
+ * until the ROM stability models are externally verified.
  */
 public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 
@@ -37,6 +39,11 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private double plumeDecayState = 0.0;
 	private double currentSimulationTimeSeconds = Double.NaN;
 	private final List<RomComputationSnapshot> computationSnapshots = new ArrayList<>();
+
+	public enum RomCoefficientMode {
+		DRAG_ONLY_3D,
+		HYBRID_4D
+	}
 
 	public static final class RomComputationSnapshot {
 		private final double timeSeconds;
@@ -58,12 +65,19 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		private final double cdAfter;
 		private final double cdPlumeOff;
 		private final double cdPlumeOn;
+		private final double queriedCN;
+		private final double effectiveCN;
+		private final double queriedCm;
+		private final double effectiveCm;
+		private final RomCoefficientMode coefficientMode;
 
 		private RomComputationSnapshot(double timeSeconds, double mach, double reynoldsLength,
 				double alphaDeg, double thetaQueryDeg, double plumeState, double blendWeight,
 				double queryMach, double queryReynoldsLength, double queryAlphaDeg, double queryBetaDeg,
 				boolean machClamped, boolean reynoldsClamped, boolean alphaClamped, boolean betaClamped,
-				double cdBefore, double cdAfter, double cdPlumeOff, double cdPlumeOn) {
+				double cdBefore, double cdAfter, double cdPlumeOff, double cdPlumeOn,
+				double queriedCN, double effectiveCN, double queriedCm, double effectiveCm,
+				RomCoefficientMode coefficientMode) {
 			this.timeSeconds = timeSeconds;
 			this.mach = mach;
 			this.reynoldsLength = reynoldsLength;
@@ -83,6 +97,11 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			this.cdAfter = cdAfter;
 			this.cdPlumeOff = cdPlumeOff;
 			this.cdPlumeOn = cdPlumeOn;
+			this.queriedCN = queriedCN;
+			this.effectiveCN = effectiveCN;
+			this.queriedCm = queriedCm;
+			this.effectiveCm = effectiveCm;
+			this.coefficientMode = coefficientMode;
 		}
 
 		public double getTimeSeconds() {
@@ -172,6 +191,26 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		public double getCdPlumeOn() {
 			return cdPlumeOn;
 		}
+
+		public double getQueriedCN() {
+			return queriedCN;
+		}
+
+		public double getEffectiveCN() {
+			return effectiveCN;
+		}
+
+		public double getQueriedCm() {
+			return queriedCm;
+		}
+
+		public double getEffectiveCm() {
+			return effectiveCm;
+		}
+
+		public RomCoefficientMode getCoefficientMode() {
+			return coefficientMode;
+		}
 	}
 
 	public RomAerodynamicCalculator() {
@@ -234,21 +273,30 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		return Collections.unmodifiableList(new ArrayList<>(computationSnapshots));
 	}
 
-	public void updatePlumeState(boolean burning, double dtSeconds) {
+	public double getPlumeState() {
+		return plumeDecayState;
+	}
+
+	public void setPlumeState(double plumeState) {
+		this.plumeDecayState = sanitizePlumeState(plumeState);
+	}
+
+	public static double evolvePlumeState(double initialState, boolean burning, double dtSeconds) {
 		if (burning) {
-			plumeDecayState = 1.0;
-			return;
+			return 1.0;
 		}
+		double plumeState = sanitizePlumeState(initialState);
 		double dt = Math.max(0.0, dtSeconds);
 		if (dt == 0.0) {
-			plumeDecayState = 0.0;
-			return;
+			return plumeState;
 		}
 		double decay = Math.exp(-dt / PLUME_DECAY_TAU_SEC);
-		plumeDecayState *= decay;
-		if (plumeDecayState < 1e-6) {
-			plumeDecayState = 0.0;
-		}
+		double evolved = plumeState * decay;
+		return (evolved < 1e-6) ? 0.0 : evolved;
+	}
+
+	public void updatePlumeState(boolean burning, double dtSeconds) {
+		plumeDecayState = evolvePlumeState(plumeDecayState, burning, dtSeconds);
 	}
 
 	@Override
@@ -286,7 +334,7 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		if (total == null) {
 			return analysis;
 		}
-		applyRomCd(configuration, conditions, total, false);
+		applyRomCoefficients(configuration, conditions, total, false);
 		return analysis;
 	}
 
@@ -299,11 +347,11 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		if (!hasSurface()) {
 			return forces;
 		}
-		applyRomCd(configuration, conditions, forces, true);
+		applyRomCoefficients(configuration, conditions, forces, true);
 		return forces;
 	}
 
-	private void applyRomCd(FlightConfiguration configuration, FlightConditions conditions,
+	private void applyRomCoefficients(FlightConfiguration configuration, FlightConditions conditions,
 			AerodynamicForces forces, boolean updateAxial) {
 		double rawMach = conditions.getMach();
 		double mach = sanitizeNonNegative(rawMach);
@@ -313,16 +361,36 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		double length = Math.max(1e-6, configuration.getLengthAerodynamic());
 		double reL = (nu > 0.0) ? (velocity * length / nu) : 1e4;
 		double alphaDeg = Math.toDegrees(conditions.getAOA());
-		RomQueryValues queryValues = buildRomQueryValues(rawMach, reL, alphaDeg, conditions.getTheta());
-
 		double cdPlumeOff;
 		double cdPlumeOn;
+		double queriedCN = Double.NaN;
+		double queriedCm = Double.NaN;
+		double effectiveCN = forces.getCN();
+		double effectiveCm = forces.getCm();
+		RomCoefficientMode coefficientMode = RomCoefficientMode.DRAG_ONLY_3D;
+		RomQueryValues queryValues;
 		if (interpolator4D != null) {
-			cdPlumeOff = interpolator4D.queryCdPlumeOff(queryValues.queryMach(), queryValues.queryReynoldsLength(),
-					queryValues.queryAlphaDeg(), queryValues.queryBetaDeg());
-			cdPlumeOn = interpolator4D.queryCdPlumeOn(queryValues.queryMach(), queryValues.queryReynoldsLength(),
-					queryValues.queryAlphaDeg(), queryValues.queryBetaDeg());
+			double theta = safeTheta(conditions.getTheta());
+			double alphaComponent = alphaDeg * Math.abs(Math.cos(theta));
+			double betaComponent = alphaDeg * Math.abs(Math.sin(theta));
+			AeroSurface4DInterpolator.QueryResult queryResult = interpolator4D.query(rawMach, reL, alphaComponent, betaComponent);
+			cdPlumeOff = queryResult.cdPlumeOff;
+			cdPlumeOn = queryResult.cdPlumeOn;
+			queriedCN = queryResult.CN;
+			queriedCm = queryResult.Cm;
+			queryValues = new RomQueryValues(
+					queryResult.usedMach,
+					Math.pow(10.0, queryResult.usedLogRe),
+					queryResult.usedAlphaDeg,
+					queryResult.usedBetaDeg,
+					Math.toDegrees(theta),
+					queryResult.machClamped,
+					queryResult.reynoldsClamped,
+					queryResult.alphaClamped,
+					queryResult.betaClamped);
+			coefficientMode = RomCoefficientMode.HYBRID_4D;
 		} else {
+			queryValues = buildRomQueryValues(rawMach, reL, alphaDeg);
 			cdPlumeOff = interpolator.queryCdPlumeOff(queryValues.queryMach(), queryValues.queryReynoldsLength(),
 					queryValues.queryAlphaDeg());
 			cdPlumeOn = interpolator.queryCdPlumeOn(queryValues.queryMach(), queryValues.queryReynoldsLength(),
@@ -336,13 +404,17 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			effectiveCd = cdBlended;
 		}
 		forces.setCD(effectiveCd);
+		// Preserve Barrowman stability coefficients in production simulation. The current 4D
+		// ROM CN/Cm fields are recorded for diagnostics, but they are not yet trusted enough
+		// to replace the flight-dynamics path without causing large trajectory regressions.
 		computationSnapshots.add(new RomComputationSnapshot(currentSimulationTimeSeconds, mach, reL,
 				alphaDeg, queryValues.thetaQueryDeg(), plumeDecayState, blendWeight,
 				queryValues.queryMach(), queryValues.queryReynoldsLength(),
 				queryValues.queryAlphaDeg(), queryValues.queryBetaDeg(),
 				queryValues.machClamped(), queryValues.reynoldsClamped(),
 				queryValues.alphaClamped(), queryValues.betaClamped(),
-				oldCd, effectiveCd, cdPlumeOff, cdPlumeOn));
+				oldCd, effectiveCd, cdPlumeOff, cdPlumeOn,
+				queriedCN, effectiveCN, queriedCm, effectiveCm, coefficientMode));
 
 		if (updateAxial && oldCd > 1e-9) {
 			double scaledAxial = forces.getCDaxial() * (effectiveCd / oldCd);
@@ -350,27 +422,7 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		}
 	}
 
-	private RomQueryValues buildRomQueryValues(double mach, double reL, double alphaDeg, double thetaRad) {
-		if (interpolator4D != null && installedSurface4D != null) {
-			double theta = safeTheta(thetaRad);
-			double alphaComponent = alphaDeg * Math.abs(Math.cos(theta));
-			double betaComponent = alphaDeg * Math.abs(Math.sin(theta));
-			ClampResult machResult = clampToAxis(mach, installedSurface4D.machAxis);
-			ClampResult reResult = clampReynoldsLength(reL, installedSurface4D.logReAxis);
-			ClampResult alphaResult = clampToAxis(alphaComponent, installedSurface4D.alphaAxis);
-			ClampResult betaResult = clampToAxis(betaComponent, installedSurface4D.betaAxis);
-			return new RomQueryValues(
-					machResult.value,
-					reResult.value,
-					alphaResult.value,
-					betaResult.value,
-					Math.toDegrees(theta),
-					machResult.clamped,
-					reResult.clamped,
-					alphaResult.clamped,
-					betaResult.clamped);
-		}
-
+	private RomQueryValues buildRomQueryValues(double mach, double reL, double alphaDeg) {
 		ClampResult machResult = clampToAxis(mach, installedSurface.machAxis);
 		ClampResult reResult = clampReynoldsLength(reL, installedSurface.logReAxis);
 		ClampResult alphaResult = clampToAxis(alphaDeg, installedSurface.alphaAxis);
@@ -388,6 +440,13 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 
 	private static double sanitizeNonNegative(double value) {
 		return Double.isFinite(value) ? Math.max(0.0, value) : 0.0;
+	}
+
+	private static double sanitizePlumeState(double value) {
+		if (!Double.isFinite(value)) {
+			return 0.0;
+		}
+		return Math.max(0.0, Math.min(1.0, value));
 	}
 
 	private static double safeTheta(double thetaRad) {

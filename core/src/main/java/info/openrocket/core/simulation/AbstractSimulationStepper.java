@@ -366,6 +366,8 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 		public double lateralPitchRate = Double.NaN;
 
 		public Rotation2D thetaRotation;
+		public RomStageAerodynamicsHelper.StageContext romStageContext =
+				RomStageAerodynamicsHelper.StageContext.inactive();
 
 		void storeData(SimulationStatus status) {
 

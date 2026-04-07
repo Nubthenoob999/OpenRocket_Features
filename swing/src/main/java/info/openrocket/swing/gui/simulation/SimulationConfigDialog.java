@@ -35,6 +35,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Component;
 import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -168,12 +169,6 @@ public class SimulationConfigDialog extends JDialog {
 
 		contentPanel.add(tabbedPane, "grow, push, wrap");
 
-		// Create a scroll pane for the content
-		JScrollPane scrollPane = new JScrollPane(contentPanel);
-		scrollPane.setBorder(null);
-		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-
 		// ======== Bottom panel ========
 		JPanel bottomPanel = generateBottomPanel();
 
@@ -215,6 +210,12 @@ public class SimulationConfigDialog extends JDialog {
 			}
 
 		});
+
+		// Create a scroll pane for the content
+		JScrollPane scrollPane = new JScrollPane(contentPanel);
+		scrollPane.setBorder(null);
+		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
 		this.add(scrollPane, BorderLayout.CENTER);
 		this.add(bottomPanel, BorderLayout.SOUTH);

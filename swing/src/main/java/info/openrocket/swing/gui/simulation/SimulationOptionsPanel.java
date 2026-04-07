@@ -354,7 +354,7 @@ class SimulationOptionsPanel extends JPanel {
 		//// Monte Carlo analysis
 		sub = new JPanel(new MigLayout("fill, gap rel unrel", "[grow][grow 0]", "[]"));
 		sub.setBorder(BorderFactory.createTitledBorder("Monte Carlo analysis"));
-		this.add(sub, "growx, aligny 0");
+		this.add(sub, "growx, aligny 0, wrap");
 
 		monteCarloEnabledCheckBox = new JCheckBox("Enable Monte Carlo analysis");
 		monteCarloEnabledCheckBox.setToolTipText("Turn Monte Carlo batch analysis on or off for this simulation.");
