@@ -1,6 +1,8 @@
 package info.openrocket.core.aerodynamics.rom;
 
-/** Base drag model for rocket aerodynamics. */
+/** Base drag model for rocket aerodynamics.
+ * WWEEEE
+ */
 
 public class BaseDragModel {
 
