@@ -320,8 +320,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	}
 
 	@Override
-	public double getStallMargin() {
-		return barrowman.getStallMargin();
+	public double getStallAngle() {
+		return barrowman.getStallAngle();
 	}
 
 	@Override

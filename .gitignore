@@ -65,7 +65,6 @@ lib-test/OpenRocket Library Test.iml
 **/.idea/workspace.xml
 
 # Gradle:
-**/.idea/gradle.xml
 **/.idea/libraries
 
 # Mongo Explorer plugin:
@@ -115,7 +114,6 @@ docs/build
 **/AGENTS.md
 **/CLAUDE.md
 **/GEMINI.md
-
 # Requested global test/data artifact ignores
 **/*.ork
 **/*.csv
@@ -123,3 +121,7 @@ docs/build
 **/*.json
 **/*.zip
 
+**/.claude
+
+# Environment files
+**/.env

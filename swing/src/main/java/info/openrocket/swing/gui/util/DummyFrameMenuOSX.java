@@ -16,7 +16,6 @@ import javax.swing.KeyStroke;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
 /**
@@ -71,10 +70,10 @@ public class DummyFrameMenuOSX extends JFrame {
 
         ////	Quit
         item = new JMenuItem(trans.get("main.menu.file.quit"), KeyEvent.VK_Q);
-        item.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, InputEvent.META_DOWN_MASK));
+        item.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q, GUIUtil.getMenuShortcutKeyMask()));
         //// Quit the program
         item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.file.quit.desc"));
-        item.setIcon(Icons.FILE_QUIT);
+        item.setIcon(Icons.deriveMenuIcon(Icons.FILE_QUIT));
         item.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {

@@ -1165,6 +1165,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime) &&
 				Objects.equals(this.liveWeatherLaunchDate, o.liveWeatherLaunchDate) &&
 				Objects.equals(this.liveWeatherLaunchTime, o.liveWeatherLaunchTime)) &&
+				this.stepperMethodChoice == o.stepperMethodChoice &&
 				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
 				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
@@ -1284,6 +1285,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    timeStep:  %f\n", timeStep))
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))
+				.concat(String.format("    stepperMethodChoice: %s\n", stepperMethodChoice))
 				.concat("]\n");
 	}
 

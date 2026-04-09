@@ -45,7 +45,6 @@ public class BarrowmanStabilityCalculator implements StabilityCalculator {
 	private Map<RocketComponent, RocketComponentCalc> calcMap = null;
 	private double cacheDiameter = -1;
 	private double cacheLength = -1;
-	private double stallMargin;
 
 	@Override
 	public StabilityCalculator newInstance() {
@@ -53,8 +52,8 @@ public class BarrowmanStabilityCalculator implements StabilityCalculator {
 	}
 
 	@Override
-	public double getStallMargin() {
-		return stallMargin;
+	public double getStallAngle() {
+		return STALL_ANGLE;
 	}
 
 	@Override
@@ -124,7 +123,6 @@ public class BarrowmanStabilityCalculator implements StabilityCalculator {
 		total.setPitchDampingMoment(MathUtil.sign(pitchRate) * pitchDampingMomentMagnitude);
 		total.setYawDampingMoment(MathUtil.sign(yawRate) * yawDampingMomentMagnitude);
 
-		stallMargin = STALL_ANGLE - conditions.getAOA();
 	}
 
 	@Override
@@ -153,8 +151,7 @@ public class BarrowmanStabilityCalculator implements StabilityCalculator {
 					if (prevComp == null) {
 						if (sym.getForeRadius() - sym.getThickness() > MathUtil.EPSILON) {
 
-							// only recorde open airframe warning if it's the sustainer is active or if
-							// the booster has a recovery device
+							// only record open airframe warning if it's the sustainer or it has a recovery device
 							boolean sustainer = configuration.isStageActive(0);
 							boolean hasRecoveryDevice = configuration.getBottomStage().hasRecoveryDevice();
 
@@ -239,7 +236,6 @@ public class BarrowmanStabilityCalculator implements StabilityCalculator {
 		calcMap = null;
 		cacheDiameter = -1;
 		cacheLength = -1;
-		stallMargin = 0;
 	}
 
 	private AerodynamicForces calculateComponentNonAxialForces(FlightConditions conditions, RocketComponent comp,
