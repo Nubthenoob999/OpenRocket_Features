@@ -117,7 +117,8 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 	private static FlightConditions makeConditions(FlightConfiguration config) {
 		FlightConditions conditions = new FlightConditions(config);
 		conditions.setAtmosphericConditions(new AtmosphericConditions());
-		conditions.setMach(0.8);
+		conditions.setMach(0.3);
+		conditions.setVelocity(150.0);
 		conditions.setAOA(Math.toRadians(5.0));
 		return conditions;
 	}
@@ -290,11 +291,19 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 
 		AerodynamicForces forces = rom4D.getAerodynamicForces(config, conditions, new WarningSet());
 		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom4D.getComputationSnapshots().get(0);
-		AeroSurface4DInterpolator.QueryResult expected = new AeroSurface4DInterpolator(surface4D)
+		AeroSurface4DInterpolator interpolator = new AeroSurface4DInterpolator(surface4D);
+		AeroSurface4DInterpolator.QueryResult expected = interpolator
 				.query(snapshot.getQueryMach(), snapshot.getQueryReynoldsLength(),
 						snapshot.getQueryAlphaDeg(), snapshot.getQueryBetaDeg());
+		AeroSurface4DInterpolator.QueryResult betaZero = interpolator
+				.query(snapshot.getQueryMach(), snapshot.getQueryReynoldsLength(),
+						snapshot.getAlphaDeg(), 0.0);
 
-		assertEquals(expected.cdPlumeOff, forces.getCD(), 1e-9);
+		assertTrue(snapshot.getBlendWeight() < 1.0);
+		double lower = Math.min(baselineForces.getCD(), betaZero.cdPlumeOff);
+		double upper = Math.max(baselineForces.getCD(), betaZero.cdPlumeOff);
+		assertTrue(forces.getCD() > lower);
+		assertTrue(forces.getCD() < upper);
 		assertEquals(baselineForces.getCN(), forces.getCN(), 1e-9);
 		assertEquals(baselineForces.getCm(), forces.getCm(), 1e-9);
 		assertEquals(expected.CN, snapshot.getQueriedCN(), 1e-9);

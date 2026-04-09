@@ -52,7 +52,8 @@ public class RomAerodynamicCalculator4DTest extends BaseTestCase {
 	private static FlightConditions makeConditions(FlightConfiguration config, double aoaDeg, double thetaDeg) {
 		FlightConditions conditions = new FlightConditions(config);
 		conditions.setAtmosphericConditions(new AtmosphericConditions());
-		conditions.setMach(0.8);
+		conditions.setMach(0.3);
+		conditions.setVelocity(150.0);
 		conditions.setAOA(Math.toRadians(aoaDeg));
 		conditions.setTheta(Math.toRadians(thetaDeg));
 		return conditions;
@@ -123,5 +124,30 @@ public class RomAerodynamicCalculator4DTest extends BaseTestCase {
 		assertTrue(result.CN > 0.0);
 		assertTrue(result.Cm <= 0.0);
 		assertEquals(result.cdPlumeOff - 0.03, result.cdBody, 1e-9);
+	}
+
+	@Test
+	public void testFourDBetaDragTapersBackTowardBetaZeroNearTransonic() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config, 10.0, 90.0);
+		conditions.setMach(0.8);
+		BarrowmanCalculator baselineCalc = new BarrowmanCalculator();
+		AerodynamicForces baseline = baselineCalc.getAerodynamicForces(config, conditions, new WarningSet());
+
+		RomAerodynamicCalculator calc = new RomAerodynamicCalculator();
+		calc.installSurface4D(interpolatedSurface4D());
+		calc.updatePlumeState(false, 0.0);
+
+		AerodynamicForces forces = calc.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = calc.getComputationSnapshots().get(0);
+
+		assertEquals(0.0, snapshot.getQueryAlphaDeg(), 1e-9);
+		assertEquals(10.0, snapshot.getQueryBetaDeg(), 1e-9);
+		assertTrue(snapshot.getBlendWeight() < 1.0);
+		double lower = Math.min(baseline.getCD(), 0.50);
+		double upper = Math.max(baseline.getCD(), 0.50);
+		assertTrue(forces.getCD() > lower);
+		assertTrue(forces.getCD() < upper);
 	}
 }

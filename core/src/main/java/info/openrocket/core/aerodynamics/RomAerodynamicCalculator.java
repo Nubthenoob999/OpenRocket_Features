@@ -30,6 +30,13 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private static final double BLEND_MACH_FULL_ROM = 0.55;
 	private static final double BLEND_RE_FULL_BARROWMAN = 8.0e5;
 	private static final double BLEND_RE_FULL_ROM = 1.4e6;
+	private static final double BETA_DRAG_LOW_MACH_FADE_IN_START = 0.08;
+	private static final double BETA_DRAG_LOW_MACH_FADE_IN_END = 0.18;
+	private static final double BETA_DRAG_TRANSONIC_FADE_OUT_START = 0.45;
+	private static final double BETA_DRAG_TRANSONIC_FADE_OUT_END = 0.55;
+	private static final double FOUR_D_DRAG_TRANSONIC_FADE_START = 0.45;
+	private static final double FOUR_D_DRAG_TRANSONIC_FADE_END = 0.55;
+	private static final double FOUR_D_DRAG_MIN_TRUST = 0.25;
 
 	private final BarrowmanCalculator barrowman;
 	private DragSurfaceInterpolator interpolator;
@@ -374,8 +381,13 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			double alphaComponent = alphaDeg * Math.abs(Math.cos(theta));
 			double betaComponent = alphaDeg * Math.abs(Math.sin(theta));
 			AeroSurface4DInterpolator.QueryResult queryResult = interpolator4D.query(rawMach, reL, alphaComponent, betaComponent);
-			cdPlumeOff = queryResult.cdPlumeOff;
-			cdPlumeOn = queryResult.cdPlumeOn;
+			AeroSurface4DInterpolator.QueryResult betaZeroQuery = queryResult;
+			if (betaComponent > 1e-9) {
+				betaZeroQuery = interpolator4D.query(rawMach, reL, alphaDeg, 0.0);
+			}
+			double betaDragWeight = computeFourDBetaDragWeight(mach);
+			cdPlumeOff = blendFourDBetaIncrement(betaZeroQuery.cdPlumeOff, queryResult.cdPlumeOff, betaDragWeight);
+			cdPlumeOn = blendFourDBetaIncrement(betaZeroQuery.cdPlumeOn, queryResult.cdPlumeOn, betaDragWeight);
 			queriedCN = queryResult.CN;
 			queriedCm = queryResult.Cm;
 			queryValues = new RomQueryValues(
@@ -399,6 +411,9 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		double oldCd = forces.getCD();
 		double cdBlended = cdPlumeOff + plumeDecayState * (cdPlumeOn - cdPlumeOff);
 		double blendWeight = computeRomBlendWeight(mach, reL);
+		if (coefficientMode == RomCoefficientMode.HYBRID_4D) {
+			blendWeight *= computeFourDDragTrust(mach);
+		}
 		double effectiveCd = blendWeight * cdBlended + (1.0 - blendWeight) * oldCd;
 		if (!Double.isFinite(effectiveCd) || effectiveCd <= 0.0) {
 			effectiveCd = cdBlended;
@@ -498,6 +513,28 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		double machWeight = smoothStep(BLEND_MACH_FULL_BARROWMAN, BLEND_MACH_FULL_ROM, mach);
 		double reWeight = smoothStep(BLEND_RE_FULL_BARROWMAN, BLEND_RE_FULL_ROM, reL);
 		return Math.max(machWeight, reWeight);
+	}
+
+	private static double computeFourDBetaDragWeight(double mach) {
+		double lowMachTrust = smoothStep(BETA_DRAG_LOW_MACH_FADE_IN_START, BETA_DRAG_LOW_MACH_FADE_IN_END, mach);
+		double transonicTrust = 1.0 - smoothStep(BETA_DRAG_TRANSONIC_FADE_OUT_START,
+				BETA_DRAG_TRANSONIC_FADE_OUT_END, mach);
+		return lowMachTrust * transonicTrust;
+	}
+
+	private static double computeFourDDragTrust(double mach) {
+		double fade = smoothStep(FOUR_D_DRAG_TRANSONIC_FADE_START, FOUR_D_DRAG_TRANSONIC_FADE_END, mach);
+		return 1.0 - (1.0 - FOUR_D_DRAG_MIN_TRUST) * fade;
+	}
+
+	private static double blendFourDBetaIncrement(double betaZeroCd, double fullFourDCd, double betaDragWeight) {
+		if (!Double.isFinite(betaZeroCd)) {
+			return fullFourDCd;
+		}
+		if (!Double.isFinite(fullFourDCd)) {
+			return betaZeroCd;
+		}
+		return betaZeroCd + betaDragWeight * (fullFourDCd - betaZeroCd);
 	}
 
 	private static double smoothStep(double min, double max, double value) {

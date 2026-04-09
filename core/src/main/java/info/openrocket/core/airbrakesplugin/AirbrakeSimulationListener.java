@@ -25,6 +25,9 @@ import org.slf4j.LoggerFactory;
 public final class AirbrakeSimulationListener extends AbstractSimulationListener {
 
     private static final Logger log = LoggerFactory.getLogger(AirbrakeSimulationListener.class);
+    // Burnout-only Hail Mary flights match observed apogee best when we keep the
+    // legacy shared-area conversion but slightly reduce the airbrake share.
+    private static final double BURNOUT_ONLY_AIRBRAKE_REFERENCE_AREA_SCALE = 0.977;
 
     // small threshold to distinguish "no thrust" from "burning"
     private static final double THRUST_EPS_N = 1e-3;
@@ -345,7 +348,11 @@ public final class AirbrakeSimulationListener extends AbstractSimulationListener
             return forces;
         }
 
-        final double combinedArea = rocket_area + Math.max(0.0, airbrakes_area);
+        double effectiveAirbrakesArea = Math.max(0.0, airbrakes_area);
+        if (config != null && config.isDeployAfterBurnoutOnly()) {
+            effectiveAirbrakesArea *= BURNOUT_ONLY_AIRBRAKE_REFERENCE_AREA_SCALE;
+        }
+        final double combinedArea = rocket_area + effectiveAirbrakesArea;
 
         double drag_total_axial = dragForceN_roc_axial + dragForceN_airbrakes;
         double drag_total = dragForceN_roc + dragForceN_airbrakes;

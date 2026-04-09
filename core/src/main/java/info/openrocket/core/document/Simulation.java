@@ -529,8 +529,12 @@ public class Simulation implements ChangeSource, Cloneable {
 				simulatedData = simulator.getFlightData();
 			}
 			if (simulationConditions != null && simulationConditions.getRomAerodynamicCalculator() != null) {
-				RomSimulationLogExporter.exportIfAvailable(this, options, simulatedConditions,
-						simulationConditions.getRomAerodynamicCalculator());
+				try {
+					RomSimulationLogExporter.exportIfAvailable(this, options, simulatedConditions,
+							simulationConditions.getRomAerodynamicCalculator());
+				} catch (NoClassDefFoundError | ExceptionInInitializerError exportUnavailable) {
+					log.debug("ROM simulation log export unavailable, continuing without export", exportUnavailable);
+				}
 			}
 			
 			status = Status.UPTODATE;
