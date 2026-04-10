@@ -31,6 +31,7 @@ import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.UIManager;
 import javax.swing.table.DefaultTableModel;
 
 import net.miginfocom.swing.MigLayout;
@@ -52,7 +53,7 @@ import info.openrocket.core.document.Simulation;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.util.MathUtil;
 
-class RomPrestepPanel extends JPanel {
+class RomPrestepPanel extends SimulationScrollablePanel {
 
     private static final long serialVersionUID = 2770487667033110266L;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("MM/dd HH:mm", Locale.ROOT);
@@ -61,7 +62,7 @@ class RomPrestepPanel extends JPanel {
 
     private final JLabel surfaceStatusValue = new JLabel("Not computed");
     private final JLabel geometryValue = new JLabel("-");
-    private final JLabel geometryWarning = new JLabel("Geometry has changed - rebuild required");
+    private final JTextArea geometryWarning = createWrappingTextArea();
 
     private final JLabel bodyLengthValue = new JLabel("-");
     private final JLabel maxDiameterValue = new JLabel("-");
@@ -86,6 +87,7 @@ class RomPrestepPanel extends JPanel {
     private final JLabel estimatedTime = new JLabel("~0.3 s");
 
     private final PreviewChartPanel previewChart = new PreviewChartPanel();
+    private final JTextArea previewSummary = createWrappingTextArea();
 
     private final JCheckBox validationToggle = new JCheckBox("Show validation");
     private final JPanel validationPanel = new JPanel(new MigLayout("fill, insets 0"));
@@ -107,42 +109,36 @@ class RomPrestepPanel extends JPanel {
     private boolean updatingModeSelection;
 
     RomPrestepPanel(Simulation simulation) {
-        super(new BorderLayout());
+        super(new MigLayout("fillx, insets 6, gap 8 8, wrap 2", "[grow,fill][grow,fill]", ""));
         this.simulation = simulation;
-
-        JPanel content = new JPanel(new MigLayout("fillx, wrap 1", "[grow]", ""));
-        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        content.add(buildStatusPanel(), "growx");
-        content.add(buildParametersPanel(), "growx");
-        content.add(buildControlsPanel(), "growx");
-        content.add(buildPreviewPanel(), "growx");
-        content.add(buildValidationPanel(), "growx");
-
-        add(content, BorderLayout.CENTER);
+        add(buildStatusPanel(), "growx, top");
+        add(buildControlsPanel(), "growx, top");
+        add(buildParametersPanel(), "span 2, growx, top");
+        add(buildPreviewPanel(), "grow, top");
+        add(buildValidationPanel(), "grow, top");
 
         wireEvents();
         refreshFromModel();
     }
 
     private JPanel buildStatusPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 8", "[right][grow]", ""));
+        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow]", ""));
         panel.setBorder(BorderFactory.createTitledBorder("Status"));
 
         surfaceStatusValue.setForeground(new Color(120, 120, 120));
         geometryWarning.setForeground(new Color(180, 30, 30));
-        geometryWarning.setText("<html><div style='width: 220px;'>Geometry has changed - rebuild required</div></html>");
+        geometryWarning.setText("Geometry has changed - rebuild required");
 
         panel.add(new JLabel("Aerodynamic surface:"));
         panel.add(surfaceStatusValue, "wrap");
         panel.add(new JLabel("Geometry:"));
         panel.add(geometryValue, "wrap");
-        panel.add(geometryWarning, "span 2");
+        panel.add(geometryWarning, "span 2, growx");
         return panel;
     }
 
     private JPanel buildParametersPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 8", "[right][grow][right][grow]", ""));
+        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow][right][grow]", ""));
         panel.setBorder(BorderFactory.createTitledBorder("Parameters"));
 
         panel.add(new JLabel("Body length:"));
@@ -177,7 +173,7 @@ class RomPrestepPanel extends JPanel {
     }
 
     private JPanel buildControlsPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 8", "[][grow][]", ""));
+        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[][grow][]", ""));
         panel.setBorder(BorderFactory.createTitledBorder("Build"));
 
         progressBar.setVisible(false);
@@ -193,20 +189,25 @@ class RomPrestepPanel extends JPanel {
     private JPanel buildPreviewPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Cd(M) preview"));
-        previewChart.setPreferredSize(new Dimension(480, 240));
+        previewChart.setPreferredSize(new Dimension(360, 210));
+        previewSummary.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 8));
+        previewSummary.setText("Build a ROM surface to preview drag coefficient versus Mach.");
         panel.add(previewChart, BorderLayout.CENTER);
+        panel.add(previewSummary, BorderLayout.SOUTH);
         return panel;
     }
 
     private JPanel buildValidationPanel() {
-        JPanel container = new JPanel(new MigLayout("fillx, insets 0, wrap 1", "[grow]", ""));
+        JPanel container = new JPanel(new MigLayout("fillx, insets 0, gapy 6, wrap 1", "[grow]", ""));
 
         validationPanel.setBorder(BorderFactory.createTitledBorder("Validation"));
         validationInput.setText("# Paste rows: M,Re,Cd\n");
+        validationInput.setLineWrap(true);
+        validationInput.setWrapStyleWord(false);
 
         JTable table = new JTable(validationModel);
         JScrollPane tableScroll = new JScrollPane(table);
-        tableScroll.setPreferredSize(new Dimension(500, 130));
+        tableScroll.setPreferredSize(new Dimension(320, 130));
 
         validationPanel.add(new JLabel("CFD CSV rows (M,Re,Cd):"), "wrap");
         validationPanel.add(new JScrollPane(validationInput), "growx, wrap");
@@ -264,6 +265,9 @@ class RomPrestepPanel extends JPanel {
                     : "Geometry has changed - rebuild required");
             geometryWarning.setVisible(hasOtherModeSurface);
             previewChart.clear();
+            previewSummary.setText("Build a ROM surface to preview drag coefficient versus Mach. "
+                    + "The chart will highlight the transonic band, plume-on/plume-off behavior, "
+                    + "and any beta sweep included in the selected ROM mode.");
             return;
         }
 
@@ -430,6 +434,7 @@ class RomPrestepPanel extends JPanel {
             on[i] = interpolator.queryCdPlumeOn(mach[i], re, 0.0);
         }
         previewChart.setSeries(mach, off, on, null);
+        previewSummary.setText(buildPreviewSummary(re, mach, off, on, null));
     }
 
     private void rebuildPreview(AeroSurface4D surface) {
@@ -447,6 +452,7 @@ class RomPrestepPanel extends JPanel {
             off15[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0, 15.0);
         }
         previewChart.setSeries(mach, off0, on0, off15);
+        previewSummary.setText(buildPreviewSummary(re, mach, off0, on0, off15));
     }
 
     private void exportSurfaceCsv() {
@@ -474,6 +480,17 @@ class RomPrestepPanel extends JPanel {
 
     private FlightConfiguration activeConfiguration() {
         return simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId());
+    }
+
+    private static JTextArea createWrappingTextArea() {
+        JTextArea area = new JTextArea();
+        area.setEditable(false);
+        area.setOpaque(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setFocusable(false);
+        area.setBorder(BorderFactory.createEmptyBorder());
+        return area;
     }
 
     private void handleBuildModeSelectionChanged() {
@@ -535,8 +552,44 @@ class RomPrestepPanel extends JPanel {
         return String.format(Locale.ROOT, "%.4f", value);
     }
 
+    private static String buildPreviewSummary(double reynolds, double[] mach, double[] plumeOff,
+                                              double[] plumeOn, double[] plumeOffBeta) {
+        int peakIndex = indexOfPeak(plumeOff);
+        double peakMach = peakIndex >= 0 ? mach[peakIndex] : Double.NaN;
+        double peakCd = peakIndex >= 0 ? plumeOff[peakIndex] : Double.NaN;
+        String betaLine = plumeOffBeta == null
+                ? "Blue is plume-off and orange dashed is plume-on at alpha = 0 deg."
+                : "Blue is plume-off at beta = 0 deg, orange dashed is plume-on at beta = 0 deg, and green is plume-off at beta = 15 deg.";
+        String peakLine = peakIndex < 0
+                ? "The transonic band (Mach 0.8 to 1.2) is where wave drag typically peaks."
+                : String.format(Locale.ROOT,
+                "The transonic band (Mach 0.8 to 1.2) captures the wave-drag rise, with the plume-off peak near Mach %.2f at Cd %.3f.",
+                peakMach, peakCd);
+        return String.format(Locale.ROOT,
+                "Preview conditions: Re = %.3e, alpha = 0 deg. %s %s Above Mach 1.2 the curves relax toward their supersonic trend.",
+                reynolds, betaLine, peakLine);
+    }
+
+    private static int indexOfPeak(double[] values) {
+        if (values == null || values.length == 0) {
+            return -1;
+        }
+        int bestIndex = 0;
+        double bestValue = values[0];
+        for (int i = 1; i < values.length; i++) {
+            if (values[i] > bestValue) {
+                bestValue = values[i];
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
+    }
+
     private static final class PreviewChartPanel extends JPanel {
         private static final long serialVersionUID = -1115574697605012065L;
+        private static final double MAX_MACH = 4.0;
+        private static final double TRANSONIC_START = 0.8;
+        private static final double TRANSONIC_END = 1.2;
 
         private double[] mach;
         private double[] off;
@@ -568,49 +621,100 @@ class RomPrestepPanel extends JPanel {
                 int w = getWidth();
                 int h = getHeight();
 
-                int left = 44;
-                int right = 16;
-                int top = 18;
-                int bottom = 28;
+                Color panelBackground = fallbackColor(getBackground(), UIManager.getColor("Panel.background"),
+                        new Color(32, 36, 41));
+                Color textColor = fallbackColor(getForeground(), UIManager.getColor("Label.foreground"), Color.WHITE);
+                boolean darkTheme = isDark(panelBackground);
+                Color plotBackground = darkTheme ? new Color(25, 29, 34) : new Color(248, 248, 248);
+                Color plotBorder = darkTheme ? new Color(95, 103, 112) : new Color(200, 200, 200);
+                Color gridColor = darkTheme ? new Color(255, 255, 255, 26) : new Color(0, 0, 0, 24);
+                Color dimText = withAlpha(textColor, darkTheme ? 185 : 150);
+                Color guideColor = darkTheme ? new Color(255, 218, 145, 150) : new Color(140, 110, 70, 130);
+                Color transonicFill = darkTheme ? new Color(255, 184, 77, 28) : new Color(255, 171, 64, 32);
+                Color machOneColor = darkTheme ? new Color(255, 240, 212, 100) : new Color(140, 100, 55, 100);
+                Color offColor = darkTheme ? new Color(96, 174, 255) : new Color(25, 90, 180);
+                Color onColor = darkTheme ? new Color(255, 164, 92) : new Color(190, 80, 20);
+                Color betaColor = darkTheme ? new Color(123, 214, 145) : new Color(40, 140, 60);
+                Color legendBackground = darkTheme ? new Color(18, 22, 28, 215) : new Color(255, 255, 255, 220);
+
+                int left = 54;
+                int right = 20;
+                int top = 20;
+                int bottom = 38;
 
                 int pw = Math.max(1, w - left - right);
                 int ph = Math.max(1, h - top - bottom);
+                double yMax = computeRangeMax(off, on, offBeta);
+                double yStep = computeTickStep(yMax / 4.0);
 
-                g2.setColor(new Color(248, 248, 248));
+                g2.setColor(plotBackground);
                 g2.fillRect(left, top, pw, ph);
-                g2.setColor(new Color(200, 200, 200));
+                shadeMachBand(g2, left, top, pw, ph, TRANSONIC_START, TRANSONIC_END, transonicFill);
+
+                g2.setFont(getFont().deriveFont(Font.PLAIN, 11f));
+                for (double y = 0.0; y <= yMax + 1e-9; y += yStep) {
+                    int py = toPixelY(y, top, ph, yMax);
+                    g2.setColor(gridColor);
+                    g2.drawLine(left, py, left + pw, py);
+                    g2.setColor(dimText);
+                    g2.drawString(formatTick(yStep, y), 10, py + 4);
+                }
+
+                for (int xTick = 0; xTick <= 4; xTick++) {
+                    int px = toPixelX(xTick, left, pw);
+                    g2.setColor(gridColor);
+                    g2.drawLine(px, top, px, top + ph);
+                    g2.setColor(dimText);
+                    String label = Integer.toString(xTick);
+                    g2.drawString(label, px - g2.getFontMetrics().stringWidth(label) / 2, top + ph + 16);
+                }
+
+                drawVLine(g2, left, top, pw, ph, TRANSONIC_START, guideColor);
+                drawVLine(g2, left, top, pw, ph, TRANSONIC_END, guideColor);
+                drawVLine(g2, left, top, pw, ph, 1.0, machOneColor);
+
+                g2.setColor(plotBorder);
                 g2.drawRect(left, top, pw, ph);
 
-                drawVLine(g2, left, top, pw, ph, 0.8, new Color(150, 150, 150));
-                drawVLine(g2, left, top, pw, ph, 1.2, new Color(150, 150, 150));
-
-                g2.setColor(new Color(50, 50, 50));
-                g2.setFont(getFont().deriveFont(Font.PLAIN, 11f));
-                g2.drawString("0", left - 10, top + ph + 14);
-                g2.drawString("4", left + pw - 4, top + ph + 14);
-                g2.drawString("0", left - 20, top + ph + 4);
-                g2.drawString("1.5", left - 28, top + 4);
-                g2.drawString("Mach", left + pw / 2 - 12, h - 6);
+                g2.setColor(textColor);
+                g2.drawString("Mach", left + pw / 2 - 14, h - 8);
 
                 g2.rotate(-Math.PI / 2.0);
-                g2.drawString("Cd", -top - ph / 2 - 8, 14);
+                g2.drawString("Cd", -top - ph / 2 - 8, 18);
                 g2.rotate(Math.PI / 2.0);
 
                 if (mach == null || off == null || on == null) {
+                    g2.setColor(textColor);
+                    g2.setFont(getFont().deriveFont(Font.PLAIN, 12f));
+                    String line1 = "Build a ROM surface to preview drag versus Mach.";
+                    String line2 = "The shaded band highlights the transonic regime around Mach 1.";
+                    g2.drawString(line1, left + 14, top + ph / 2 - 6);
+                    g2.setColor(dimText);
+                    g2.drawString(line2, left + 14, top + ph / 2 + 14);
                     return;
                 }
 
-                drawSeries(g2, left, top, pw, ph, mach, off, new Color(25, 90, 180), null);
-                drawSeries(g2, left, top, pw, ph, mach, on, new Color(190, 80, 20), new float[] { 6f, 6f });
+                drawSeries(g2, left, top, pw, ph, yMax, mach, off, offColor, null);
+                drawSeries(g2, left, top, pw, ph, yMax, mach, on, onColor, new float[] { 6f, 6f });
                 if (offBeta != null) {
-                    drawSeries(g2, left, top, pw, ph, mach, offBeta, new Color(40, 140, 60), new float[] { 2f, 4f });
+                    drawSeries(g2, left, top, pw, ph, yMax, mach, offBeta, betaColor, new float[] { 2f, 4f });
                 }
+
+                drawLegend(g2, left + 10, top + 10, legendBackground, textColor, dimText, offBeta != null,
+                        offColor, onColor, betaColor);
+                drawPeakMarker(g2, left, top, pw, ph, yMax, mach, off, offColor, legendBackground, textColor);
+
+                g2.setColor(dimText);
+                g2.setFont(getFont().deriveFont(Font.PLAIN, 10f));
+                String bandLabel = "Transonic band";
+                int bandCenter = (toPixelX(TRANSONIC_START, left, pw) + toPixelX(TRANSONIC_END, left, pw)) / 2;
+                g2.drawString(bandLabel, bandCenter - g2.getFontMetrics().stringWidth(bandLabel) / 2, top + 12);
             } finally {
                 g2.dispose();
             }
         }
 
-        private static void drawSeries(Graphics2D g2, int left, int top, int pw, int ph,
+        private static void drawSeries(Graphics2D g2, int left, int top, int pw, int ph, double yMax,
                                        double[] x, double[] y, Color color, float[] dash) {
             g2.setColor(color);
             if (dash == null) {
@@ -619,21 +723,159 @@ class RomPrestepPanel extends JPanel {
                 g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, dash, 0f));
             }
             for (int i = 1; i < x.length; i++) {
-                int x1 = left + (int) Math.round(pw * MathUtil.clamp(x[i - 1] / 4.0, 0.0, 1.0));
-                int y1 = top + ph - (int) Math.round(ph * MathUtil.clamp(y[i - 1] / 1.5, 0.0, 1.0));
-                int x2 = left + (int) Math.round(pw * MathUtil.clamp(x[i] / 4.0, 0.0, 1.0));
-                int y2 = top + ph - (int) Math.round(ph * MathUtil.clamp(y[i] / 1.5, 0.0, 1.0));
+                int x1 = toPixelX(x[i - 1], left, pw);
+                int y1 = toPixelY(y[i - 1], top, ph, yMax);
+                int x2 = toPixelX(x[i], left, pw);
+                int y2 = toPixelY(y[i], top, ph, yMax);
                 g2.drawLine(x1, y1, x2, y2);
             }
         }
 
         private static void drawVLine(Graphics2D g2, int left, int top, int pw, int ph, double mach, Color color) {
-            int x = left + (int) Math.round((mach / 4.0) * pw);
-            BasicStroke old = (BasicStroke) g2.getStroke();
+            int x = toPixelX(mach, left, pw);
+            java.awt.Stroke old = g2.getStroke();
             g2.setColor(color);
             g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, new float[] { 4f, 4f }, 0f));
             g2.drawLine(x, top, x, top + ph);
             g2.setStroke(old);
+        }
+
+        private static void shadeMachBand(Graphics2D g2, int left, int top, int pw, int ph,
+                                          double startMach, double endMach, Color fill) {
+            int x1 = toPixelX(startMach, left, pw);
+            int x2 = toPixelX(endMach, left, pw);
+            g2.setColor(fill);
+            g2.fillRect(x1, top, Math.max(1, x2 - x1), ph);
+        }
+
+        private static void drawLegend(Graphics2D g2, int x, int y, Color background, Color textColor,
+                                       Color dimText, boolean showBeta, Color offColor, Color onColor, Color betaColor) {
+            int width = showBeta ? 180 : 156;
+            int height = showBeta ? 56 : 42;
+            g2.setColor(background);
+            g2.fillRoundRect(x, y, width, height, 10, 10);
+            g2.setColor(withAlpha(dimText, 90));
+            g2.drawRoundRect(x, y, width, height, 10, 10);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+            drawLegendEntry(g2, x + 10, y + 15, offColor, null, textColor, "Plume off");
+            drawLegendEntry(g2, x + 10, y + 29, onColor, new float[] { 6f, 6f }, textColor, "Plume on");
+            if (showBeta) {
+                drawLegendEntry(g2, x + 10, y + 43, betaColor, new float[] { 2f, 4f }, textColor, "Beta = 15 deg");
+            }
+        }
+
+        private static void drawLegendEntry(Graphics2D g2, int x, int y, Color lineColor, float[] dash,
+                                            Color textColor, String label) {
+            java.awt.Stroke old = g2.getStroke();
+            if (dash == null) {
+                g2.setStroke(new BasicStroke(2f));
+            } else {
+                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, dash, 0f));
+            }
+            g2.setColor(lineColor);
+            g2.drawLine(x, y, x + 18, y);
+            g2.setStroke(old);
+            g2.setColor(textColor);
+            g2.drawString(label, x + 24, y + 4);
+        }
+
+        private static void drawPeakMarker(Graphics2D g2, int left, int top, int pw, int ph, double yMax,
+                                           double[] mach, double[] off, Color offColor, Color boxColor, Color textColor) {
+            int peakIndex = indexOfPeak(off);
+            if (peakIndex < 0) {
+                return;
+            }
+            int px = toPixelX(mach[peakIndex], left, pw);
+            int py = toPixelY(off[peakIndex], top, ph, yMax);
+            String label = String.format(Locale.ROOT, "Peak %.3f @ M %.2f", off[peakIndex], mach[peakIndex]);
+            int labelWidth = g2.getFontMetrics().stringWidth(label);
+            int boxX = px > left + pw * 0.63 ? px - labelWidth - 22 : px + 12;
+            boxX = Math.max(left + 6, Math.min(boxX, left + pw - labelWidth - 14));
+            int boxY = Math.max(top + 6, py - 18);
+
+            g2.setColor(offColor);
+            g2.fillOval(px - 4, py - 4, 8, 8);
+            g2.drawLine(px, py, boxX + (boxX < px ? labelWidth + 8 : 0), boxY + 8);
+
+            g2.setColor(boxColor);
+            g2.fillRoundRect(boxX - 4, boxY - 10, labelWidth + 10, 16, 8, 8);
+            g2.setColor(withAlpha(textColor, 90));
+            g2.drawRoundRect(boxX - 4, boxY - 10, labelWidth + 10, 16, 8, 8);
+            g2.setColor(textColor);
+            g2.drawString(label, boxX, boxY + 2);
+        }
+
+        private static int toPixelX(double mach, int left, int pw) {
+            return left + (int) Math.round(pw * MathUtil.clamp(mach / MAX_MACH, 0.0, 1.0));
+        }
+
+        private static int toPixelY(double value, int top, int ph, double yMax) {
+            return top + ph - (int) Math.round(ph * MathUtil.clamp(value / yMax, 0.0, 1.0));
+        }
+
+        private static double computeRangeMax(double[]... series) {
+            double max = 0.3;
+            for (double[] values : series) {
+                if (values == null) {
+                    continue;
+                }
+                for (double value : values) {
+                    if (Double.isFinite(value)) {
+                        max = Math.max(max, value);
+                    }
+                }
+            }
+            double padded = max * 1.12;
+            double step = computeTickStep(padded / 4.0);
+            return Math.ceil(padded / step) * step;
+        }
+
+        private static double computeTickStep(double roughStep) {
+            if (!(roughStep > 0.0)) {
+                return 0.1;
+            }
+            double exponent = Math.pow(10.0, Math.floor(Math.log10(roughStep)));
+            double fraction = roughStep / exponent;
+            double niceFraction;
+            if (fraction <= 1.0) {
+                niceFraction = 1.0;
+            } else if (fraction <= 2.0) {
+                niceFraction = 2.0;
+            } else if (fraction <= 5.0) {
+                niceFraction = 5.0;
+            } else {
+                niceFraction = 10.0;
+            }
+            return niceFraction * exponent;
+        }
+
+        private static String formatTick(double step, double value) {
+            if (step >= 1.0) {
+                return String.format(Locale.ROOT, "%.0f", value);
+            }
+            if (step >= 0.1) {
+                return String.format(Locale.ROOT, "%.1f", value);
+            }
+            return String.format(Locale.ROOT, "%.2f", value);
+        }
+
+        private static Color fallbackColor(Color preferred, Color secondary, Color fallback) {
+            if (preferred != null) {
+                return preferred;
+            }
+            if (secondary != null) {
+                return secondary;
+            }
+            return fallback;
+        }
+
+        private static Color withAlpha(Color color, int alpha) {
+            return new Color(color.getRed(), color.getGreen(), color.getBlue(), MathUtil.clamp(alpha, 0, 255));
+        }
+
+        private static boolean isDark(Color color) {
+            double luminance = (0.2126 * color.getRed() + 0.7152 * color.getGreen() + 0.0722 * color.getBlue()) / 255.0;
+            return luminance < 0.5;
         }
     }
 }

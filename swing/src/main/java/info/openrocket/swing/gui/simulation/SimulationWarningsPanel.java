@@ -21,7 +21,7 @@ import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.util.List;
 
-public class SimulationWarningsPanel extends JPanel {
+public class SimulationWarningsPanel extends SimulationScrollablePanel {
 	private static final Translator trans = Application.getTranslator();
 
 	private static Border border;
@@ -35,7 +35,7 @@ public class SimulationWarningsPanel extends JPanel {
 	}
 
 	public SimulationWarningsPanel(final Simulation simulation) {
-		super(new MigLayout("fill"));
+		super(new MigLayout("fillx, insets 6, gap 8 8, wrap 2", "[grow,fill][grow,fill]", ""));
 		
 		WarningSet warnings = simulation.getSimulatedWarnings();
 		List<Warning> criticalWarnings = warnings == null ? null : warnings.getCriticalWarnings();
@@ -51,15 +51,14 @@ public class SimulationWarningsPanel extends JPanel {
 			StyledLabel noWarnings = new StyledLabel(trans.get("SimulationWarningsPanel.lbl.NoWarnings"), 1.1f,
 					StyledLabel.Style.ITALIC);
 			noWarnings.setToolTipText(trans.get("SimulationWarningsPanel.lbl.NoWarnings.ttip"));
-			this.add(noWarnings, "spanx, alignx center, gaptop 75px, wrap");
+			this.add(noWarnings, "span 2, alignx center, gaptop 30px, wrap");
 		} else {
 			// Critical warnings
 			if (hasCriticalWarnings) {
 				JPanel criticalPanel = createWarningsPanel(criticalWarnings, Icons.WARNING_HIGH,
 						trans.get("SimulationWarningsPanel.lbl.CriticalWarnings"),
 						trans.get("SimulationWarningsPanel.lbl.CriticalWarnings.desc"), darkErrorColor);
-				String wrap = hasNormalWarnings || hasInformationalWarnings ? "wrap 20lp" : "wrap";
-				this.add(criticalPanel, "spanx, grow, " + wrap);
+				this.add(criticalPanel, "growx, top");
 			}
 
 			// Normal warnings
@@ -67,8 +66,7 @@ public class SimulationWarningsPanel extends JPanel {
 				JPanel normalPanel = createWarningsPanel(normalWarnings, Icons.WARNING_NORMAL,
 						trans.get("SimulationWarningsPanel.lbl.NormalWarnings"),
 						trans.get("SimulationWarningsPanel.lbl.NormalWarnings.desc"), warningColor);
-				String wrap = hasInformationalWarnings ? "wrap 20lp" : "wrap";
-				this.add(normalPanel, "spanx, grow, " + wrap);
+				this.add(normalPanel, "growx, top");
 			}
 
 			// Informational warnings
@@ -76,12 +74,9 @@ public class SimulationWarningsPanel extends JPanel {
 				JPanel infoPanel = createWarningsPanel(informationalWarnings, Icons.WARNING_LOW,
 						trans.get("SimulationWarningsPanel.lbl.InformationalWarnings"),
 						trans.get("SimulationWarningsPanel.lbl.InformationalWarnings.desc"), informationColor);
-				this.add(infoPanel, "spanx, grow, wrap");
+				this.add(infoPanel, hasCriticalWarnings || hasNormalWarnings ? "span 2, growx, top" : "growx, top");
 			}
 		}
-
-		JPanel filler = new JPanel();
-		this.add(filler, "grow, spanx, pushy, growy 0.5");
 	}
 
 	private static void initColors() {
@@ -99,7 +94,7 @@ public class SimulationWarningsPanel extends JPanel {
 
 	private static JPanel createWarningsPanel(final List<Warning> warnings, final Icon icon,
 											  final String titleText, final String descriptionText, Color textColor) {
-		JPanel panel = new JPanel(new MigLayout("fillx, insets 1"));
+		JPanel panel = new JPanel(new MigLayout("fillx, insets 4, gap 6 6"));
 
 		// Title
 		float size = 2f;

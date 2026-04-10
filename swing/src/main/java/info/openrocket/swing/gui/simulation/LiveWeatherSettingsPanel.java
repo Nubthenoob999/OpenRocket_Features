@@ -31,10 +31,12 @@ import net.miginfocom.swing.MigLayout;
 
 class LiveWeatherSettingsPanel extends JPanel {
 	private static final Translator trans = Application.getTranslator();
+	private static final String LIVE_WEATHER_UNAVAILABLE_MESSAGE =
+			"Live weather is unavailable in this runtime environment.";
 
 	private final SimulationOptions options;
 	private final Runnable onWindProfileApplied;
-	private final LiveWeatherService liveWeatherService;
+	private LiveWeatherService liveWeatherService;
 
 	private final JLabel latitudeValue = new JLabel();
 	private final JLabel longitudeValue = new JLabel();
@@ -48,7 +50,7 @@ class LiveWeatherSettingsPanel extends JPanel {
 	private LiveWeatherResult latestResult;
 
 	LiveWeatherSettingsPanel(SimulationOptions options, Runnable onWindProfileApplied) {
-		this(options, onWindProfileApplied, new LiveWeatherService());
+		this(options, onWindProfileApplied, null);
 	}
 
 	LiveWeatherSettingsPanel(SimulationOptions options, Runnable onWindProfileApplied, LiveWeatherService liveWeatherService) {
@@ -175,28 +177,53 @@ class LiveWeatherSettingsPanel extends JPanel {
 		SwingWorker<LiveWeatherResult, Void> worker = new SwingWorker<>() {
 			@Override
 			protected LiveWeatherResult doInBackground() throws Exception {
-				return liveWeatherService.fetchWeather(request);
+				return getLiveWeatherService().fetchWeather(request);
 			}
 
 			@Override
 			protected void done() {
-				fetchButton.setEnabled(true);
 				try {
 					latestResult = get();
+					fetchButton.setEnabled(true);
 					statusLabel.setText(String.format(trans.get("simedtdlg.lbl.liveweather.status.success"),
 							latestResult.source(), latestResult.fetchedAtLabel()));
 					previewLabel.setText(buildPreviewHtml(latestResult));
 					applyButton.setEnabled(true);
 				} catch (Exception ex) {
 					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					boolean runtimeUnavailable = isLiveWeatherUnavailable(cause);
 					String message = cause instanceof LiveWeatherException ? cause.getMessage() : trans.get("simedtdlg.msg.liveweather.fetchfailed");
-					statusLabel.setText(trans.get("simedtdlg.lbl.liveweather.status.failed"));
+					statusLabel.setText(runtimeUnavailable
+							? LIVE_WEATHER_UNAVAILABLE_MESSAGE
+							: trans.get("simedtdlg.lbl.liveweather.status.failed"));
+					fetchButton.setEnabled(!runtimeUnavailable);
 					JOptionPane.showMessageDialog(LiveWeatherSettingsPanel.this, message,
 							trans.get("simedtdlg.msg.liveweather.error.title"), JOptionPane.ERROR_MESSAGE);
 				}
 			}
 		};
 		worker.execute();
+	}
+
+	private LiveWeatherService getLiveWeatherService() throws LiveWeatherException {
+		if (liveWeatherService != null) {
+			return liveWeatherService;
+		}
+		try {
+			liveWeatherService = new LiveWeatherService();
+			return liveWeatherService;
+		} catch (RuntimeException ex) {
+			throw new LiveWeatherException(LIVE_WEATHER_UNAVAILABLE_MESSAGE, ex);
+		}
+	}
+
+	private static boolean isLiveWeatherUnavailable(Throwable throwable) {
+		if (!(throwable instanceof LiveWeatherException weatherException)) {
+			return false;
+		}
+		Throwable cause = weatherException.getCause();
+		return cause instanceof RuntimeException
+				&& LIVE_WEATHER_UNAVAILABLE_MESSAGE.equals(weatherException.getMessage());
 	}
 
 	private String buildPreviewHtml(LiveWeatherResult result) {

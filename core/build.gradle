@@ -114,6 +114,20 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+tasks.register('deleteLegacyAirbrakeClasses', Delete) {
+    delete layout.buildDirectory.file('classes/java/main/info/openrocket/core/airbrakesplugin/AirbrakeExtension.class')
+    delete layout.buildDirectory.file('classes/java/main/info/openrocket/core/airbrakesplugin/AirbrakePluginCliMain.class')
+    delete layout.buildDirectory.file('classes/java/main/info/openrocket/core/airbrakesplugin/AirbrakePluginProvider.class')
+}
+
+tasks.named('classes') {
+    dependsOn tasks.named('deleteLegacyAirbrakeClasses')
+}
+
+tasks.named('spotbugsMain') {
+    dependsOn tasks.named('deleteLegacyAirbrakeClasses')
+}
+
 // Publish the core module as the supported Maven Central library artifact.
 publishing {
     publications {

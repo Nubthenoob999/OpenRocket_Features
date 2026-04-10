@@ -2,7 +2,6 @@ package info.openrocket.swing.gui.simulation;
 
 import java.awt.Color;
 import java.awt.Dialog.ModalityType;
-import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.nio.file.Path;
@@ -24,26 +23,27 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTextArea;
 import javax.swing.MenuElement;
 import javax.swing.SwingUtilities;
+
+import com.google.inject.Key;
 
 import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.l10n.Translator;
-import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.models.gravity.GravityModelType;
+import info.openrocket.core.montecarlo.MonteCarloExtension;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.simulation.RK4SimulationStepper;
 import info.openrocket.core.simulation.SimulationOptions;
+import info.openrocket.core.simulation.SimulationStepperMethod;
 import info.openrocket.core.simulation.extension.SimulationExtension;
 import info.openrocket.core.simulation.extension.SimulationExtensionProvider;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.GeodeticComputationStrategy;
-
-import info.openrocket.core.simulation.SimulationStepperMethod;
-import net.miginfocom.swing.MigLayout;
 import info.openrocket.swing.gui.SpinnerEditor;
 import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.adaptors.EnumModel;
@@ -52,26 +52,28 @@ import info.openrocket.swing.gui.components.DescriptionArea;
 import info.openrocket.swing.gui.components.StyledLabel;
 import info.openrocket.swing.gui.components.StyledLabel.Style;
 import info.openrocket.swing.gui.components.UnitSelector;
+import info.openrocket.swing.gui.theme.UITheme;
 import info.openrocket.swing.gui.util.GUIUtil;
 import info.openrocket.swing.gui.util.Icons;
-import info.openrocket.swing.gui.theme.UITheme;
 import info.openrocket.swing.simulation.extension.SwingSimulationExtensionConfigurator;
+import net.miginfocom.swing.MigLayout;
 
-import com.google.inject.Key;
-
-class SimulationOptionsPanel extends JPanel {
+class SimulationOptionsPanel extends SimulationScrollablePanel {
 
 	private static final long serialVersionUID = -5251458539346201239L;
 	private static final String LEGACY_AIRBRAKES_EXTENSION_ID = "com.airbrakesplugin.AirbrakeExtension";
 
 	private static final Translator trans = Application.getTranslator();
-	
-	private OpenRocketDocument document;
+	private static final String PANEL_LAYOUT = "fillx, insets 6, gap 8 8, wrap 2";
+	private static final String PANEL_COLUMNS = "[grow 0.88,fill][grow 1.12,fill]";
+	private static final String FORM_COLUMNS = "[right][grow,fill][pref!][grow,fill]";
+
+	private final OpenRocketDocument document;
 	final Simulation simulation;
 	private final SimulationOptions options;
-	
-	private JLabel aerodynamicLookupSummaryLabel;
-	
+
+	private JTextArea aerodynamicLookupSummaryArea;
+
 	private JPanel currentExtensions;
 	final JPopupMenu extensionMenu;
 	JMenu extensionMenuCopyExtension;
@@ -92,118 +94,90 @@ class SimulationOptionsPanel extends JPanel {
 	static {
 		initColors();
 	}
-	
+
 	SimulationOptionsPanel(OpenRocketDocument document, final Simulation simulation) {
-		super(new MigLayout("fill, ins n n 0 n"));
+		super(new MigLayout(PANEL_LAYOUT, PANEL_COLUMNS, ""));
 		this.document = document;
 		this.simulation = simulation;
 		this.options = simulation.getOptions();
 
 		final SimulationOptions conditions = this.options;
-		
-		JPanel sub, subsub;
-		String tip;
-		JLabel label;
-		DoubleModel m;
-		JSpinner spin;
-		UnitSelector unit;
-		BasicSlider slider;
-		
-		// // Simulation options
-		sub = new JPanel(new MigLayout("fill, gap rel unrel",
-				"[grow][65lp!][30lp!][75lp!]", ""));
-		// // Simulator options
-		sub.setBorder(BorderFactory.createTitledBorder(trans
-				.get("simedtdlg.border.Simopt")));
-		this.add(sub, "growx, growy, aligny 0");
-		
-		// Separate panel for computation methods, as they use a different
-		// layout
-		subsub = new JPanel(new MigLayout("insets 0, fill", "[grow][min!][min!][]"));
-		
-		// // Calculation method:
-		tip = trans.get("simedtdlg.lbl.ttip.Calcmethod");
-		label = new JLabel(trans.get("simedtdlg.lbl.Calcmethod"));
+
+		JPanel columnsPanel = new JPanel(new MigLayout("fillx, insets 0, gap 8 8, wrap 2",
+				PANEL_COLUMNS, ""));
+		add(columnsPanel, "span 2, growx, pushx, wrap");
+
+		JPanel simulatorOptionsPanel = new JPanel(new MigLayout("fillx, insets 8, gapx 8, gapy 6, wrap 1",
+				"[grow,fill]", ""));
+		simulatorOptionsPanel.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.Simopt")));
+		columnsPanel.add(simulatorOptionsPanel, "growx, top");
+
+		JPanel optionsForm = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 6", FORM_COLUMNS, ""));
+		simulatorOptionsPanel.add(optionsForm, "growx, wrap");
+
+		String tip = trans.get("simedtdlg.lbl.ttip.Calcmethod");
+		JLabel label = new JLabel(trans.get("simedtdlg.lbl.Calcmethod"));
 		label.setToolTipText(tip);
-		subsub.add(label, "gapright para");
-		
-		// // Extended Barrowman
-		label = new JLabel(trans.get("simedtdlg.lbl.ExtBarrowman"));
-		label.setToolTipText(tip);
-		subsub.add(label, "growx, span 3, wrap");
-		
-		// Simulation method
-		tip = trans.get("simedtdlg.lbl.ttip.Simmethod1")
-				+ trans.get("simedtdlg.lbl.ttip.Simmethod2");
+		optionsForm.add(label, "gapright para");
+
+		JLabel methodValue = new JLabel(trans.get("simedtdlg.lbl.ExtBarrowman"));
+		methodValue.setToolTipText(tip);
+		optionsForm.add(methodValue, "span 3, growx, wrap");
+
+		tip = trans.get("simedtdlg.lbl.ttip.Simmethod1") + trans.get("simedtdlg.lbl.ttip.Simmethod2");
 		label = new JLabel(trans.get("simedtdlg.lbl.Simmethod"));
 		label.setToolTipText(tip);
-		subsub.add(label, "gapright para");
-
+		optionsForm.add(label, "gapright para");
 
 		EnumModel<SimulationStepperMethod> simulationStepperMethodChoice = new EnumModel<>(
 				conditions, "SimulationStepperMethodChoice");
-		final JComboBox<SimulationStepperMethod> SimulationStepperMethodChoiceCombo = new JComboBox<>(simulationStepperMethodChoice);
-		ActionListener SimulationStepperMethodChoiceComboTTipListener = new ActionListener() {
+		final JComboBox<SimulationStepperMethod> simulationStepperMethodChoiceCombo =
+				new JComboBox<>(simulationStepperMethodChoice);
+		ActionListener simulationStepperMethodChoiceComboTTipListener = new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				SimulationStepperMethod SimulationStepperMethodChoiceSelected = (SimulationStepperMethod) SimulationStepperMethodChoiceCombo
-						.getSelectedItem();
-				SimulationStepperMethodChoiceCombo.setToolTipText(SimulationStepperMethodChoiceSelected.getDescription());
+				SimulationStepperMethod selected =
+						(SimulationStepperMethod) simulationStepperMethodChoiceCombo.getSelectedItem();
+				simulationStepperMethodChoiceCombo.setToolTipText(selected != null ? selected.getDescription() : null);
 			}
 		};
-		SimulationStepperMethodChoiceCombo.addActionListener(SimulationStepperMethodChoiceComboTTipListener);
-		SimulationStepperMethodChoiceComboTTipListener.actionPerformed(null);
-		subsub.add(SimulationStepperMethodChoiceCombo, "span 3, wrap");
+		simulationStepperMethodChoiceCombo.addActionListener(simulationStepperMethodChoiceComboTTipListener);
+		simulationStepperMethodChoiceComboTTipListener.actionPerformed(null);
+		optionsForm.add(simulationStepperMethodChoiceCombo, "span 3, growx, wrap");
 
-		// Aerodynamic data
 		label = new JLabel(trans.get("AerodynamicLookupDialog.lbl.summary"));
-		subsub.add(label);
+		optionsForm.add(label, "gaptop para, gapright para");
 
-		/// Configure
 		JButton configureLookupButton = new JButton(trans.get("AerodynamicLookupDialog.btn.configure"));
 		configureLookupButton.addActionListener(e -> openLookupDialog());
-		subsub.add(configureLookupButton, "wrap");
+		optionsForm.add(configureLookupButton, "span 3, alignx left, wrap");
 
-		aerodynamicLookupSummaryLabel = new JLabel();
-		aerodynamicLookupSummaryLabel.setForeground(infoTextColor);
-		subsub.add(aerodynamicLookupSummaryLabel, "gapleft para, spanx, growx, wrap para");
+		aerodynamicLookupSummaryArea = createWrappingTextArea(infoTextColor);
+		optionsForm.add(aerodynamicLookupSummaryArea, "gapleft para, span 4, growx, wrap para");
 
-		sub.add(subsub, "spanx, wrap para");
-
-		/*label = new JLabel("6-DOF Runge-Kutta 4");
-		label.setToolTipText(tip);
-		subsub.add(label, "growx, span 3, wrap");*/
-		
-		// // Geodetic calculation method:
 		label = new JLabel(trans.get("simedtdlg.lbl.GeodeticMethod"));
 		label.setToolTipText(trans.get("simedtdlg.lbl.ttip.GeodeticMethodTip"));
-		subsub.add(label, "gapright para");
-		
-		EnumModel<GeodeticComputationStrategy> gcsModel = new EnumModel<>(
-				conditions, "GeodeticComputation");
+		optionsForm.add(label, "gapright para");
+
+		EnumModel<GeodeticComputationStrategy> gcsModel = new EnumModel<>(conditions, "GeodeticComputation");
 		final JComboBox<GeodeticComputationStrategy> gcsCombo = new JComboBox<>(gcsModel);
 		ActionListener gcsTTipListener = new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				GeodeticComputationStrategy gcs = (GeodeticComputationStrategy) gcsCombo
-						.getSelectedItem();
-				gcsCombo.setToolTipText(gcs.getDescription());
+				GeodeticComputationStrategy gcs = (GeodeticComputationStrategy) gcsCombo.getSelectedItem();
+				gcsCombo.setToolTipText(gcs != null ? gcs.getDescription() : null);
 			}
 		};
 		gcsCombo.addActionListener(gcsTTipListener);
 		gcsTTipListener.actionPerformed(null);
-		subsub.add(gcsCombo, "span 3, wrap");
-		
-		// // Gravity model:
+		optionsForm.add(gcsCombo, "span 3, growx, wrap");
+
 		label = new JLabel(trans.get("simedtdlg.lbl.GravityModel"));
 		label.setToolTipText(trans.get("simedtdlg.lbl.ttip.GravityModel"));
-		subsub.add(label, "gapright para");
-		
-		EnumModel<GravityModelType> gravityModelTypeModel = new EnumModel<>(
-				conditions, "GravityModelType");
+		optionsForm.add(label, "gapright para");
+
+		EnumModel<GravityModelType> gravityModelTypeModel = new EnumModel<>(conditions, "GravityModelType");
 		final JComboBox<GravityModelType> gravityModelCombo = new JComboBox<>(gravityModelTypeModel);
-		
-		// Update tooltip based on selected gravity model type
 		ActionListener gravityModelTTipListener = new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -217,29 +191,26 @@ class SimulationOptionsPanel extends JPanel {
 		};
 		gravityModelCombo.addActionListener(gravityModelTTipListener);
 		gravityModelTTipListener.actionPerformed(null);
-		subsub.add(gravityModelCombo, "span 3, wrap");
-		
-		// // Constant gravity value:
+		optionsForm.add(gravityModelCombo, "span 3, growx, wrap");
+
 		gravityLabel = new JLabel(trans.get("simedtdlg.lbl.GravityValue"));
 		tip = trans.get("simedtdlg.lbl.ttip.GravityValue");
 		gravityLabel.setToolTipText(tip);
-		subsub.add(gravityLabel, "gapright para, hidemode 3");
-		
-		m = new DoubleModel(conditions, "ConstantGravity", UnitGroup.UNITS_ACCELERATION, 0);
-		
-		gravitySpinner = new JSpinner(m.getSpinnerModel());
+		optionsForm.add(gravityLabel, "gapright para, hidemode 3");
+
+		DoubleModel gravityModel = new DoubleModel(conditions, "ConstantGravity", UnitGroup.UNITS_ACCELERATION, 0);
+		gravitySpinner = new JSpinner(gravityModel.getSpinnerModel());
 		gravitySpinner.setEditor(new SpinnerEditor(gravitySpinner));
 		gravitySpinner.setToolTipText(tip);
-		subsub.add(gravitySpinner, "hidemode 3");
-		
-		gravityUnit = new UnitSelector(m);
+		optionsForm.add(gravitySpinner, "growx, hidemode 3");
+
+		gravityUnit = new UnitSelector(gravityModel);
 		gravityUnit.setToolTipText(tip);
-		subsub.add(gravityUnit, "hidemode 3");
-		gravitySlider = new BasicSlider(m.getSliderModel(0, 20));
+		optionsForm.add(gravityUnit, "hidemode 3");
+		gravitySlider = new BasicSlider(gravityModel.getSliderModel(0, 20));
 		gravitySlider.setToolTipText(tip);
-		subsub.add(gravitySlider, "w 100, hidemode 3, wrap");
-		
-		// Update visibility of constant gravity components based on selected model
+		optionsForm.add(gravitySlider, "growx, hidemode 3, wrap");
+
 		ActionListener gravityModelListener = new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
@@ -249,122 +220,65 @@ class SimulationOptionsPanel extends JPanel {
 				gravitySpinner.setVisible(isConstant);
 				gravityUnit.setVisible(isConstant);
 				gravitySlider.setVisible(isConstant);
-				subsub.revalidate();
-				subsub.repaint();
+				optionsForm.revalidate();
+				optionsForm.repaint();
 			}
 		};
 		gravityModelCombo.addActionListener(gravityModelListener);
-		gravityModelListener.actionPerformed(null); // Initialize visibility
-		
-		
-		// // Time step:
+		gravityModelListener.actionPerformed(null);
+
 		label = new JLabel(trans.get("simedtdlg.lbl.Timestep"));
 		tip = trans.get("simedtdlg.lbl.ttip.Timestep1")
 				+ trans.get("simedtdlg.lbl.ttip.Timestep2")
 				+ " "
-				+ UnitGroup.UNITS_TIME_STEP
-						.toStringUnit(RK4SimulationStepper.RECOMMENDED_TIME_STEP)
+				+ UnitGroup.UNITS_TIME_STEP.toStringUnit(RK4SimulationStepper.RECOMMENDED_TIME_STEP)
 				+ ".";
 		label.setToolTipText(tip);
-		subsub.add(label, "gaptop para, gapright para");
-		
-		m = new DoubleModel(conditions, "TimeStep", UnitGroup.UNITS_TIME_STEP,
-				0.01, 1);
-		
-		spin = new JSpinner(m.getSpinnerModel());
-		spin.setEditor(new SpinnerEditor(spin));
-		spin.setToolTipText(tip);
-		subsub.add(spin, "");
-		
-		unit = new UnitSelector(m);
-		unit.setToolTipText(tip);
-		subsub.add(unit, "");
-		slider = new BasicSlider(m.getSliderModel(0.01, 0.2));
-		slider.setToolTipText(tip);
-		subsub.add(slider, "w 100, wrap");
+		optionsForm.add(label, "gaptop para, gapright para");
 
-		// // Maximum simulation time:
+		DoubleModel timeStepModel = new DoubleModel(conditions, "TimeStep", UnitGroup.UNITS_TIME_STEP, 0.01, 1);
+		JSpinner timeStepSpinner = new JSpinner(timeStepModel.getSpinnerModel());
+		timeStepSpinner.setEditor(new SpinnerEditor(timeStepSpinner));
+		timeStepSpinner.setToolTipText(tip);
+		optionsForm.add(timeStepSpinner, "growx");
+
+		UnitSelector timeStepUnit = new UnitSelector(timeStepModel);
+		timeStepUnit.setToolTipText(tip);
+		optionsForm.add(timeStepUnit);
+		BasicSlider timeStepSlider = new BasicSlider(timeStepModel.getSliderModel(0.01, 0.2));
+		timeStepSlider.setToolTipText(tip);
+		optionsForm.add(timeStepSlider, "growx, wrap");
+
 		label = new JLabel(trans.get("simedtdlg.lbl.MaxSimTime"));
 		tip = trans.get("simedtdlg.lbl.ttip.MaxSimTime");
 		label.setToolTipText(tip);
-		subsub.add(label, "gapright para");
+		optionsForm.add(label, "gapright para");
 
-		m = new DoubleModel(conditions, "MaxSimulationTime",
+		DoubleModel maxSimulationTimeModel = new DoubleModel(conditions, "MaxSimulationTime",
 				UnitGroup.UNITS_LONG_TIME, 1);
+		JSpinner maxSimulationTimeSpinner = new JSpinner(maxSimulationTimeModel.getSpinnerModel());
+		maxSimulationTimeSpinner.setEditor(new SpinnerEditor(maxSimulationTimeSpinner));
+		maxSimulationTimeSpinner.setToolTipText(tip);
+		optionsForm.add(maxSimulationTimeSpinner, "growx");
 
-		spin = new JSpinner(m.getSpinnerModel());
-		spin.setEditor(new SpinnerEditor(spin));
-		spin.setToolTipText(tip);
-		subsub.add(spin, "");
-
-		unit = new UnitSelector(m);
-		unit.setToolTipText(tip);
-		subsub.add(unit, "wrap");
-
-		airbrakesEnabledCheckBox = new JCheckBox("Enable airbrakes");
-		airbrakesEnabledCheckBox.setToolTipText("Enable native airbrakes for this simulation.");
-		airbrakesEnabledCheckBox.addActionListener(e -> {
-			options.setAirbrakesEnabled(airbrakesEnabledCheckBox.isSelected());
-			updateAirbrakeControls();
-		});
-		subsub.add(airbrakesEnabledCheckBox, "span 4, gaptop para, wrap");
-
-		airbrakeSettingsPanel = new AirbrakeSettingsPanel(conditions);
-		subsub.add(airbrakeSettingsPanel, "span 4, growx, gapleft para, wrap para");
-		updateAirbrakeControls();
-		
-		// Reset to default button
-		JButton resetBtn = new JButton(trans.get("simedtdlg.but.resettodefault"));
-		// Reset the time step to its default value (
-		resetBtn.setToolTipText(trans.get("simedtdlg.but.ttip.resettodefault")
-				+ UnitGroup.UNITS_SHORT_TIME
-						.toStringUnit(RK4SimulationStepper.RECOMMENDED_TIME_STEP)
-				+ ").");
-		resetBtn.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				ApplicationPreferences preferences = Application.getPreferences();
-				conditions.setTimeStep(preferences.getDouble(
-						ApplicationPreferences.SIMULATION_TIME_STEP,
-						RK4SimulationStepper.RECOMMENDED_TIME_STEP));
-				conditions.setMaxSimulationTime(preferences.getDouble(
-						ApplicationPreferences.SIMULATION_MAX_TIME,
-						RK4SimulationStepper.RECOMMENDED_MAX_TIME));
-				conditions.setGeodeticComputation(preferences.getEnum(
-						ApplicationPreferences.GEODETIC_COMPUTATION,
-						GeodeticComputationStrategy.SPHERICAL));
-			}
-		});
-
-		// Save as default button
-		JButton saveBtn = new JButton(trans.get("simedtdlg.but.savedefault"));
-		saveBtn.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent e) {
-				ApplicationPreferences preferences = Application.getPreferences();
-				preferences.setTimeStep(conditions.getTimeStep());
-				preferences.setMaxSimulationTime(conditions.getMaxSimulationTime());
-				preferences.setGeodeticComputation(conditions.getGeodeticComputation());
-			}
-		});
-		
-		sub.add(resetBtn, "align left, split 2");
-		sub.add(saveBtn, "wrap");
-
-		//// Monte Carlo analysis
-		sub = new JPanel(new MigLayout("fill, gap rel unrel", "[grow][grow 0]", "[]"));
-		sub.setBorder(BorderFactory.createTitledBorder("Monte Carlo analysis"));
-		this.add(sub, "growx, aligny 0, wrap");
+		UnitSelector maxSimulationTimeUnit = new UnitSelector(maxSimulationTimeModel);
+		maxSimulationTimeUnit.setToolTipText(tip);
+		optionsForm.add(maxSimulationTimeUnit);
+		optionsForm.add(new JPanel(), "growx, wrap");
 
 		monteCarloEnabledCheckBox = new JCheckBox("Enable Monte Carlo analysis");
 		monteCarloEnabledCheckBox.setToolTipText("Turn Monte Carlo batch analysis on or off for this simulation.");
 		monteCarloEnabledCheckBox.addActionListener(e -> {
-			MonteCarloExtension ext = ensureMonteCarloExtension();
-			ext.setEnabled(monteCarloEnabledCheckBox.isSelected());
+			if (monteCarloEnabledCheckBox.isSelected()) {
+				MonteCarloExtension ext = ensureMonteCarloExtension();
+				ext.setEnabled(true);
+			} else {
+				removeMonteCarloExtensions();
+			}
 			updateCurrentExtensions();
 			updateMonteCarloControls();
 		});
-		sub.add(monteCarloEnabledCheckBox, "growx");
+		optionsForm.add(monteCarloEnabledCheckBox, "span 2, gaptop para, alignx left");
 
 		monteCarloConfigureButton = new JButton("Configure Monte Carlo...");
 		monteCarloConfigureButton.addActionListener(e -> {
@@ -383,41 +297,92 @@ class SimulationOptionsPanel extends JPanel {
 						JOptionPane.WARNING_MESSAGE);
 			}
 		});
-		sub.add(monteCarloConfigureButton, "gapleft para");
+		optionsForm.add(monteCarloConfigureButton, "span 2, alignx left, wrap");
 
-		//// Simulation extensions
-		sub = new JPanel(new MigLayout("fill, gap 0 0"));
-		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.SimExt")));
-		this.add(sub, "wmin 300lp, growx, growy");
-		
-		
-		DescriptionArea desc = new DescriptionArea(5);
+		airbrakesEnabledCheckBox = new JCheckBox("Enable airbrakes");
+		airbrakesEnabledCheckBox.setToolTipText("Enable native airbrakes for this simulation.");
+		airbrakesEnabledCheckBox.addActionListener(e -> {
+			options.setAirbrakesEnabled(airbrakesEnabledCheckBox.isSelected());
+			updateAirbrakeControls();
+		});
+		optionsForm.add(airbrakesEnabledCheckBox, "span 4, gaptop para, alignx left, wrap");
+
+		airbrakeSettingsPanel = new AirbrakeSettingsPanel(conditions);
+		optionsForm.add(airbrakeSettingsPanel, "span 4, growx, gapleft para, wrap para");
+		updateAirbrakeControls();
+
+		JPanel extensionsPanel = new JPanel(new MigLayout("fillx, insets 8, gap 6 6, wrap 1", "[grow,fill]", ""));
+		extensionsPanel.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.SimExt")));
+		columnsPanel.add(extensionsPanel, "grow, top");
+
+		DescriptionArea desc = new DescriptionArea(4);
 		desc.setText(trans.get("simedtdlg.SimExt.desc"));
-		sub.add(desc, "aligny 0, hmin 100lp, growx, wrap para");
-		
-		
+		extensionsPanel.add(desc, "growx");
+
 		final JButton addExtension = new JButton(trans.get("simedtdlg.SimExt.add"));
 		extensionMenu = getExtensionMenu();
 		addExtension.addActionListener(new ActionListener() {
-				public void actionPerformed(ActionEvent ev) {
-					extensionMenu.show(addExtension, 5, addExtension.getBounds().height);
-				}
-			});
-		sub.add(addExtension, "growx, wrap 0");
-		
-		currentExtensions = new JPanel(new MigLayout("fillx, gap 0 0, ins 0"));
+			@Override
+			public void actionPerformed(ActionEvent ev) {
+				extensionMenu.show(addExtension, 5, addExtension.getBounds().height);
+			}
+		});
+		extensionsPanel.add(addExtension, "growx");
+
+		currentExtensions = new JPanel(new MigLayout("fillx, gap 0 6, ins 0"));
 		JScrollPane scroll = new JScrollPane(currentExtensions);
 		scroll.setForeground(textColor);
-		scroll.setPreferredSize(new Dimension(scroll.getPreferredSize().width, 200));
-		//  &#$%! scroll pane will not honor "growy"...
-		sub.add(scroll, "growx");
-		
+		scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		scroll.getHorizontalScrollBar().setUnitIncrement(16);
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.setOpaque(false);
+		scroll.getViewport().setOpaque(false);
+		extensionsPanel.add(scroll, "growx, pushy, growy, hmin 180lp");
+
+		JButton resetBtn = new JButton(trans.get("simedtdlg.but.resettodefault"));
+		resetBtn.setToolTipText(trans.get("simedtdlg.but.ttip.resettodefault")
+				+ UnitGroup.UNITS_SHORT_TIME.toStringUnit(RK4SimulationStepper.RECOMMENDED_TIME_STEP)
+				+ ").");
+		resetBtn.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				ApplicationPreferences preferences = Application.getPreferences();
+				conditions.setTimeStep(preferences.getDouble(
+						ApplicationPreferences.SIMULATION_TIME_STEP,
+						RK4SimulationStepper.RECOMMENDED_TIME_STEP));
+				conditions.setMaxSimulationTime(preferences.getDouble(
+						ApplicationPreferences.SIMULATION_MAX_TIME,
+						RK4SimulationStepper.RECOMMENDED_MAX_TIME));
+				conditions.setGeodeticComputation(preferences.getEnum(
+						ApplicationPreferences.GEODETIC_COMPUTATION,
+						GeodeticComputationStrategy.SPHERICAL));
+			}
+		});
+
+		JButton saveBtn = new JButton(trans.get("simedtdlg.but.savedefault"));
+		saveBtn.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				ApplicationPreferences preferences = Application.getPreferences();
+				preferences.setTimeStep(conditions.getTimeStep());
+				preferences.setMaxSimulationTime(conditions.getMaxSimulationTime());
+				preferences.setGeodeticComputation(conditions.getGeodeticComputation());
+			}
+		});
+
+		JPanel defaultsPanel = new JPanel(new MigLayout("ins 0", "[][grow][]", ""));
+		defaultsPanel.add(resetBtn);
+		defaultsPanel.add(new JPanel(), "growx");
+		defaultsPanel.add(saveBtn);
+		add(defaultsPanel, "span 2, growx, wrap");
+
 		updateCurrentExtensions();
 		updateMonteCarloControls();
 
 		options.addChangeListener(e -> SwingUtilities.invokeLater(this::updateLookupSummary));
 		updateLookupSummary();
-		
 	}
 
 	private static void initColors() {
@@ -430,18 +395,21 @@ class SimulationOptionsPanel extends JPanel {
 		dimTextColor = UITheme.getColor(UITheme.Keys.TEXT_DIM);
 		infoTextColor = UITheme.getColor(UITheme.Keys.INFO);
 	}
-	
+
 	private JPopupMenu getExtensionMenu() {
 		Set<SimulationExtensionProvider> extensions = Application.getInjector().getInstance(new Key<>() {
 		});
-		
+
 		JPopupMenu basemenu = new JPopupMenu();
 
-		//// Use code / Launch conditions
 		for (final SimulationExtensionProvider provider : extensions) {
 			List<String> ids = provider.getIds();
 			for (final String id : ids) {
 				if (LEGACY_AIRBRAKES_EXTENSION_ID.equals(id)) {
+					continue;
+				}
+				SimulationExtension candidate = provider.getInstance(id);
+				if (isManagedExtension(candidate)) {
 					continue;
 				}
 				List<String> menuItems = provider.getName(id);
@@ -451,12 +419,13 @@ class SimulationOptionsPanel extends JPanel {
 					item.addActionListener(new ActionListener() {
 						@Override
 						public void actionPerformed(ActionEvent arg0) {
-							SimulationExtension e = provider.getInstance(id);
-							simulation.getSimulationExtensions().add(e);
+							SimulationExtension extension = provider.getInstance(id);
+							simulation.getSimulationExtensions().add(extension);
 							updateCurrentExtensions();
-							SwingSimulationExtensionConfigurator configurator = findConfigurator(e);
+							SwingSimulationExtensionConfigurator configurator = findConfigurator(extension);
 							if (configurator != null) {
-								configurator.configure(e, simulation, SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
+								configurator.configure(extension, simulation,
+										SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
 								updateCurrentExtensions();
 							}
 						}
@@ -466,16 +435,10 @@ class SimulationOptionsPanel extends JPanel {
 			}
 		}
 
-		//// Copy extension
 		updateExtensionMenuCopyExtension(basemenu);
-		
 		return basemenu;
 	}
 
-	/**
-	 * Updates the contents of the "Copy extension" menu item in the extension menu.
-	 * @param extensionMenu extension menu to add the "Copy extension" menu item to
-	 */
 	private void updateExtensionMenuCopyExtension(JPopupMenu extensionMenu) {
 		if (extensionMenu == null) {
 			return;
@@ -486,22 +449,26 @@ class SimulationOptionsPanel extends JPanel {
 
 		this.extensionMenuCopyExtension = null;
 		for (Simulation sim : document.getSimulations()) {
-			if (sim.getSimulationExtensions().isEmpty()) {
+			List<SimulationExtension> copyableExtensions = sim.getSimulationExtensions().stream()
+					.filter(extension -> !isManagedExtension(extension))
+					.toList();
+			if (copyableExtensions.isEmpty()) {
 				continue;
 			}
 
 			JMenu menu = new JMenu(sim.getName());
-			for (final SimulationExtension ext : sim.getSimulationExtensions()) {
+			for (final SimulationExtension ext : copyableExtensions) {
 				JMenuItem item = new JMenuItem(ext.getName());
 				item.addActionListener(new ActionListener() {
 					@Override
 					public void actionPerformed(ActionEvent arg0) {
-						SimulationExtension e = ext.clone();
-						simulation.getSimulationExtensions().add(e);
+						SimulationExtension extension = ext.clone();
+						simulation.getSimulationExtensions().add(extension);
 						updateCurrentExtensions();
-						SwingSimulationExtensionConfigurator configurator = findConfigurator(e);
+						SwingSimulationExtensionConfigurator configurator = findConfigurator(extension);
 						if (configurator != null) {
-							configurator.configure(e, simulation, SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
+							configurator.configure(extension, simulation,
+									SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
 							updateCurrentExtensions();
 						}
 					}
@@ -518,11 +485,11 @@ class SimulationOptionsPanel extends JPanel {
 			extensionMenu.add(this.extensionMenuCopyExtension);
 		}
 	}
-	
+
 	private JComponent findMenu(MenuElement menu, List<String> menuItems) {
 		for (int i = 0; i < menuItems.size() - 1; i++) {
 			String menuItem = menuItems.get(i);
-			
+
 			MenuElement found = null;
 			for (MenuElement e : menu.getSubElements()) {
 				if (e instanceof JMenu && ((JMenu) e).getText().equals(menuItem)) {
@@ -530,7 +497,7 @@ class SimulationOptionsPanel extends JPanel {
 					break;
 				}
 			}
-			
+
 			if (found != null) {
 				menu = found;
 			} else {
@@ -541,6 +508,7 @@ class SimulationOptionsPanel extends JPanel {
 		}
 		return (JComponent) menu;
 	}
+
 	private void openLookupDialog() {
 		AerodynamicLookupDialog dialog = new AerodynamicLookupDialog(
 				SwingUtilities.windowForComponent(this),
@@ -550,7 +518,7 @@ class SimulationOptionsPanel extends JPanel {
 	}
 
 	private void updateLookupSummary() {
-		if (aerodynamicLookupSummaryLabel == null) {
+		if (aerodynamicLookupSummaryArea == null) {
 			return;
 		}
 		String dragDetail = buildLookupDetail(options.getDragLookupCsvPath(), options.getDragLookupTable());
@@ -563,7 +531,8 @@ class SimulationOptionsPanel extends JPanel {
 				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryStability"), stabilityDetail)
 				+ "\n"
 				+ romPrerequisite;
-		aerodynamicLookupSummaryLabel.setText(wrapHtml(summary));
+		aerodynamicLookupSummaryArea.setText(summary);
+		aerodynamicLookupSummaryArea.setCaretPosition(0);
 	}
 
 	private String buildLookupDetail(Path path, MachAoALookup table) {
@@ -573,19 +542,6 @@ class SimulationOptionsPanel extends JPanel {
 		String fileName = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 		String detail = AerodynamicLookupDialog.formatLookupSummary(trans, table);
 		return fileName + " - " + detail;
-	}
-
-	private static String wrapHtml(String text) {
-		return "<html><div style='width: 360px;'>" + escapeHtml(text).replace("\n", "<br>") + "</div></html>";
-	}
-
-	private static String escapeHtml(String text) {
-		if (text == null) {
-			return "";
-		}
-		return text.replace("&", "&amp;")
-				.replace("<", "&lt;")
-				.replace(">", "&gt;");
 	}
 
 	private MonteCarloExtension findMonteCarloExtension() {
@@ -606,6 +562,15 @@ class SimulationOptionsPanel extends JPanel {
 		extension = new MonteCarloExtension();
 		simulation.getSimulationExtensions().add(extension);
 		return extension;
+	}
+
+	private void removeMonteCarloExtensions() {
+		Iterator<SimulationExtension> iterator = simulation.getSimulationExtensions().iterator();
+		while (iterator.hasNext()) {
+			if (iterator.next() instanceof MonteCarloExtension) {
+				iterator.remove();
+			}
+		}
 	}
 
 	private void updateMonteCarloControls() {
@@ -634,44 +599,42 @@ class SimulationOptionsPanel extends JPanel {
 
 	private void updateCurrentExtensions() {
 		currentExtensions.removeAll();
-		
-		if (simulation.getSimulationExtensions().isEmpty()) {
+
+		List<SimulationExtension> visibleExtensions = simulation.getSimulationExtensions().stream()
+				.filter(extension -> !isManagedExtension(extension))
+				.toList();
+
+		if (visibleExtensions.isEmpty()) {
 			StyledLabel l = new StyledLabel(trans.get("simedtdlg.SimExt.noExtensions"), Style.ITALIC);
 			l.setForeground(dimTextColor);
 			currentExtensions.add(l, "growx, pad 5 5 5 5, wrap");
 		} else {
-			for (SimulationExtension e : simulation.getSimulationExtensions()) {
-				currentExtensions.add(new SimulationExtensionPanel(e), "growx, wrap");
+			for (SimulationExtension extension : visibleExtensions) {
+				currentExtensions.add(new SimulationExtensionPanel(extension), "growx, wrap");
 			}
 		}
 
 		updateExtensionMenuCopyExtension(this.extensionMenu);
 		updateMonteCarloControls();
 
-		// Both needed:
-		this.revalidate();
-		this.repaint();
+		revalidate();
+		repaint();
 	}
-	
-	
+
 	private class SimulationExtensionPanel extends JPanel {
-		
-		/**
-		 * 
-		 */
+
 		private static final long serialVersionUID = -3296795614810745035L;
 
-		public SimulationExtensionPanel(final SimulationExtension extension) {
+		SimulationExtensionPanel(final SimulationExtension extension) {
 			super(new MigLayout("fillx, gapx 0"));
-			
-			this.setBorder(BorderFactory.createLineBorder(dimTextColor));
-			this.add(new JLabel(extension.getName()), "spanx, growx, wrap");
-			
-			JButton button;
-			
-			this.add(new JPanel(), "spanx, split, growx, right");
 
-			// Configure
+			setBorder(BorderFactory.createLineBorder(dimTextColor));
+			add(new JLabel(extension.getName()), "spanx, growx, wrap");
+
+			JButton button;
+
+			add(new JPanel(), "spanx, split, growx, right");
+
 			if (findConfigurator(extension) != null) {
 				button = new JButton(Icons.CONFIGURE);
 				button.addActionListener(new ActionListener() {
@@ -682,10 +645,9 @@ class SimulationOptionsPanel extends JPanel {
 						updateCurrentExtensions();
 					}
 				});
-				this.add(button, "right");
+				add(button, "right");
 			}
 
-			// Help
 			if (extension.getDescription() != null) {
 				button = new JButton(Icons.HELP);
 				button.addActionListener(new ActionListener() {
@@ -710,17 +672,15 @@ class SimulationOptionsPanel extends JPanel {
 						dialog.setVisible(true);
 					}
 				});
-				this.add(button, "right");
+				add(button, "right");
 			}
 
-			// Delete
 			button = new JButton(Icons.EDIT_DELETE);
 			button.addActionListener(new ActionListener() {
 				@Override
 				public void actionPerformed(ActionEvent arg0) {
 					Iterator<SimulationExtension> iter = simulation.getSimulationExtensions().iterator();
 					while (iter.hasNext()) {
-						// Compare with identity
 						if (iter.next() == extension) {
 							iter.remove();
 							break;
@@ -729,20 +689,34 @@ class SimulationOptionsPanel extends JPanel {
 					updateCurrentExtensions();
 				}
 			});
-			this.add(button, "right");
-			
+			add(button, "right");
 		}
 	}
-	
+
 	private SwingSimulationExtensionConfigurator findConfigurator(SimulationExtension extension) {
 		Set<SwingSimulationExtensionConfigurator> configurators = Application.getInjector().getInstance(new Key<>() {
 		});
-		for (SwingSimulationExtensionConfigurator c : configurators) {
-			if (c.support(extension)) {
-				return c;
+		for (SwingSimulationExtensionConfigurator configurator : configurators) {
+			if (configurator.support(extension)) {
+				return configurator;
 			}
 		}
 		return null;
 	}
-	
+
+	private static boolean isManagedExtension(SimulationExtension extension) {
+		return extension instanceof MonteCarloExtension;
+	}
+
+	private static JTextArea createWrappingTextArea(Color foreground) {
+		JTextArea area = new JTextArea();
+		area.setEditable(false);
+		area.setOpaque(false);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		area.setFocusable(false);
+		area.setForeground(foreground);
+		area.setBorder(BorderFactory.createEmptyBorder());
+		return area;
+	}
 }

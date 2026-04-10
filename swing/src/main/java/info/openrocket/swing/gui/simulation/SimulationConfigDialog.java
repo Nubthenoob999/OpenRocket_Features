@@ -108,7 +108,7 @@ public class SimulationConfigDialog extends JDialog {
 
 		this.setLayout(new BorderLayout());
 
-		final JPanel contentPanel = new JPanel(new MigLayout("fill"));
+		final JPanel contentPanel = new JPanel(new MigLayout("fill, insets 6, gap 6, wrap 1", "[grow]", "[][grow]"));
 
 		// ======== Top panel ========
 		addTopPanel(document, contentPanel);
@@ -118,22 +118,21 @@ public class SimulationConfigDialog extends JDialog {
 		this.tabbedPane = new JTabbedPane();
 
 		//// Launch conditions
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Launchcond"), new SimulationConditionsPanel(simulationList[0]));
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Launchcond"),
+				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationConditionsPanel(simulationList[0])));
 
 		//// Simulation options
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"), new SimulationOptionsPanel(document, simulationList[0]));
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"),
+				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
 
 		//// ROM Aerodynamics prestep
-		tabbedPane.addTab("Aerodynamics", new RomPrestepPanel(simulationList[0]));
+		tabbedPane.addTab("Aerodynamics",
+				SimulationTabLayoutUtils.wrapFormScrollable(new RomPrestepPanel(simulationList[0])));
 
 		//// Simulation Warnings
 		final SimulationWarningsPanel warningsTab = new SimulationWarningsPanel(simulationList[0]);
-		JScrollPane warningsScrollPane = new JScrollPane(warningsTab);
-		warningsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-		warningsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		Dimension d = warningsScrollPane.getPreferredSize();
-		warningsScrollPane.setPreferredSize(new Dimension(d.width, 200));
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Warnings"), warningsScrollPane);
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Warnings"),
+				SimulationTabLayoutUtils.wrapFormScrollable(warningsTab));
 
 		if (isMultiCompEdit()) {
 			tabbedPane.setEnabledAt(WARNINGS_IDX, false);
@@ -147,7 +146,8 @@ public class SimulationConfigDialog extends JDialog {
 		} else {
 			this.plotTab = null;
 		}
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Plotdata"), plotTab);
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Plotdata"),
+				plotTab != null ? SimulationTabLayoutUtils.wrapDataScrollable(plotTab) : null);
 		if (isMultiCompEdit() || !hasData) {
 			tabbedPane.setEnabledAt(PLOT_IDX, false);
 			String ttip = hasData ? trans.get("SimulationConfigDialog.tab.plotDis.ttip") : trans.get("SimulationConfigDialog.tab.plotNoData.ttip");
@@ -160,7 +160,8 @@ public class SimulationConfigDialog extends JDialog {
 		} else {
 			this.exportTab = null;
 		}
-		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Exportdata"), exportTab);
+		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Exportdata"),
+				exportTab != null ? SimulationTabLayoutUtils.wrapDataScrollable(exportTab) : null);
 		if (isMultiCompEdit() || !hasData) {
 			tabbedPane.setEnabledAt(EXPORT_IDX, false);
 			String ttip = hasData ? trans.get("SimulationConfigDialog.tab.expDis.ttip") : trans.get("SimulationConfigDialog.tab.expNoData.ttip");
@@ -211,16 +212,11 @@ public class SimulationConfigDialog extends JDialog {
 
 		});
 
-		// Create a scroll pane for the content
-		JScrollPane scrollPane = new JScrollPane(contentPanel);
-		scrollPane.setBorder(null);
-		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-
-		this.add(scrollPane, BorderLayout.CENTER);
+		this.add(contentPanel, BorderLayout.CENTER);
 		this.add(bottomPanel, BorderLayout.SOUTH);
 		this.validate();
 		this.pack();
+		this.setMinimumSize(new Dimension(980, 700));
 
 		this.setLocationByPlatform(true);
 

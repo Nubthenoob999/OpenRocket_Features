@@ -9,9 +9,10 @@ import info.openrocket.core.util.Chars;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -42,7 +43,7 @@ public final class MonteCarloCsvExporter {
         // Determine max wind level count based on actual data
         int maxWindLevels = records.stream().mapToInt(r -> r.windLevels.size()).max().orElse(1);
         
-        try (BufferedWriter w = new BufferedWriter(new FileWriter(file), 65536)) {
+        try (BufferedWriter w = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8)) {
             writeHeader(w, maxWindLevels);
             for (MonteCarloRunRecord r : records) {
                 writeRow(w, r, maxWindLevels);
@@ -75,7 +76,7 @@ public final class MonteCarloCsvExporter {
 
         public AsyncCsvWriter(File file, int windLevelColumns) throws IOException {
             // Validate file creation early
-            final BufferedWriter writer = new BufferedWriter(new FileWriter(file), 65536);
+            final BufferedWriter writer = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8);
             
             // Write header immediately
             writeHeader(writer, windLevelColumns);

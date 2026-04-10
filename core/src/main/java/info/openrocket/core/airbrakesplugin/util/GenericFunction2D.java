@@ -198,7 +198,7 @@ public final class GenericFunction2D {
     private static double clamp(double v,double lo,double hi){ return (v<lo)?lo: (v>hi?hi:v); }
     private static double lerp(double a,double b,double t){ return a + (b-a)*t; }
 
-    private static Double findExact(List<Row> rows,double xm,double yd){ for(Row r:rows) if(r.mach==xm && r.depl==yd) return r.valN; return null; }
+    private static Double findExact(List<Row> rows,double xm,double yd){ for(Row r:rows) if(Double.compare(r.mach, xm)==0 && Double.compare(r.depl, yd)==0) return r.valN; return null; }
     private static double idw(List<Row> rows,double xm,double yd,int K,double p,double eps){
         ArrayList<Node> ns=new ArrayList<>(rows.size());
         for(Row r:rows){ 

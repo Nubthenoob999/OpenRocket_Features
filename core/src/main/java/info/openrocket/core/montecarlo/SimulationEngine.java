@@ -17,9 +17,9 @@ import org.slf4j.LoggerFactory;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -107,7 +107,7 @@ public class SimulationEngine {
     SimulationEngine(OpenRocketDocument document, File csvFile) throws Exception {
         this.document = document;
         Simulation defaultSimulation = this.generateDefaultSimulation();
-        try (BufferedReader reader = new BufferedReader(new FileReader(csvFile))) {
+        try (BufferedReader reader = Files.newBufferedReader(csvFile.toPath(), StandardCharsets.UTF_8)) {
             CSVParser parser = new CSVParser();
             String[] header = parser.parseLine(reader.readLine());
 
@@ -366,7 +366,7 @@ public class SimulationEngine {
             log.warn("No data has been generated, ignoring CSV export");
             return;
         }
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(csvFile))) {
+        try (BufferedWriter writer = Files.newBufferedWriter(csvFile.toPath(), StandardCharsets.UTF_8)) {
             StringBuilder header = new StringBuilder(
                     "Simulation,Apogee (m),Apogee Time (s),Landing Time (s)," +
                     "Landing East (m),Landing North (m),Landing Lat (deg),Landing Lon (deg)," +

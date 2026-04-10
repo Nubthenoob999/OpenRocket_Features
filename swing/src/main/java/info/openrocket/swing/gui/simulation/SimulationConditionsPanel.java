@@ -19,6 +19,7 @@ import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JSeparator;
 import javax.swing.JSpinner;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -46,12 +47,16 @@ import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.components.BasicSlider;
 import info.openrocket.swing.gui.components.UnitSelector;
 
-public class SimulationConditionsPanel extends JPanel {
+public class SimulationConditionsPanel extends SimulationScrollablePanel {
 	private static final Translator trans = Application.getTranslator();
+	private static final String PANEL_LAYOUT = "fillx, insets 6, gap 8 8, wrap 1";
+	private static final String PANEL_COLUMNS = "[grow,fill]";
+	private static final String SECTION_STACK_LAYOUT = "fillx, insets 0, gap 8 8, wrap 1";
+	private static final String FORM_COLUMNS = "[right][grow,fill][pref!][grow,fill]";
 
 
 	SimulationConditionsPanel(final Simulation simulation) {
-		super(new MigLayout("fill, ins n n 0 n"));
+		super(new MigLayout(PANEL_LAYOUT, PANEL_COLUMNS, ""));
 
 		SimulationOptions simulationOptions = simulation.getOptions();
 
@@ -83,11 +88,19 @@ public class SimulationConditionsPanel extends JPanel {
 		DoubleModel relativeHumidityModel;
 		final ExtendedISAModel standardAtmosphere = new ExtendedISAModel();
 
+		JPanel columnsPanel = new JPanel(new MigLayout("fillx, insets 0, gap 8 8, wrap 2",
+				"[grow,fill][grow,fill]", ""));
+		JPanel leftColumn = new JPanel(new MigLayout(SECTION_STACK_LAYOUT, "[grow,fill]", ""));
+		JPanel rightColumn = new JPanel(new MigLayout(SECTION_STACK_LAYOUT, "[grow,fill]", ""));
+		columnsPanel.add(leftColumn, "growx, top");
+		columnsPanel.add(rightColumn, "growx, top");
+		parent.add(columnsPanel, "growx, pushx, wrap");
+
 		//// Wind settings:  Average wind speed, turbulence intensity, std. deviation, and direction
-		sub = new JPanel(new MigLayout("fill, ins 20 20 0 20", "[grow]", ""));
+		sub = new JPanel(new MigLayout("fillx, insets 8, gap 6 6", "[grow]", ""));
 		//// Wind
 		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.lbl.Wind")));
-		parent.add(sub, "growx, split 2, aligny 0, flowy, gapright para");
+		leftColumn.add(sub, "growx, top");
 
 		// Already create the models here for use in the wind direction widget
 		DoubleModel launchRodDirectionModel = new DoubleModel(target, "LaunchRodDirection", 1.0, UnitGroup.UNITS_ANGLE,
@@ -108,11 +121,10 @@ public class SimulationConditionsPanel extends JPanel {
 		}
 
 		//// Temperature and pressure
-		sub = new JPanel(new MigLayout("gap rel unrel",
-				"[][85lp!][35lp!][75lp!]", ""));
+		sub = new JPanel(new MigLayout("fillx, insets 8, gapx 8, gapy 6", FORM_COLUMNS, ""));
 		//// Atmospheric conditions
 		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.Atmoscond")));
-		parent.add(sub, "growx, aligny 0, gapright para");
+		leftColumn.add(sub, "growx, top");
 
 
 		BooleanModel isa = new BooleanModel(target, "ISAAtmosphere");
@@ -136,7 +148,7 @@ public class SimulationConditionsPanel extends JPanel {
 		tip = trans.get("simedtdlg.lbl.ttip.Temperature");
 		label.setToolTipText(tip);
 		isa.addEnableComponent(label, false);
-		sub.add(label, "gapright 50lp");
+		sub.add(label, "gapright rel");
 
 		temperatureModel = new DoubleModel(target, "LaunchTemperature", UnitGroup.UNITS_TEMPERATURE, 0);
 
@@ -154,7 +166,7 @@ public class SimulationConditionsPanel extends JPanel {
 		slider = new BasicSlider(temperatureModel.getSliderModel(253.15, 308.15)); // -20 ... 35
 		slider.setToolTipText(tip);
 		isa.addEnableComponent(slider, false);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 
 		// Pressure:
@@ -181,7 +193,7 @@ public class SimulationConditionsPanel extends JPanel {
 		slider = new BasicSlider(pressureModel.getSliderModel(0.950e5, 1.050e5));
 		slider.setToolTipText(tip);
 		isa.addEnableComponent(slider, false);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 
 		// Relative humidity:
@@ -207,7 +219,7 @@ public class SimulationConditionsPanel extends JPanel {
 		slider = new BasicSlider(relativeHumidityModel.getSliderModel(0, 1));
 		slider.setToolTipText(tip);
 		isa.addEnableComponent(slider, false);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 
 		isa.addChangeListener(new StateChangeListener() {
@@ -221,11 +233,10 @@ public class SimulationConditionsPanel extends JPanel {
 
 
 		//// Launch site conditions
-		sub = new JPanel(new MigLayout("fill, gap rel unrel",
-				"[grow][90lp!][30lp!][75lp!]", ""));
+		sub = new JPanel(new MigLayout("fillx, insets 8, gapx 8, gapy 6", FORM_COLUMNS, ""));
 		//// Launch site
 		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.lbl.Launchsite")));
-		parent.add(sub, "growx, split 2, aligny 0, flowy");
+		rightColumn.add(sub, "growx, top");
 
 
 		// Latitude:
@@ -248,7 +259,7 @@ public class SimulationConditionsPanel extends JPanel {
 		sub.add(unit, "growx");
 		slider = new BasicSlider(m.getSliderModel());
 		slider.setToolTipText(tip);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 
 		// Longitude:
@@ -269,7 +280,7 @@ public class SimulationConditionsPanel extends JPanel {
 		sub.add(unit, "growx");
 		slider = new BasicSlider(m.getSliderModel());
 		slider.setToolTipText(tip);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 
 		// Altitude:
@@ -293,7 +304,7 @@ public class SimulationConditionsPanel extends JPanel {
 		sub.add(unit, "growx");
 		slider = new BasicSlider(m.getSliderModel(0, 250, 1000));
 		slider.setToolTipText(tip);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 		FlatLafOutlines.validator(pressureSpinner)
 				.warnIf(() -> !isa.getValue() && isPressureTooLow(pressureModel.getValue(), altitudeModel.getValue(),
@@ -317,11 +328,10 @@ public class SimulationConditionsPanel extends JPanel {
 
 
 		//// Launch rod
-		sub = new JPanel(new MigLayout("fill, gap rel unrel",
-				"[grow][75lp!][30lp!][75lp!]", ""));
+		sub = new JPanel(new MigLayout("fillx, insets 8, gapx 8, gapy 6", FORM_COLUMNS, ""));
 		//// Launch rod
 		sub.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.Launchrod")));
-		parent.add(sub, "growx, aligny 0, wrap");
+		rightColumn.add(sub, "growx, top");
 
 
 		// Length:
@@ -343,7 +353,7 @@ public class SimulationConditionsPanel extends JPanel {
 		sub.add(unit, "growx");
 		slider = new BasicSlider(m.getSliderModel(0, 1, 5));
 		slider.setToolTipText(tip);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 		// Keep launch rod parallel to the wind.
 		JCheckBox checkWind = new JCheckBox(intoWind);
@@ -379,7 +389,7 @@ public class SimulationConditionsPanel extends JPanel {
 		slider = new BasicSlider(launchRodAngleModel.getSliderModel(-SimulationOptions.MAX_LAUNCH_ROD_ANGLE, 0,
 				SimulationOptions.MAX_LAUNCH_ROD_ANGLE));
 		slider.setToolTipText(tip);
-		sub.add(slider, "w 75lp, wrap");
+		sub.add(slider, "growx, wrap");
 
 		FlatLafOutlines.validator(launchRodAngleSpinner)
 				.warnIf(() -> isLaunchRodAngleLarge(launchRodAngleModel.getValue()), () -> trans.get("simedtdlg.warning.launchRodAngleLarge"))
@@ -411,7 +421,7 @@ public class SimulationConditionsPanel extends JPanel {
 		sub.add(unit, "growx");
 		BasicSlider directionSlider = new BasicSlider(launchRodDirectionModel.getSliderModel(0, 2*Math.PI));
 		directionSlider.setToolTipText(tip);
-		sub.add(directionSlider, "w 75lp, wrap");
+		sub.add(directionSlider, "growx, wrap");
 		intoWind.addEnableComponent(directionLabel, false);
 		intoWind.addEnableComponent(directionSpin, false);
 		intoWind.addEnableComponent(unit, false);
@@ -509,9 +519,9 @@ public class SimulationConditionsPanel extends JPanel {
 
 		JPanel windSettingsPanel = new JPanel(new CardLayout());
 
-		JPanel averagePanel = new JPanel(new MigLayout("fill, ins 0", "[grow][75lp!][30lp!][75lp!]", ""));
-		JPanel multiLevelPanel = new JPanel(new MigLayout("fill, ins 0"));
-		JPanel liveWeatherPanel = new JPanel(new MigLayout("fill, ins 0"));
+		JPanel averagePanel = new JPanel(new MigLayout("fillx, ins 0, gapx 8, gapy 6", FORM_COLUMNS, ""));
+		JPanel multiLevelPanel = new JPanel(new MigLayout("fillx, ins 0, gapy 6, wrap 1", "[grow,fill]", ""));
+		JPanel liveWeatherPanel = new JPanel(new MigLayout("fillx, ins 0", "[grow,fill]", ""));
 
 		addAverageWindSettings(averagePanel, target, intoWind, launchRodDirectionModel);
 		addMultiLevelSettings(multiLevelPanel, target);
@@ -525,7 +535,7 @@ public class SimulationConditionsPanel extends JPanel {
 			windSettingsPanel.add(liveWeatherPanel, "LiveWeather");
 		}
 
-		panel.add(windSettingsPanel, "grow, wrap");
+		panel.add(windSettingsPanel, "growx, top, wrap");
 
 		averageButton.addActionListener(e -> {
 			((CardLayout) windSettingsPanel.getLayout()).show(windSettingsPanel, "Average");
@@ -606,7 +616,7 @@ public class SimulationConditionsPanel extends JPanel {
 
 		final JLabel intensityLabel = new JLabel(target.getAverageWindModel().getIntensityDescription());
 		intensityLabel.setToolTipText(tip);
-		panel.add(intensityLabel, "w 75lp, skip 1, wrap");
+		panel.add(intensityLabel, "skip 1, span 3, growx, wrap");
 		windTurbulenceIntensity.addChangeListener(new ChangeListener() {
 			@Override
 			public void stateChanged(ChangeEvent e) {
@@ -641,10 +651,10 @@ public class SimulationConditionsPanel extends JPanel {
 		MultiLevelPinkNoiseWindModel model = options.getMultiLevelWindModel();
 		
 		// Create a summary panel to show wind level information
-		JPanel summaryPanel = new JPanel(new MigLayout("fill, ins 0"));
-		JLabel summaryLabel = new JLabel();
+		JPanel summaryPanel = new JPanel(new MigLayout("fillx, ins 0", "[grow,fill]", ""));
+		JTextArea summaryLabel = createWrappingTextArea();
 		updateWindLevelSummary(summaryLabel, model);
-		summaryPanel.add(summaryLabel, "grow, wrap");
+		summaryPanel.add(summaryLabel, "growx, wrap");
 		
 		// Add edit button
 		JButton editButton = new JButton(trans.get("simedtdlg.but.editWindLevels"));
@@ -658,7 +668,7 @@ public class SimulationConditionsPanel extends JPanel {
 			updateWindLevelSummary(summaryLabel, model);
 		});
 		
-		panel.add(summaryPanel, "grow, wrap");
+		panel.add(summaryPanel, "growx, wrap");
 		panel.add(editButton, "spanx, growx, wrap");
 	}
 
@@ -670,7 +680,7 @@ public class SimulationConditionsPanel extends JPanel {
 		for (Component component : panel.getComponents()) {
 			if (component instanceof JPanel summaryPanel) {
 				for (Component summaryComponent : summaryPanel.getComponents()) {
-					if (summaryComponent instanceof JLabel summaryLabel) {
+					if (summaryComponent instanceof JTextArea summaryLabel) {
 						updateWindLevelSummary(summaryLabel, options.getMultiLevelWindModel());
 						return;
 					}
@@ -679,15 +689,14 @@ public class SimulationConditionsPanel extends JPanel {
 		}
 	}
 	
-	private static void updateWindLevelSummary(JLabel label, MultiLevelPinkNoiseWindModel model) {
+	private static void updateWindLevelSummary(JTextArea label, MultiLevelPinkNoiseWindModel model) {
 		List<MultiLevelPinkNoiseWindModel.LevelWindModel> levels = model.getLevels();
 		
 		if (levels.isEmpty()) {		// This shouldn't really be possible, but oh well
 			label.setText(trans.get("simedtdlg.lbl.noWindLevels"));
 		} else {
 			StringBuilder sb = new StringBuilder();
-			sb.append("<html>");
-			sb.append(String.format(trans.get("simedtdlg.lbl.windLevelCount"), levels.size())).append("<br>");
+			sb.append(String.format(trans.get("simedtdlg.lbl.windLevelCount"), levels.size())).append("\n");
 			
 			// Show altitude range
 			if (levels.size() > 1) {
@@ -701,11 +710,11 @@ public class SimulationConditionsPanel extends JPanel {
 				
 				sb.append(String.format(trans.get("simedtdlg.lbl.altitudeRange"),
 						UnitGroup.UNITS_DISTANCE.toStringUnit(minAlt), UnitGroup.UNITS_DISTANCE.toStringUnit(maxAlt)));
-				sb.append("<br>");
+				sb.append("\n");
 			} else {
 				sb.append(String.format(trans.get("simedtdlg.lbl.altitude"),
 						UnitGroup.UNITS_DISTANCE.toStringUnit(levels.get(0).getAltitude())));
-				sb.append("<br>");
+				sb.append("\n");
 			}
 			
 			// Show speed range
@@ -724,9 +733,8 @@ public class SimulationConditionsPanel extends JPanel {
 				sb.append(String.format(trans.get("simedtdlg.lbl.speed"),
 						UnitGroup.UNITS_VELOCITY.toStringUnit(levels.get(0).getSpeed())));
 			}
-			
-			sb.append("</html>");
 			label.setText(sb.toString());
+			label.setCaretPosition(0);
 		}
 	}
 
@@ -779,7 +787,7 @@ public class SimulationConditionsPanel extends JPanel {
 		} else {
 			throw new IllegalArgumentException("maxSlider value must be Double or DoubleModel");
 		}
-		panel.add(slider, "w 75lp, wrap");
+		panel.add(slider, "growx, wrap");
 
 		return new DoubleModelRow(model, spin);
 	}
@@ -798,7 +806,7 @@ public class SimulationConditionsPanel extends JPanel {
 			SimulationOptions defaults = f.getDefault();
 			options.copyConditionsFrom(defaults);
 		});
-		this.add(restoreDefaults, "span, split 3, skip, gapright para, right");
+		this.add(restoreDefaults, "split 2, right");
 
 		// Save as default
 		JButton saveDefaults = new JButton(trans.get("simedtdlg.but.savedefault"));
@@ -806,7 +814,7 @@ public class SimulationConditionsPanel extends JPanel {
 			DefaultSimulationOptionFactory f = Application.getInjector().getInstance(DefaultSimulationOptionFactory.class);
 			f.saveDefault(options);
 		});
-		this.add(saveDefaults, "gapright para, right");
+		this.add(saveDefaults, "wrap");
 	}
 
 	/**
@@ -826,6 +834,17 @@ public class SimulationConditionsPanel extends JPanel {
 				}
 			}
 		});
+	}
+
+	private static JTextArea createWrappingTextArea() {
+		JTextArea area = new JTextArea();
+		area.setEditable(false);
+		area.setOpaque(false);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		area.setFocusable(false);
+		area.setBorder(BorderFactory.createEmptyBorder());
+		return area;
 	}
 
 	public void cleanup() {
