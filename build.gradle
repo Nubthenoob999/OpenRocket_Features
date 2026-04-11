@@ -55,6 +55,123 @@ def baseManifestAttributes = [
         'Main-Class'           : application.mainClass.get(),
 ]
 
+def appName = 'OpenRocket'
+def appDescription = baseManifestAttributes['Description']
+def appVendor = 'OpenRocket'
+def appUrl = 'https://openrocket.info/'
+def launcherJvmArgs = [
+        '-Dapple.awt.application.appearance=system',
+        '-Dsun.java2d.noddraw=true',
+        '-Dsun.java2d.d3d=false',
+        '-Dsun.java2d.ddforcevram=true',
+        '-Dsun.java2d.ddblit=false',
+        '-Dswing.useflipBufferStrategy=True',
+        '--add-exports=java.base/java.lang=ALL-UNNAMED',
+        '--add-exports=java.desktop/sun.awt=ALL-UNNAMED',
+        '--add-exports=java.desktop/sun.java2d=ALL-UNNAMED'
+]
+def currentOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def isWindows = currentOs.contains('windows')
+def isMac = currentOs.contains('mac')
+def defaultInstallerType = isWindows ? 'exe' : (isMac ? 'pkg' : 'deb')
+def jpackageType = providers.gradleProperty('jpackageType').orElse(defaultInstallerType)
+def jpackageExtraModules = providers.gradleProperty('jpackageExtraModules').orElse('')
+def toolExecutable = { String toolName ->
+    def executableName = isWindows ? "${toolName}.exe" : toolName
+    return new File(System.getProperty('java.home'), "bin/${executableName}").absolutePath
+}
+def appVersionForJpackage = {
+    def numericSegments = version.toString().findAll(/\d+/)
+    if (numericSegments.isEmpty()) {
+        return '1.0.0'
+    }
+    def normalizedSegments = numericSegments.take(4)
+    while (normalizedSegments.size() < 3) {
+        normalizedSegments << '0'
+    }
+    return normalizedSegments.join('.')
+}.call()
+def appIconPath = {
+    if (isWindows) {
+        return file('swing/src/main/resources/pix/icon/icon-windows.ico').absolutePath
+    }
+    if (isMac) {
+        return file('swing/src/main/resources/pix/icon/macos-squircle.icns').absolutePath
+    }
+    return file('swing/src/main/resources/pix/icon/icon-256.png').absolutePath
+}.call()
+def packagedAppImageName = isMac ? "${appName}.app" : appName
+def jpackageRootDir = layout.buildDirectory.dir('jpackage')
+def jpackageInputDir = jpackageRootDir.map { it.dir('input') }
+def jpackageMetadataDir = jpackageRootDir.map { it.dir('metadata') }
+def jpackageAppImageDir = jpackageRootDir.map { it.dir('app-image') }
+def jpackageInstallerDir = jpackageRootDir.map { it.dir('installer') }
+def jpackageModulesFile = jpackageMetadataDir.map { it.file('modules.txt') }
+
+def runExternalCommand = { List<String> command, boolean inheritIo = false ->
+    def normalizedCommand = command.collect { it.toString() }
+    def processBuilder = new ProcessBuilder(normalizedCommand)
+    processBuilder.directory(rootDir)
+    if (inheritIo) {
+        processBuilder.inheritIO()
+    }
+
+    def process = processBuilder.start()
+    def stdout = inheritIo ? '' : process.inputStream.getText('UTF-8')
+    def stderr = inheritIo ? '' : process.errorStream.getText('UTF-8')
+    def exitValue = process.waitFor()
+
+    return [
+            exitValue: exitValue,
+            stdout   : stdout,
+            stderr   : stderr
+    ]
+}
+
+def collectJpackageModules = { File jarFile ->
+    def result = runExternalCommand([
+            toolExecutable('jdeps'),
+            '--ignore-missing-deps',
+            '--multi-release', '17',
+            '--print-module-deps',
+            jarFile.absolutePath
+    ])
+    if (result.exitValue != 0) {
+        throw new GradleException("jdeps failed while resolving modules for jpackage:\n${result.stderr.trim()}")
+    }
+
+    def outputLines = result.stdout
+            .readLines()
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+    def moduleLine = outputLines ? outputLines.last() : ''
+    def warningLines = outputLines.size() > 1 ? outputLines[0..-2] : []
+    if (!warningLines.isEmpty()) {
+        println "jdeps warnings:\n${warningLines.join('\n')}"
+    }
+
+    def detectedModules = moduleLine
+            .split(',')
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+    def extraModules = jpackageExtraModules.get()
+            .split(',')
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+    def allModules = (detectedModules + extraModules).unique()
+    return allModules.isEmpty() ? 'java.base' : allModules.join(',')
+}
+
+def runJpackage = { List<String> arguments ->
+    def result = runExternalCommand(([toolExecutable('jpackage')] + arguments) as List<String>)
+    if (result.exitValue != 0) {
+        def details = [result.stdout, result.stderr]
+                .findAll { it != null && !it.trim().isEmpty() }
+                .join(System.lineSeparator())
+        throw new GradleException("jpackage failed with exit code ${result.exitValue}.${details ? System.lineSeparator() + details : ''}")
+    }
+}
+
 // JaCoCo configuration
 jacoco {
     toolVersion = "0.8.11"
@@ -247,6 +364,131 @@ tasks.named('shadowJar', ShadowJar) {
     }
 }
 
+tasks.register('prepareJpackageInput', Copy) {
+    group = 'distribution'
+    description = 'Copies the runnable shadow JAR into the jpackage input directory.'
+
+    dependsOn tasks.named('shadowJar', ShadowJar)
+    from(tasks.named('shadowJar', ShadowJar).flatMap { it.archiveFile })
+    into(jpackageInputDir)
+    rename { "${appName}.jar" }
+}
+
+tasks.register('resolveJpackageModules') {
+    group = 'distribution'
+    description = 'Calculates the JDK modules required by the packaged application.'
+
+    dependsOn tasks.named('shadowJar', ShadowJar)
+    inputs.file(tasks.named('shadowJar', ShadowJar).flatMap { it.archiveFile })
+    outputs.file(jpackageModulesFile)
+
+    doLast {
+        def shadowJarFile = tasks.named('shadowJar', ShadowJar).get().archiveFile.get().asFile
+        def detectedModules = collectJpackageModules(shadowJarFile)
+        def outputFile = jpackageModulesFile.get().asFile
+        outputFile.parentFile.mkdirs()
+        outputFile.text = detectedModules + System.lineSeparator()
+        println "Resolved jpackage runtime modules: ${detectedModules}"
+    }
+}
+
+tasks.register('jpackageAppImage') {
+    group = 'distribution'
+    description = 'Builds an OpenRocket app image with jpackage using the shadow JAR.'
+
+    dependsOn 'prepareJpackageInput', 'resolveJpackageModules'
+    inputs.dir(jpackageInputDir)
+    inputs.file(jpackageModulesFile)
+    outputs.dir(jpackageAppImageDir)
+
+    doLast {
+        def inputDir = jpackageInputDir.get().asFile
+        def outputDir = jpackageAppImageDir.get().asFile
+        def detectedModules = jpackageModulesFile.get().asFile.text.trim()
+
+        delete(outputDir)
+        outputDir.mkdirs()
+
+        def arguments = [
+                '--type', 'app-image',
+                '--dest', outputDir.absolutePath,
+                '--input', inputDir.absolutePath,
+                '--name', appName,
+                '--main-jar', "${appName}.jar",
+                '--main-class', application.mainClass.get(),
+                '--app-version', appVersionForJpackage,
+                '--vendor', appVendor,
+                '--description', appDescription,
+                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} OpenRocket contributors",
+                '--icon', appIconPath,
+                '--add-modules', detectedModules,
+                '--verbose'
+        ]
+        launcherJvmArgs.each { option ->
+            arguments.addAll(['--java-options', option.toString()])
+        }
+
+        runJpackage(arguments)
+        println "Created jpackage app image in '${outputDir.absolutePath}'."
+    }
+}
+
+tasks.register('jpackageInstaller') {
+    group = 'distribution'
+    description = 'Builds a platform installer from the jpackage app image.'
+
+    dependsOn 'jpackageAppImage'
+    inputs.dir(jpackageAppImageDir)
+    outputs.dir(jpackageInstallerDir)
+
+    doLast {
+        def installerType = jpackageType.get()
+        def outputDir = jpackageInstallerDir.get().asFile
+        def appImagePath = new File(jpackageAppImageDir.get().asFile, packagedAppImageName)
+
+        if (!appImagePath.exists()) {
+            throw new GradleException("Expected jpackage app image at '${appImagePath.absolutePath}', but it was not found.")
+        }
+
+        delete(outputDir)
+        outputDir.mkdirs()
+
+        if (isWindows && installerType in ['exe', 'msi']) {
+            def wixResult = runExternalCommand(['where.exe', 'candle.exe'])
+            if (wixResult.exitValue != 0) {
+                throw new GradleException("WiX Toolset was not found on PATH. Install WiX 3.x before running jpackageInstaller, or use jpackageAppImage instead.")
+            }
+        }
+
+        def arguments = [
+                '--type', installerType,
+                '--dest', outputDir.absolutePath,
+                '--name', appName,
+                '--app-image', appImagePath.absolutePath,
+                '--app-version', appVersionForJpackage,
+                '--vendor', appVendor,
+                '--description', appDescription,
+                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} OpenRocket contributors",
+                '--about-url', appUrl,
+                '--icon', appIconPath,
+                '--verbose'
+        ]
+
+        if (isWindows) {
+            arguments.addAll([
+                    '--win-dir-chooser',
+                    '--win-menu',
+                    '--win-menu-group', appName,
+                    '--win-shortcut',
+                    '--win-shortcut-prompt'
+            ])
+        }
+
+        runJpackage(arguments)
+        println "Created jpackage installer artifacts in '${outputDir.absolutePath}'."
+    }
+}
+
 // jacoco aggregate report for all subprojects
 tasks.register('jacocoRootReport', JacocoReport) {
     group = 'verification'
@@ -274,5 +516,15 @@ tasks.register('dist') {
     dependsOn 'check', 'shadowJar'
     doLast {
         println "Completed the deployable jar in './build/libs"
+    }
+}
+
+tasks.register('distJpackage') {
+    group = 'info.openrocket'
+    description = 'Runs verification, builds the runnable JAR, and creates a jpackage app image.'
+
+    dependsOn 'check', 'jpackageAppImage'
+    doLast {
+        println "Completed the deployable jar in './build/libs' and the jpackage app image in './build/jpackage/app-image'."
     }
 }
