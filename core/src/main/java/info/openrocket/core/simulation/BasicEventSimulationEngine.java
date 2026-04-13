@@ -478,25 +478,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			}
 
 			case BURNOUT: {
-				// If motor burnout occurs without lift-off, abort
-				if (!currentStatus.isLiftoff()) {
-					currentStatus.abortSimulation(SimulationAbort.Cause.NO_LIFTOFF);
-				}
-
-				// Add ejection charge event
-				MotorClusterState motorState = (MotorClusterState) event.getData();
-				motorState.burnOut( event.getTime() );
-
-				AxialStage stage = motorState.getMount().getStage();
-				//log.debug( " adding EJECTION_CHARGE event for motor "+motorState.getMotor().getDesignation()+" on stage "+stage.getStageNumber()+": "+stage.getName());
-				log.debug( " detected Motor Burnout for motor "+motorState.getMotor().getDesignation()+"@ "+event.getTime()+"  on stage "+stage.getStageNumber()+": "+stage.getName());
-
-				double delay = motorState.getEjectionDelay();
-				if ( motorState.hasEjectionCharge() ){
-					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.EJECTION_CHARGE, currentStatus.getSimulationTime() + delay,
-							stage, event.getData()));
-				}
-				currentStatus.getFlightDataBranch().addEvent(event);
+				handleMotorBurnoutEvent(event);
 				break;
 			}
 			
@@ -565,62 +547,11 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			}
 			
 			case APOGEE:
-				// Mark apogee as reached
-				currentStatus.setApogeeReached(true);
-				currentStatus.getFlightDataBranch().addEvent(event);
-				// This apogee event might be the optimum if recovery has not already happened.
-				if (currentStatus.getDeployedRecoveryDevices().size() == 0) {
-					currentStatus.getFlightDataBranch().setOptimumAltitude(currentStatus.getMaxAlt());
-					currentStatus.getFlightDataBranch().setTimeToOptimumAltitude(currentStatus.getMaxAltTime());
-				}
+				handleApogeeEvent(event);
 				break;
 
 			case RECOVERY_DEVICE_DEPLOYMENT:
-				RocketComponent c = event.getSource();
-				int n = c.getStageNumber();
-
-				// Ignore event if stage not active
-				if (currentStatus.getConfiguration().isStageActive(n)) {
-					// TODO: HIGH: Check stage activeness for other events as well?
-
-					// Check whether any motor in the active stages is active anymore
-					for (MotorClusterState state : currentStatus.getActiveMotors() ) {
-						if (state.getThrust(currentStatus.getSimulationTime()) > MathUtil.EPSILON) {
-							currentStatus.abortSimulation(SimulationAbort.Cause.DEPLOY_UNDER_THRUST);
-						}
-					}
-
-					// Check for launch rod
-					if (!currentStatus.isLaunchRodCleared()) {
-						currentStatus.addWarning(Warning.RECOVERY_LAUNCH_ROD);
-					}
-
-					// Check current velocity
-					if (currentStatus.getRocketVelocity().length() > 20) {
-						currentStatus.addWarning(new Warning.HighSpeedDeployment(currentStatus.getRocketVelocity().length(), c));
-					}
-
-					currentStatus.setLiftoff(true);
-					currentStatus.getDeployedRecoveryDevices().add((RecoveryDevice) c);
-
-					// If we haven't already reached apogee, then we need to compute the actual coast time
-					// to determine the optimum altitude.
-					if (!currentStatus.isApogeeReached()) {
-						FlightData coastStatus = computeCoastTime();
-
-							currentStatus.getFlightDataBranch().setOptimumAltitude(coastStatus.getMaxAltitude());
-							currentStatus.getFlightDataBranch().setTimeToOptimumAltitude(coastStatus.getTimeToApogee());
-						}
-
-					// switch to landing stepper (unless we're already on the ground)
-					if (!currentStatus.isLanded()) {
-						currentStepper = landingStepper;
-						currentStatus = currentStepper.initialize(currentStatus);
-					}
-					
-					currentStatus.getFlightDataBranch().addEvent(event);
-				}
-				log.debug("deployed recovery devices: " + currentStatus.getDeployedRecoveryDevices().size()	);
+				handleRecoveryDeploymentEvent(event);
 				break;
 			
 			case GROUND_HIT:
@@ -696,6 +627,89 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 		}
 		
 		return ret;
+	}
+
+	private void handleMotorBurnoutEvent(FlightEvent event) throws SimulationException {
+		// If motor burnout occurs without lift-off, abort
+		if (!currentStatus.isLiftoff()) {
+			currentStatus.abortSimulation(SimulationAbort.Cause.NO_LIFTOFF);
+		}
+
+		// Add ejection charge event
+		MotorClusterState motorState = (MotorClusterState) event.getData();
+		motorState.burnOut(event.getTime());
+
+		AxialStage stage = motorState.getMount().getStage();
+		//log.debug( " adding EJECTION_CHARGE event for motor "+motorState.getMotor().getDesignation()+" on stage "+stage.getStageNumber()+": "+stage.getName());
+		log.debug(" detected Motor Burnout for motor " + motorState.getMotor().getDesignation() + "@ " + event.getTime()
+				+ "  on stage " + stage.getStageNumber() + ": " + stage.getName());
+
+		double delay = motorState.getEjectionDelay();
+		if (motorState.hasEjectionCharge()) {
+			currentStatus.addEvent(new FlightEvent(FlightEvent.Type.EJECTION_CHARGE,
+					currentStatus.getSimulationTime() + delay, stage, event.getData()));
+		}
+		currentStatus.getFlightDataBranch().addEvent(event);
+	}
+
+	private void handleApogeeEvent(FlightEvent event) {
+		// Mark apogee as reached
+		currentStatus.setApogeeReached(true);
+		currentStatus.getFlightDataBranch().addEvent(event);
+		// This apogee event might be the optimum if recovery has not already happened.
+		if (currentStatus.getDeployedRecoveryDevices().size() == 0) {
+			currentStatus.getFlightDataBranch().setOptimumAltitude(currentStatus.getMaxAlt());
+			currentStatus.getFlightDataBranch().setTimeToOptimumAltitude(currentStatus.getMaxAltTime());
+		}
+	}
+
+	private void handleRecoveryDeploymentEvent(FlightEvent event) throws SimulationException {
+		RocketComponent c = event.getSource();
+		int n = c.getStageNumber();
+
+		// Ignore event if stage not active
+		if (!currentStatus.getConfiguration().isStageActive(n)) {
+			return;
+		}
+
+		// TODO: HIGH: Check stage activeness for other events as well?
+
+		// Check whether any motor in the active stages is active anymore
+		for (MotorClusterState state : currentStatus.getActiveMotors()) {
+			if (state.getThrust(currentStatus.getSimulationTime()) > MathUtil.EPSILON) {
+				currentStatus.abortSimulation(SimulationAbort.Cause.DEPLOY_UNDER_THRUST);
+			}
+		}
+
+		// Check for launch rod
+		if (!currentStatus.isLaunchRodCleared()) {
+			currentStatus.addWarning(Warning.RECOVERY_LAUNCH_ROD);
+		}
+
+		// Check current velocity
+		if (currentStatus.getRocketVelocity().length() > 20) {
+			currentStatus.addWarning(new Warning.HighSpeedDeployment(currentStatus.getRocketVelocity().length(), c));
+		}
+
+		currentStatus.setLiftoff(true);
+		currentStatus.getDeployedRecoveryDevices().add((RecoveryDevice) c);
+
+		// If we haven't already reached apogee, then we need to compute the actual coast time
+		// to determine the optimum altitude.
+		if (!currentStatus.isApogeeReached()) {
+			FlightData coastStatus = computeCoastTime();
+			currentStatus.getFlightDataBranch().setOptimumAltitude(coastStatus.getMaxAltitude());
+			currentStatus.getFlightDataBranch().setTimeToOptimumAltitude(coastStatus.getTimeToApogee());
+		}
+
+		// switch to landing stepper (unless we're already on the ground)
+		if (!currentStatus.isLanded()) {
+			currentStepper = landingStepper;
+			currentStatus = currentStepper.initialize(currentStatus);
+		}
+
+		currentStatus.getFlightDataBranch().addEvent(event);
+		log.debug("deployed recovery devices: " + currentStatus.getDeployedRecoveryDevices().size());
 	}
 	
 

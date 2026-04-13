@@ -42,8 +42,10 @@ public final class PhaseTwoTestGuiLauncher {
 	private static final String SUMMARY = "phase-two-summary.csv";
 	private static final String QUANTITIES = "phase-two-quantities.csv";
 	private static final String IMPROVEMENTS = "phase-two-improvements.csv";
+	private static final String ANALYSIS = "phase-three-analysis.csv";
+	private static final String RESIDUALS = "phase-three-drag-residuals.csv";
 	private static final String CONSOLE_LOG = "phase-two-console.log";
-	private static final String DEFAULT_CONFIG = "src/test/java/info/openrocket/core/tuning/jsonFiles_tuning/phase-two-config.example.json";
+	private static final String DEFAULT_CONFIG = "src/test/java/info/openrocket/core/tuning/Phase3_tuning.json";
 
 	private JFrame frame;
 	private JLabel statusLabel;
@@ -59,7 +61,7 @@ public final class PhaseTwoTestGuiLauncher {
 	}
 
 	public static void main(String[] args) {
-		Path reportsDir = args.length > 0 ? Path.of(args[0]) : Path.of("build", "reports", "phase-two");
+		Path reportsDir = args.length > 0 ? Path.of(args[0]) : Path.of("build", "reports", "phase-three");
 		Path resolvedReports = reportsDir.toAbsolutePath().normalize();
 		Path resolvedConfig = Path.of(DEFAULT_CONFIG).toAbsolutePath().normalize();
 
@@ -73,7 +75,7 @@ public final class PhaseTwoTestGuiLauncher {
 	}
 
 	private void openUi(Path configPath, Path reportsDir) {
-		frame = new JFrame("Phase-Two Test GUI");
+		frame = new JFrame("Phase-Three Test GUI");
 		frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 		frame.setLayout(new BorderLayout(8, 8));
 
@@ -138,7 +140,7 @@ public final class PhaseTwoTestGuiLauncher {
 		controls.add(browseReports, c);
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-		runTestsButton = new JButton("Run Tests");
+		runTestsButton = new JButton("Run Phase Three");
 		runTestsButton.addActionListener(e -> runTests());
 		actions.add(runTestsButton);
 
@@ -198,6 +200,8 @@ public final class PhaseTwoTestGuiLauncher {
 		tabs.addTab("Summary", buildCsvPanel(reportsDir.resolve(SUMMARY)));
 		tabs.addTab("Quantities", buildCsvPanel(reportsDir.resolve(QUANTITIES)));
 		tabs.addTab("Improvements", buildCsvPanel(reportsDir.resolve(IMPROVEMENTS)));
+		tabs.addTab("Analysis", buildCsvPanel(reportsDir.resolve(ANALYSIS)));
+		tabs.addTab("Residuals", buildCsvPanel(reportsDir.resolve(RESIDUALS)));
 		tabs.addTab("Logs", buildLogsPanel(reportsDir));
 		statusLabel.setText("Loaded reports from " + reportsDir);
 	}
@@ -211,7 +215,7 @@ public final class PhaseTwoTestGuiLauncher {
 		}
 
 		setControlsEnabled(false);
-		statusLabel.setText("Running phase-two tests...");
+		statusLabel.setText("Running Phase Three batch analysis...");
 
 		SwingWorker<Void, Void> worker = new SwingWorker<>() {
 			private Exception error;
@@ -234,7 +238,7 @@ public final class PhaseTwoTestGuiLauncher {
 					statusLabel.setText("Run failed: " + error.getMessage());
 				} else {
 					refreshTabs(reportsDir);
-					statusLabel.setText("Run completed successfully.");
+					statusLabel.setText("Phase Three batch analysis completed successfully.");
 				}
 			}
 		};

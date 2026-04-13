@@ -106,9 +106,10 @@ open module info.openrocket.core {
 	exports info.openrocket.core.preferences;
 	exports info.openrocket.core.startup.providers;
 	exports info.openrocket.core.startup.jij;
-  exports info.openrocket.core.thrustcurve.serialization;
+	exports info.openrocket.core.thrustcurve.serialization;
 	exports info.openrocket.core.aerodynamics.lookup;
 	exports info.openrocket.core.aerodynamics.rom;
+	exports info.openrocket.core.tuning;
 	exports info.openrocket.core.aerodynamics.rom.adapter;
 	exports info.openrocket.core.aerodynamics.rom.core.eval;
 	exports info.openrocket.core.aerodynamics.rom.core.geometry;

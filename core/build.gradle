@@ -344,13 +344,13 @@ tasks.register('phaseTwoGenerateReports', JavaExec) {
     mainClass.set('info.openrocket.core.tuning.PhaseTwoBatchRunner')
     def configPath = project.hasProperty('phaseTwoConfig') ?
         project.property('phaseTwoConfig').toString() :
-        file('src/test/java/info/openrocket/core/tuning/jsonFiles_tuning/phase-two-config.example.json').absolutePath
+        file('src/test/java/info/openrocket/core/tuning/Phase3_tuning.json').absolutePath
     def outputPath = project.hasProperty('phaseTwoReportsDir') ?
         project.property('phaseTwoReportsDir').toString() :
-        file('build/reports/phase-two').absolutePath
+        file('build/reports/phase-three').absolutePath
     args(configPath, outputPath)
     standardInput = System.in
-    description = 'Generates phase-two report CSV/XML/log artifacts from the phase-two config (override via -PphaseTwoConfig and -PphaseTwoReportsDir).'
+    description = 'Generates Phase III report CSV/XML/log artifacts from the configured tuning batch (override via -PphaseTwoConfig and -PphaseTwoReportsDir).'
     group = 'verification'
 }
 
@@ -363,10 +363,10 @@ tasks.register('phaseTwoGui', JavaExec) {
     if (project.hasProperty('reportsDir')) {
         args(project.property('reportsDir').toString())
     } else {
-        args(file('build/reports/phase-two').absolutePath)
+        args(file('build/reports/phase-three').absolutePath)
     }
     standardInput = System.in
-    description = 'Launches the phase-two Swing test GUI for report inspection.'
+    description = 'Launches the Phase III Swing test GUI for report inspection.'
     group = 'verification'
 }
 

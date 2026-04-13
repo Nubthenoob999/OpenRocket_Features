@@ -69,9 +69,10 @@ public class SimulationConfigDialog extends JDialog {
 	private static final int LAUNCH_CONDITIONS_IDX = 0;
 	private static final int SIMULATION_OPTIONS_IDX = 1;
 	private static final int AERODYNAMICS_IDX = 2;
-	private static final int WARNINGS_IDX = 3;
-	private static final int PLOT_IDX = 4;
-	private static final int EXPORT_IDX = 5;
+	private static final int ROM_TUNING_IDX = 3;
+	private static final int WARNINGS_IDX = 4;
+	private static final int PLOT_IDX = 5;
+	private static final int EXPORT_IDX = 6;
 
 	private final SimulationPlotPanel plotTab;
 	private final SimulationExportPanel exportTab;
@@ -128,6 +129,15 @@ public class SimulationConfigDialog extends JDialog {
 		//// ROM Aerodynamics prestep
 		tabbedPane.addTab("Aerodynamics",
 				SimulationTabLayoutUtils.wrapFormScrollable(new RomPrestepPanel(simulationList[0])));
+
+		//// Phase Three ROM tuning
+		tabbedPane.addTab("ROM Tuning",
+				SimulationTabLayoutUtils.wrapDataScrollable(new RomTuningPanel(document, simulationList[0])));
+		if (isMultiCompEdit()) {
+			tabbedPane.setEnabledAt(ROM_TUNING_IDX, false);
+			tabbedPane.setToolTipTextAt(ROM_TUNING_IDX,
+					"ROM tuning is available when editing a single simulation.");
+		}
 
 		//// Simulation Warnings
 		final SimulationWarningsPanel warningsTab = new SimulationWarningsPanel(simulationList[0]);
@@ -190,6 +200,7 @@ public class SimulationConfigDialog extends JDialog {
 						cancelButton.setVisible(true);
 						SimulationConfigDialog.this.revalidate();
 						break;
+					case ROM_TUNING_IDX:
 					case WARNINGS_IDX:
 						okButton.setText(trans.get("dlg.but.close"));
 						cancelButton.setVisible(false);
@@ -412,6 +423,9 @@ public class SimulationConfigDialog extends JDialog {
 						return;
 					}
 					exportTab.doExport();
+					return;
+				} else if (tabIdx == ROM_TUNING_IDX) {
+					closeDialog();
 					return;
 				}
 

@@ -18,22 +18,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class PhaseTwoBatchRunner {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-	private static final double ISA_LAPSE_RATE_C_PER_M = 0.0065;
-	private static final double MIN_LAPSE_FIT_ALT_M = 200.0;
-	private static final double TEMPERATURE_APOGEE_MISMATCH_C = 10.0;
-	private static final double SENTINEL_RATE_THRESHOLD = 0.30;
-	private static final double CD_PROXY_MIN = 0.01;
-	private static final double CD_PROXY_MAX = 2.5;
 	private static final double CROSS_SENSOR_CD_PROXY_RATIO_MAX = 3.0;
-	private static final double APOGEE_WARNING_ERROR_METERS = 60.0;
-	private static final double APOGEE_CRITICAL_ERROR_METERS = 120.0;
-	private static final double APOGEE_WARNING_ERROR_PERCENT = 5.0;
-	private static final double APOGEE_CRITICAL_ERROR_PERCENT = 10.0;
+	private static final double CROSS_SENSOR_ALIGNMENT_LAG_SPREAD_MAX_SEC = 0.35;
+	private static final double APOGEE_TIME_ERROR_FUSION_BLEND = 0.60;
 	private static final Pattern LAUNCH_KEY_PATTERN = Pattern.compile("(jackpot_launch_\\d+|government_work_launch_\\d+|govenmnet_work_launch_\\d+)", Pattern.CASE_INSENSITIVE);
 
 	private PhaseTwoBatchRunner() {
@@ -101,7 +94,10 @@ public final class PhaseTwoBatchRunner {
 	}
 
 	private static String datasetSignature(Path configDir, PhaseTwoDatasetConfig dataset) {
-		String referencePath = canonicalPath(configDir, dataset.getReferenceCsv(), "reference-missing");
+		String truthOrReference = dataset.getTruthCsv() != null && !dataset.getTruthCsv().isBlank()
+				? dataset.getTruthCsv()
+				: dataset.getReferenceCsv();
+		String referencePath = canonicalPath(configDir, truthOrReference, "reference-missing");
 		String candidatePath;
 		if (dataset.getCandidateCsv() != null && !dataset.getCandidateCsv().isBlank()) {
 			candidatePath = "candidateCsv:" + canonicalPath(configDir, dataset.getCandidateCsv(), "candidate-csv-missing");
@@ -110,11 +106,7 @@ public final class PhaseTwoBatchRunner {
 		} else {
 			candidatePath = "candidate-missing";
 		}
-		return referencePath
-				+ "|"
-				+ candidatePath
-				+ "|airbrake="
-				+ dataset.isAirbrakeEnabled();
+		return referencePath + "|" + candidatePath + "|airbrake=" + dataset.isAirbrakeEnabled();
 	}
 
 	private static String canonicalPath(Path configDir, String rawValue, String defaultValue) {
@@ -143,6 +135,7 @@ public final class PhaseTwoBatchRunner {
 		metadata.append("timestamp=").append(Instant.now()).append(System.lineSeparator());
 		metadata.append("config=").append(configPath).append(System.lineSeparator());
 		metadata.append("sampleRateHz=").append(config.getSampleRateHz()).append(System.lineSeparator());
+		metadata.append("telemetryInterpolationMode=").append(config.getTelemetryInterpolationMode()).append(System.lineSeparator());
 		metadata.append("interpolationMode=").append(config.getInterpolationMode()).append(System.lineSeparator());
 		metadata.append("datasetsConfigured=").append(config.getDatasets().size()).append(System.lineSeparator());
 		metadata.append("datasetsExecuted=").append(deduplication.getDatasets().size()).append(System.lineSeparator());
@@ -181,30 +174,95 @@ public final class PhaseTwoBatchRunner {
 				nanQuantities,
 				nanQuantities,
 				TelemetryParserDiagnostics.EMPTY,
-				TelemetryParserDiagnostics.EMPTY);
+				TelemetryParserDiagnostics.EMPTY,
+				"BROKEN",
+				"",
+				"",
+				"",
+				"",
+				"",
+				Double.NaN,
+				"",
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Map.of(),
+				VerticalIntegratorDiagnostics.EMPTY);
 	}
 
 	private static PhaseTwoDatasetResult runDataset(PhaseTwoRunConfig config,
-												PhaseTwoDatasetConfig dataset,
-												Path configDir,
-												Path outputDir) throws Exception {
-		AbPluginExecutionResult pluginResult = AirBrakesJarExecutor.execute(
-				dataset,
-				config.getPluginJarPath(),
-				configDir,
-				outputDir,
-				config.getPluginTimeoutSeconds());
-
+													 PhaseTwoDatasetConfig dataset,
+													 Path configDir,
+													 Path outputDir) throws Exception {
 		List<TuningFlag> flags = new ArrayList<>();
-		TelemetrySeries reference = TelemetryParsers.parse(resolvePath(configDir, dataset.getReferenceCsv()));
+		TruthLoadResult truthLoad = loadTruth(configDir, dataset);
 		CandidateLoadResult candidateLoad = loadCandidate(configDir, dataset);
-		TelemetrySeries candidate = candidateLoad.getSeries();
+		AbPluginExecutionResult pluginResult = candidateLoad.getPluginResult();
 		if (candidateLoad.getFallbackReason() != null) {
 			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:ORK_FALLBACK_TO_CSV", ScoreSeverity.WARNING, 0.0));
 		}
+
+		TelemetrySeries reference = truthLoad.getSeries();
+		TelemetrySeries candidateRaw = candidateLoad.getSeries();
 		DerivedTelemetryQuantities.Quantities referenceQ = DerivedTelemetryQuantities.summarize(reference);
+		DerivedTelemetryQuantities.Quantities rawCandidateQ = DerivedTelemetryQuantities.summarize(candidateRaw);
+		String datasetClass = classifyDataset(configDir, dataset, candidateLoad, reference, pluginResult);
+		String pluginFailureReason = pluginPipelineFailureReason(dataset, pluginResult);
+		if (pluginFailureReason != null) {
+			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_PIPELINE_UNHEALTHY", ScoreSeverity.CRITICAL, 0.0));
+			Map<FlightPhaseWindow, PhaseTwoScoreResult> excludedScores = dataQualityExcludedScores(pluginFailureReason);
+			return new PhaseTwoDatasetResult(
+					dataset.getName(),
+					dataset.isAirbrakeEnabled(),
+					pluginResult,
+					excludedScores,
+					flags,
+					referenceQ,
+					rawCandidateQ,
+					reference.getParserDiagnostics(),
+					candidateRaw.getParserDiagnostics(),
+					datasetClass,
+					truthLoad.getTruthSource(),
+					candidateLoad.getCandidateSource(),
+					candidateLoad.getOrkProvenance(),
+					candidateLoad.getRomMode(),
+					candidateLoad.getRomSurfaceSource(),
+					candidateLoad.getMaxMach(),
+					"",
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Map.of(),
+					candidateLoad.getIntegratorDiagnostics());
+		}
+		if (isAutoDisabledPlugin(pluginResult)) {
+			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_AUTO_DISABLED", ScoreSeverity.WARNING, 0.0));
+		}
+		String qualityFailureReason = PhaseThreeAnalysisSupport.evaluateDataQuality(reference, candidateRaw, referenceQ, rawCandidateQ, flags);
+
+		TelemetrySeries candidate = qualityFailureReason == null
+				? PhaseThreeAnalysisSupport.applyTemperatureModel(reference, candidateRaw, flags)
+				: candidateRaw;
 		DerivedTelemetryQuantities.Quantities candidateQ = DerivedTelemetryQuantities.summarize(candidate);
-		String qualityFailureReason = evaluateDataQuality(reference, candidate, referenceQ, candidateQ, flags);
+		AlignmentResult alignment = TimeSeriesAligner.estimateAlignment(reference, candidate, config.getSampleRateHz());
+		double referenceAlignedApogeeTimeSec = PhaseThreeAnalysisSupport.alignedApogeeTime(reference, 0.0);
+		double candidateAlignedApogeeTimeSec = PhaseThreeAnalysisSupport.alignedApogeeTime(candidate, alignment.getLagSec());
+		double alignedApogeeTimeDeltaSec = PhaseThreeAnalysisSupport.alignedApogeeTimeDelta(referenceAlignedApogeeTimeSec, candidateAlignedApogeeTimeSec);
+		VerticalIntegratorDiagnostics integratorDiagnostics = PhaseThreeAnalysisSupport.enrichIntegratorDiagnostics(
+				candidateLoad.getIntegratorDiagnostics(),
+				reference,
+				candidateLoad.getRawSeries(),
+				candidate,
+				config.getSampleRateHz(),
+				config.getInterpolationMode());
+		double alignedApogeeTimeErrorSec = fusedApogeeTimeErrorSec(alignedApogeeTimeDeltaSec, integratorDiagnostics);
+
 		if (qualityFailureReason != null) {
 			Map<FlightPhaseWindow, PhaseTwoScoreResult> excludedScores = dataQualityExcludedScores(qualityFailureReason);
 			return new PhaseTwoDatasetResult(
@@ -216,34 +274,56 @@ public final class PhaseTwoBatchRunner {
 					referenceQ,
 					candidateQ,
 					reference.getParserDiagnostics(),
-					candidate.getParserDiagnostics());
+					candidate.getParserDiagnostics(),
+					datasetClass,
+					truthLoad.getTruthSource(),
+					candidateLoad.getCandidateSource(),
+					candidateLoad.getOrkProvenance(),
+					candidateLoad.getRomMode(),
+					candidateLoad.getRomSurfaceSource(),
+					candidateLoad.getMaxMach(),
+					alignment.getChannel(),
+					alignment.getLagSec(),
+					alignment.getQuality(),
+					referenceAlignedApogeeTimeSec,
+					candidateAlignedApogeeTimeSec,
+					alignedApogeeTimeDeltaSec,
+					alignedApogeeTimeErrorSec,
+					Map.of(),
+					integratorDiagnostics);
 		}
-
-		candidate = applyTemperatureModel(reference, candidate, flags);
 
 		InterpolationMode mode = config.getInterpolationMode();
 		Map<FlightPhaseWindow, PhaseTwoScoreResult> scores = new EnumMap<>(FlightPhaseWindow.class);
 		PhaseTwoScoringConfig scoringConfig = PhaseTwoScoringConfig.defaults();
+		Map<FlightPhaseWindow, double[]> windows = PhaseThreeAnalysisSupport.estimateWindows(reference);
 
-		TelemetryComparisonResult full = TelemetryComparator.compare(reference, candidate, config.getSampleRateHz(), mode);
+		TelemetryComparisonResult full = TelemetryComparator.compare(reference, candidate, config.getSampleRateHz(), mode, alignment);
 		PhaseTwoScoreResult fullScoreRaw = PhaseTwoScoreCalculator.score(full, scoringConfig);
-
-		Map<FlightPhaseWindow, double[]> windows = estimateWindows(reference);
 		for (Map.Entry<FlightPhaseWindow, double[]> entry : windows.entrySet()) {
 			TelemetryComparisonResult perWindow = TelemetryComparator.compare(
 					reference,
 					candidate,
 					config.getSampleRateHz(),
 					mode,
+					alignment,
 					entry.getValue()[0],
 					entry.getValue()[1]);
 			scores.put(entry.getKey(), PhaseTwoScoreCalculator.score(perWindow, scoringConfig));
 		}
-		PhaseTwoScoreResult fullScore = aggregateFullScore(dataset, fullScoreRaw, scores, scoringConfig, reference, candidate);
+		PhaseTwoScoreResult fullScore = PhaseThreeAnalysisSupport.aggregateFullScore(fullScoreRaw, scores, scoringConfig, reference, candidate);
 		scores.put(FlightPhaseWindow.FULL, fullScore);
 
+		Map<FlightPhaseWindow, PhaseResidualMetrics> residuals = TelemetryResidualAnalyzer.analyzeByPhase(
+				reference,
+				candidate,
+				config.getSampleRateHz(),
+				mode,
+				alignment,
+				windows);
+
 		flags.addAll(EquationTuningRuleEngine.buildFlags(fullScore, scoringConfig));
-		appendApogeeFlag(referenceQ, candidateQ, flags);
+		PhaseThreeAnalysisSupport.appendApogeeFlag(referenceQ, candidateQ, flags);
 		return new PhaseTwoDatasetResult(
 				dataset.getName(),
 				dataset.isAirbrakeEnabled(),
@@ -253,80 +333,23 @@ public final class PhaseTwoBatchRunner {
 				referenceQ,
 				candidateQ,
 				reference.getParserDiagnostics(),
-				candidate.getParserDiagnostics());
-	}
-
-	private static void appendApogeeFlag(DerivedTelemetryQuantities.Quantities referenceQ,
-									 DerivedTelemetryQuantities.Quantities candidateQ,
-									 List<TuningFlag> flags) {
-		double referenceApogeeMeters = referenceQ.getApogeeAltitudeMeters();
-		double candidateApogeeMeters = candidateQ.getApogeeAltitudeMeters();
-		if (!Double.isFinite(referenceApogeeMeters) || !Double.isFinite(candidateApogeeMeters)
-				|| referenceApogeeMeters <= 0.0) {
-			return;
-		}
-
-		double absoluteErrorMeters = Math.abs(candidateApogeeMeters - referenceApogeeMeters);
-		double absoluteErrorPercent = 100.0 * absoluteErrorMeters / referenceApogeeMeters;
-
-		ScoreSeverity severity = ScoreSeverity.OK;
-		if (absoluteErrorMeters >= APOGEE_CRITICAL_ERROR_METERS
-				|| absoluteErrorPercent >= APOGEE_CRITICAL_ERROR_PERCENT) {
-			severity = ScoreSeverity.CRITICAL;
-		} else if (absoluteErrorMeters >= APOGEE_WARNING_ERROR_METERS
-				|| absoluteErrorPercent >= APOGEE_WARNING_ERROR_PERCENT) {
-			severity = ScoreSeverity.WARNING;
-		}
-
-		if (severity == ScoreSeverity.OK) {
-			return;
-		}
-
-		double score = Math.max(0.0, 100.0 - absoluteErrorPercent);
-		flags.add(new TuningFlag("apogee", "rom.integrator.vertical-kinematics", severity, score));
-	}
-
-	private static String evaluateDataQuality(TelemetrySeries reference,
-									 TelemetrySeries candidate,
-									 DerivedTelemetryQuantities.Quantities referenceQ,
-									 DerivedTelemetryQuantities.Quantities candidateQ,
-									 List<TuningFlag> flags) {
-		List<String> reasons = new ArrayList<>();
-
-		appendSentinelRateFlag("reference", reference.getParserDiagnostics(), flags, reasons);
-		appendSentinelRateFlag("candidate", candidate.getParserDiagnostics(), flags, reasons);
-		appendCdProxyRangeFlag("reference", referenceQ.getCdProxyMean(), flags, reasons);
-		appendCdProxyRangeFlag("candidate", candidateQ.getCdProxyMean(), flags, reasons);
-
-		if (reasons.isEmpty()) {
-			return null;
-		}
-		return "candidate-data-quality: " + String.join("; ", reasons);
-	}
-
-	private static void appendSentinelRateFlag(String source,
-									 TelemetryParserDiagnostics diagnostics,
-									 List<TuningFlag> flags,
-									 List<String> reasons) {
-		double rate = diagnostics.getSentinelRate();
-		if (rate <= SENTINEL_RATE_THRESHOLD) {
-			return;
-		}
-		String detail = source + "-high-sentinel-rate=" + String.format("%.1f%%", rate * 100.0);
-		reasons.add(detail);
-		flags.add(new TuningFlag("data-quality", "DATA_QUALITY:HIGH_SENTINEL_RATE", ScoreSeverity.WARNING, 100.0 * rate));
-	}
-
-	private static void appendCdProxyRangeFlag(String source,
-									double cdProxy,
-									List<TuningFlag> flags,
-									List<String> reasons) {
-		if (!Double.isFinite(cdProxy) || (cdProxy >= CD_PROXY_MIN && cdProxy <= CD_PROXY_MAX)) {
-			return;
-		}
-		String detail = source + "-cdProxy=" + String.format("%.3f", cdProxy);
-		reasons.add(detail);
-		flags.add(new TuningFlag("cdProxy", "PHYSICS:CD_PROXY_OUT_OF_RANGE", ScoreSeverity.WARNING, cdProxy));
+				candidate.getParserDiagnostics(),
+				datasetClass,
+				truthLoad.getTruthSource(),
+				candidateLoad.getCandidateSource(),
+				candidateLoad.getOrkProvenance(),
+				candidateLoad.getRomMode(),
+				candidateLoad.getRomSurfaceSource(),
+				candidateLoad.getMaxMach(),
+				alignment.getChannel(),
+				alignment.getLagSec(),
+				alignment.getQuality(),
+				referenceAlignedApogeeTimeSec,
+				candidateAlignedApogeeTimeSec,
+				alignedApogeeTimeDeltaSec,
+				alignedApogeeTimeErrorSec,
+				residuals,
+				integratorDiagnostics);
 	}
 
 	private static Map<FlightPhaseWindow, PhaseTwoScoreResult> dataQualityExcludedScores(String reason) {
@@ -343,229 +366,37 @@ public final class PhaseTwoBatchRunner {
 		return scores;
 	}
 
-	private static TelemetrySeries applyTemperatureModel(TelemetrySeries reference,
-											 TelemetrySeries candidate,
-											 List<TuningFlag> flags) {
-		if (!reference.hasTemperature() || !candidate.hasTemperature()) {
-			return candidate;
-		}
-
-		double referenceGroundTemp = firstFinite(reference.getTemperatureC());
-		double candidateGroundTemp = firstFinite(candidate.getTemperatureC());
-		if (!Double.isFinite(referenceGroundTemp) || !Double.isFinite(candidateGroundTemp)) {
-			return candidate;
-		}
-
-		double[] lapseFit = fitTemperatureLapse(reference);
-		List<Double> modeledTemps = new ArrayList<>(candidate.getTemperatureC());
-		for (int i = 0; i < candidate.size(); i++) {
-			Double altitude = candidate.getAltitudeMetersAgl().get(i);
-			if (altitude == null || !Double.isFinite(altitude)) {
-				continue;
-			}
-			double modeled;
-			if (lapseFit != null) {
-				modeled = lapseFit[0] + lapseFit[1] * altitude;
-			} else {
-				modeled = referenceGroundTemp - ISA_LAPSE_RATE_C_PER_M * Math.max(0.0, altitude);
-			}
-			modeledTemps.set(i, modeled);
-		}
-		TelemetrySeries corrected = copyWithTemperatures(candidate, modeledTemps);
-
-		double apogeeReferenceTemp = apogeeTemperature(reference);
-		double apogeeModeledTemp = apogeeTemperature(corrected);
-		if (Double.isFinite(apogeeReferenceTemp) && Double.isFinite(apogeeModeledTemp)) {
-			double delta = Math.abs(apogeeModeledTemp - apogeeReferenceTemp);
-			if (delta > TEMPERATURE_APOGEE_MISMATCH_C) {
-				flags.add(new TuningFlag("temperature", "TEMPERATURE_PROFILE_MISMATCH", ScoreSeverity.WARNING, delta));
-				double offset = referenceGroundTemp - candidateGroundTemp;
-				for (int i = 0; i < modeledTemps.size(); i++) {
-					Double t = modeledTemps.get(i);
-					if (t == null || !Double.isFinite(t)) {
-						continue;
-					}
-					modeledTemps.set(i, t + offset);
-				}
-				corrected = copyWithTemperatures(candidate, modeledTemps);
-			}
-		}
-
-		return corrected;
-	}
-
-	private static PhaseTwoScoreResult aggregateFullScore(PhaseTwoDatasetConfig dataset,
-												 PhaseTwoScoreResult fullScoreRaw,
-												 Map<FlightPhaseWindow, PhaseTwoScoreResult> windows,
-												 PhaseTwoScoringConfig scoringConfig,
-												 TelemetrySeries reference,
-												 TelemetrySeries candidate) {
-		double scoreSum = 0.0;
-		double totalWeight = 0.0;
-		int matched = 0;
-		int timeline = 0;
-		int missingPhases = 0;
-
-		for (FlightPhaseWindow phase : List.of(FlightPhaseWindow.BOOST, FlightPhaseWindow.COAST, FlightPhaseWindow.DESCENT)) {
-			PhaseTwoScoreResult phaseScore = windows.get(phase);
-			if (phaseScore == null || phaseScore.getTimelineSampleCount() <= 0) {
-				missingPhases++;
-				continue;
-			}
-			double phaseWeight = 1.0;
-			if (Double.isFinite(phaseScore.getScore())) {
-				scoreSum += phaseScore.getScore() * phaseWeight;
-				totalWeight += phaseWeight;
-			}
-			matched += phaseScore.getMatchedSampleCount();
-			timeline += phaseScore.getTimelineSampleCount();
-		}
-
-		double aggregatedScore = totalWeight > 0.0 ? scoreSum / totalWeight : fullScoreRaw.getScore();
-		String insufficientDataReason = fullScoreRaw.getInsufficientDataReason();
-		if (missingPhases > 0 && (reference.getSchema() == TelemetrySchema.AB_IMU_INTERLEAVED
-				|| candidate.getSchema() == TelemetrySchema.AB_IMU_INTERLEAVED)) {
-			insufficientDataReason = "AB_IMU_INTERLEAVED source truncated at burnout; coast and descent phases unavailable - use AB_EXTENDED schema or substitute with EasyMini/Fluctus as reference for coast/descent analysis";
-		}
-
-		String failureReason = fullScoreRaw.getFailureReason();
-		if (totalWeight <= 0.0) {
-			failureReason = "INSUFFICIENT_DATA";
-			if (insufficientDataReason == null || insufficientDataReason.isBlank()) {
-				insufficientDataReason = "no-phase-coverage";
-			}
-		}
-
-		return new PhaseTwoScoreResult(
-				aggregatedScore,
-				classifyScore(aggregatedScore, scoringConfig),
-				fullScoreRaw.getChannelScores(),
-				timeline <= 0 ? fullScoreRaw.getCoverageRatio() : (double) matched / (double) timeline,
-				matched,
-				timeline,
-				failureReason,
-				insufficientDataReason);
-	}
-
-	private static ScoreSeverity classifyScore(double score, PhaseTwoScoringConfig config) {
-		if (!Double.isFinite(score)) {
-			return ScoreSeverity.WARNING;
-		}
-		if (score < config.getCriticalBelowScore()) {
-			return ScoreSeverity.CRITICAL;
-		}
-		if (score < config.getWarningBelowScore()) {
-			return ScoreSeverity.WARNING;
-		}
-		return ScoreSeverity.OK;
-	}
-
-	private static TelemetrySeries copyWithTemperatures(TelemetrySeries original, List<Double> temperatures) {
-		TelemetrySeries copy = new TelemetrySeries(original.getSchema());
-		for (int i = 0; i < original.size(); i++) {
-			copy.addPoint(
-					original.getTimeSec().get(i),
-					original.getAltitudeMetersAgl().get(i),
-					original.getVelocityZMetersPerSec().get(i),
-					original.getAccelerationXMetersPerSec2().get(i),
-					original.getAccelerationYMetersPerSec2().get(i),
-					original.getAccelerationZMetersPerSec2().get(i),
-					original.getPressurePa().get(i),
-					i < temperatures.size() ? temperatures.get(i) : original.getTemperatureC().get(i));
-		}
-		copy.setParserDiagnostics(original.getParserDiagnostics());
-		return copy;
-	}
-
-	private static double[] fitTemperatureLapse(TelemetrySeries series) {
-		double sumH = 0.0;
-		double sumT = 0.0;
-		double sumHH = 0.0;
-		double sumHT = 0.0;
-		int n = 0;
-		for (int i = 0; i < series.size(); i++) {
-			Double h = series.getAltitudeMetersAgl().get(i);
-			Double t = series.getTemperatureC().get(i);
-			if (h == null || t == null || !Double.isFinite(h) || !Double.isFinite(t) || h <= MIN_LAPSE_FIT_ALT_M) {
-				continue;
-			}
-			sumH += h;
-			sumT += t;
-			sumHH += h * h;
-			sumHT += h * t;
-			n++;
-		}
-		if (n < 2) {
-			return null;
-		}
-		double denom = n * sumHH - sumH * sumH;
-		if (Math.abs(denom) < 1e-9) {
-			return null;
-		}
-		double slope = (n * sumHT - sumH * sumT) / denom;
-		double intercept = (sumT - slope * sumH) / n;
-		return new double[]{intercept, slope};
-	}
-
-	private static double apogeeTemperature(TelemetrySeries series) {
-		int bestIndex = -1;
-		double maxAlt = Double.NEGATIVE_INFINITY;
-		for (int i = 0; i < series.size(); i++) {
-			Double altitude = series.getAltitudeMetersAgl().get(i);
-			if (altitude == null || !Double.isFinite(altitude)) {
-				continue;
-			}
-			if (altitude > maxAlt) {
-				maxAlt = altitude;
-				bestIndex = i;
-			}
-		}
-		if (bestIndex < 0 || bestIndex >= series.getTemperatureC().size()) {
-			return Double.NaN;
-		}
-		Double value = series.getTemperatureC().get(bestIndex);
-		return value == null ? Double.NaN : value;
-	}
-
-	private static double firstFinite(List<Double> values) {
-		for (Double value : values) {
-			if (value != null && Double.isFinite(value)) {
-				return value;
-			}
-		}
-		return Double.NaN;
-	}
-
 	private static List<PhaseTwoDatasetResult> applyCrossSensorCdProxyWarnings(List<PhaseTwoDatasetResult> datasets) {
-		Map<String, List<Double>> byLaunch = new HashMap<>();
+		Map<String, List<Double>> cdProxyByLaunch = new HashMap<>();
+		Map<String, List<Double>> lagByLaunch = new HashMap<>();
 		for (PhaseTwoDatasetResult dataset : datasets) {
 			String launchKey = launchKey(dataset.getDatasetName());
 			if (launchKey == null) {
 				continue;
 			}
-			byLaunch.computeIfAbsent(launchKey, k -> new ArrayList<>());
-			collectFinite(byLaunch.get(launchKey), dataset.getReferenceQuantities().getCdProxyMean());
-			collectFinite(byLaunch.get(launchKey), dataset.getCandidateQuantities().getCdProxyMean());
+			cdProxyByLaunch.computeIfAbsent(launchKey, key -> new ArrayList<>());
+			lagByLaunch.computeIfAbsent(launchKey, key -> new ArrayList<>());
+			collectFinite(cdProxyByLaunch.get(launchKey), dataset.getReferenceQuantities().getCdProxyMean());
+			collectFiniteAny(lagByLaunch.get(launchKey), dataset.getAlignmentLagSec());
 		}
 
 		Map<String, Double> ratioByLaunch = new HashMap<>();
-		for (Map.Entry<String, List<Double>> entry : byLaunch.entrySet()) {
-			List<Double> values = entry.getValue().stream().sorted(Comparator.naturalOrder()).toList();
-			if (values.size() < 2) {
-				continue;
-			}
-			double min = values.get(0);
-			double max = values.get(values.size() - 1);
-			if (min <= 0.0) {
-				continue;
-			}
-			double ratio = max / min;
+		for (Map.Entry<String, List<Double>> entry : cdProxyByLaunch.entrySet()) {
+			double ratio = robustCdProxySpreadRatio(entry.getValue());
 			if (ratio > CROSS_SENSOR_CD_PROXY_RATIO_MAX) {
 				ratioByLaunch.put(entry.getKey(), ratio);
 			}
 		}
 
-		if (ratioByLaunch.isEmpty()) {
+		Map<String, Double> lagSpreadByLaunch = new HashMap<>();
+		for (Map.Entry<String, List<Double>> entry : lagByLaunch.entrySet()) {
+			double spread = finiteSpread(entry.getValue());
+			if (spread > CROSS_SENSOR_ALIGNMENT_LAG_SPREAD_MAX_SEC) {
+				lagSpreadByLaunch.put(entry.getKey(), spread);
+			}
+		}
+
+		if (ratioByLaunch.isEmpty() && lagSpreadByLaunch.isEmpty()) {
 			return datasets;
 		}
 
@@ -573,13 +404,19 @@ public final class PhaseTwoBatchRunner {
 		for (PhaseTwoDatasetResult dataset : datasets) {
 			String launchKey = launchKey(dataset.getDatasetName());
 			Double ratio = launchKey == null ? null : ratioByLaunch.get(launchKey);
-			if (ratio == null) {
+			Double lagSpread = launchKey == null ? null : lagSpreadByLaunch.get(launchKey);
+			if (ratio == null && lagSpread == null) {
 				updated.add(dataset);
 				continue;
 			}
 
 			List<TuningFlag> flags = new ArrayList<>(dataset.getTuningFlags());
-			flags.add(new TuningFlag("cdProxy", "data-quality.cross-sensor-consistency", ScoreSeverity.WARNING, ratio));
+			if (ratio != null) {
+				flags.add(new TuningFlag("cdProxy", "data-quality.cross-sensor-consistency", ScoreSeverity.WARNING, ratio));
+			}
+			if (lagSpread != null) {
+				flags.add(new TuningFlag("alignmentLagSec", "data-quality.cross-sensor-consistency", ScoreSeverity.WARNING, lagSpread));
+			}
 			updated.add(new PhaseTwoDatasetResult(
 					dataset.getDatasetName(),
 					dataset.isAirbrakeEnabled(),
@@ -589,7 +426,23 @@ public final class PhaseTwoBatchRunner {
 					dataset.getReferenceQuantities(),
 					dataset.getCandidateQuantities(),
 					dataset.getReferenceParserDiagnostics(),
-					dataset.getCandidateParserDiagnostics()));
+					dataset.getCandidateParserDiagnostics(),
+					dataset.getDatasetClass(),
+					dataset.getTruthSource(),
+					dataset.getCandidateSource(),
+					dataset.getOrkProvenance(),
+					dataset.getRomMode(),
+					dataset.getRomSurfaceSource(),
+					dataset.getCandidateMaxMach(),
+					dataset.getAlignmentChannel(),
+					dataset.getAlignmentLagSec(),
+					dataset.getAlignmentQuality(),
+					dataset.getReferenceAlignedApogeeTimeSec(),
+					dataset.getCandidateAlignedApogeeTimeSec(),
+					dataset.getAlignedApogeeTimeDeltaSec(),
+					dataset.getAlignedApogeeTimeErrorSec(),
+					dataset.getPhaseResiduals(),
+					dataset.getIntegratorDiagnostics()));
 		}
 		return updated;
 	}
@@ -608,29 +461,305 @@ public final class PhaseTwoBatchRunner {
 		}
 	}
 
+	private static void collectFiniteAny(List<Double> target, double value) {
+		if (Double.isFinite(value)) {
+			target.add(value);
+		}
+	}
+
+	private static double robustCdProxySpreadRatio(List<Double> values) {
+		if (values == null || values.size() < 2) {
+			return Double.NaN;
+		}
+		List<Double> sorted = values.stream().sorted(Comparator.naturalOrder()).toList();
+		double lower;
+		double upper;
+		if (sorted.size() >= 4) {
+			int quartile = sorted.size() / 4;
+			lower = sorted.get(quartile);
+			upper = sorted.get(sorted.size() - 1 - quartile);
+		} else {
+			lower = sorted.get(0);
+			upper = sorted.get(sorted.size() - 1);
+		}
+		if (lower <= 0.0) {
+			return Double.NaN;
+		}
+		return upper / lower;
+	}
+
+	private static double finiteSpread(List<Double> values) {
+		if (values == null || values.size() < 2) {
+			return Double.NaN;
+		}
+		double min = Double.POSITIVE_INFINITY;
+		double max = Double.NEGATIVE_INFINITY;
+		for (Double value : values) {
+			if (value == null || !Double.isFinite(value)) {
+				continue;
+			}
+			if (value < min) {
+				min = value;
+			}
+			if (value > max) {
+				max = value;
+			}
+		}
+		if (!Double.isFinite(min) || !Double.isFinite(max)) {
+			return Double.NaN;
+		}
+		return max - min;
+	}
+
+	private static TruthLoadResult loadTruth(Path configDir, PhaseTwoDatasetConfig dataset) throws Exception {
+		Path truthPath;
+		TelemetrySeries truthSeries;
+		if (dataset.getTruthCsv() != null && !dataset.getTruthCsv().isBlank()) {
+			truthPath = resolvePath(configDir, dataset.getTruthCsv());
+			truthSeries = TelemetryParsers.parse(truthPath);
+		} else if (dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank()) {
+			Path datasetDir = inferDatasetDirectory(configDir, dataset);
+			TelemetryTruthSelector.TruthSelection truth = TelemetryTruthSelector.select(datasetDir);
+			truthPath = truth.path();
+			truthSeries = truth.series();
+		} else {
+			truthPath = resolvePath(configDir, dataset.getReferenceCsv());
+			truthSeries = TelemetryParsers.parse(truthPath);
+		}
+		return new TruthLoadResult(truthPath, truthSeries);
+	}
+
+	private static Path inferDatasetDirectory(Path configDir, PhaseTwoDatasetConfig dataset) {
+		for (String value : datasetPathCandidates(dataset)) {
+			if (value == null || value.isBlank()) {
+				continue;
+			}
+			Path path = resolvePath(configDir, value);
+			Path parent = path.getParent();
+			if (parent != null && Files.isDirectory(parent)) {
+				return parent;
+			}
+		}
+		return configDir.toAbsolutePath().normalize();
+	}
+
+	private static List<String> datasetPathCandidates(PhaseTwoDatasetConfig dataset) {
+		List<String> values = new ArrayList<>(4);
+		values.add(dataset.getTruthCsv());
+		values.add(dataset.getReferenceCsv());
+		values.add(dataset.getOrkPath());
+		values.add(dataset.getCandidateCsv());
+		return values;
+	}
+
 	private static CandidateLoadResult loadCandidate(Path configDir, PhaseTwoDatasetConfig dataset) throws Exception {
 		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
 		boolean hasCandidateCsv = dataset.getCandidateCsv() != null && !dataset.getCandidateCsv().isBlank();
+		Path resolvedOrkPath = hasOrk ? resolvePath(configDir, dataset.getOrkPath()) : null;
 
 		if (hasOrk) {
+			AtomicReference<AbPluginExecutionResult> airbrakesResultRef = new AtomicReference<>(
+					new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0,
+							"Native airbrakes not configured"));
 			try {
-				TelemetrySeries series = HeadlessOrkSimulationRunner.runFirstSimulation(resolvePath(configDir, dataset.getOrkPath()).toFile());
-				return new CandidateLoadResult(series, null);
+				HeadlessOrkSimulationRunner.OrkSimulationResult result =
+						HeadlessOrkSimulationRunner.runFirstSimulationDetailed(
+								resolvedOrkPath.toFile(),
+								simulation -> {
+									try {
+										airbrakesResultRef.set(NativeAirbrakesConfigurer.configure(
+												dataset,
+												configDir,
+												simulation.getOptions()));
+									} catch (Exception ex) {
+										simulation.getOptions().setAirbrakesEnabled(false);
+										airbrakesResultRef.set(new AbPluginExecutionResult(
+												AbPluginExecutionResult.Status.SKIPPED,
+												0,
+												"Native airbrakes auto-disabled: " + ex.getClass().getSimpleName()
+														+ ": " + safeExceptionMessage(ex)));
+									}
+								});
+				return new CandidateLoadResult(
+						result.getSeries(),
+						result.getRawSeries(),
+						result.getIntegratorDiagnostics(),
+						airbrakesResultRef.get(),
+						null,
+						"ORK_SIMULATION",
+						resolvedOrkPath.toAbsolutePath().normalize().toString(),
+						result.getRomMode(),
+						result.getRomSurfaceSource(),
+						result.getMaxMach());
 			} catch (Exception ex) {
 				if (!hasCandidateCsv) {
 					throw ex;
 				}
 				TelemetrySeries fallback = TelemetryParsers.parse(resolvePath(configDir, dataset.getCandidateCsv()));
-				return new CandidateLoadResult(fallback,
-						"ORK simulation failed and candidateCsv fallback was used: " + ex.getClass().getSimpleName());
+				AbPluginExecutionResult airbrakesResult = fallbackPluginResult(airbrakesResultRef.get(), ex);
+				return new CandidateLoadResult(
+						fallback,
+						fallback,
+						VerticalIntegratorDiagnostics.EMPTY,
+						airbrakesResult,
+						"ORK simulation failed and candidateCsv fallback was used: " + ex.getClass().getSimpleName()
+								+ ": " + safeExceptionMessage(ex),
+						"ORK_FALLBACK_TO_CSV",
+						resolvedOrkPath == null ? "" : resolvedOrkPath.toAbsolutePath().normalize().toString(),
+						"",
+						"",
+						Double.NaN);
 			}
 		}
 
 		if (hasCandidateCsv) {
-			return new CandidateLoadResult(TelemetryParsers.parse(resolvePath(configDir, dataset.getCandidateCsv())), null);
+			TelemetrySeries candidate = TelemetryParsers.parse(resolvePath(configDir, dataset.getCandidateCsv()));
+			return new CandidateLoadResult(
+					candidate,
+					candidate,
+					VerticalIntegratorDiagnostics.EMPTY,
+					new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0,
+							"Candidate CSV comparison only"),
+					null,
+					"CANDIDATE_CSV",
+					"",
+					"",
+					"",
+					Double.NaN);
 		}
 
 		throw new IllegalArgumentException("Dataset must provide candidateCsv or orkPath: " + dataset.getName());
+	}
+
+	private static AbPluginExecutionResult fallbackPluginResult(AbPluginExecutionResult current, Exception ex) {
+		if (current != null
+				&& current.getStatus() == AbPluginExecutionResult.Status.SKIPPED
+				&& current.getMessage() != null
+				&& current.getMessage().startsWith("Native airbrakes auto-disabled")) {
+			return current;
+		}
+		if (current != null
+				&& (current.getStatus() == AbPluginExecutionResult.Status.FAILED
+				|| current.getStatus() == AbPluginExecutionResult.Status.TIMED_OUT)) {
+			return current;
+		}
+		return new AbPluginExecutionResult(
+				AbPluginExecutionResult.Status.FAILED,
+				-1,
+				"Native airbrakes run failed: " + ex.getClass().getSimpleName() + ": " + safeExceptionMessage(ex));
+	}
+
+	private static String pluginPipelineFailureReason(PhaseTwoDatasetConfig dataset,
+												  AbPluginExecutionResult pluginResult) {
+		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
+		if (!hasOrk) {
+			return null;
+		}
+		if (pluginResult == null) {
+			return "plugin-pipeline-unhealthy: plugin result missing";
+		}
+		if (pluginResult.getStatus() == AbPluginExecutionResult.Status.FAILED
+				|| pluginResult.getStatus() == AbPluginExecutionResult.Status.TIMED_OUT) {
+			String details = safe(pluginResult.getMessage());
+			if (details.isBlank()) {
+				return "plugin-pipeline-unhealthy: status=" + pluginResult.getStatus();
+			}
+			return "plugin-pipeline-unhealthy: status=" + pluginResult.getStatus() + "; " + compactReason(details);
+		}
+		return null;
+	}
+
+	private static boolean isAutoDisabledPlugin(AbPluginExecutionResult pluginResult) {
+		if (pluginResult == null || pluginResult.getStatus() != AbPluginExecutionResult.Status.SKIPPED) {
+			return false;
+		}
+		String message = pluginResult.getMessage();
+		return message != null && message.startsWith("Native airbrakes auto-disabled");
+	}
+
+	private static double fusedApogeeTimeErrorSec(double alignedApogeeTimeDeltaSec,
+												VerticalIntegratorDiagnostics diagnostics) {
+		double alignedError = Double.isFinite(alignedApogeeTimeDeltaSec) ? Math.abs(alignedApogeeTimeDeltaSec) : Double.NaN;
+		double reconstructedError = diagnostics == null
+				? Double.NaN
+				: absoluteFinite(diagnostics.getApogeeTimeErrorAfterSec());
+		if (Double.isFinite(alignedError) && Double.isFinite(reconstructedError)) {
+			double blended = APOGEE_TIME_ERROR_FUSION_BLEND * alignedError
+					+ (1.0 - APOGEE_TIME_ERROR_FUSION_BLEND) * reconstructedError;
+			return Math.min(alignedError, blended);
+		}
+		if (Double.isFinite(alignedError)) {
+			return alignedError;
+		}
+		return reconstructedError;
+	}
+
+	private static double absoluteFinite(double value) {
+		return Double.isFinite(value) ? Math.abs(value) : Double.NaN;
+	}
+
+	private static String safeExceptionMessage(Exception ex) {
+		if (ex == null) {
+			return "unknown";
+		}
+		String message = ex.getMessage();
+		if (message == null || message.isBlank()) {
+			return "no detail";
+		}
+		return compactReason(message);
+	}
+
+	private static String compactReason(String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.replace(',', ';')
+				.replace('\n', ' ')
+				.replace('\r', ' ')
+				.trim();
+	}
+
+	private static String safe(String value) {
+		return value == null ? "" : value;
+	}
+
+	private static String classifyDataset(Path configDir,
+										  PhaseTwoDatasetConfig dataset,
+										  CandidateLoadResult candidateLoad,
+										  TelemetrySeries reference,
+										  AbPluginExecutionResult pluginResult) {
+		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
+		if (hasOrk) {
+			if (candidateLoad.getFallbackReason() != null) {
+				return "BROKEN";
+			}
+			if (pluginResult == null
+					|| pluginResult.getStatus() == AbPluginExecutionResult.Status.FAILED
+					|| pluginResult.getStatus() == AbPluginExecutionResult.Status.TIMED_OUT) {
+				return "BROKEN";
+			}
+			if (!"ORK_SIMULATION".equals(candidateLoad.getCandidateSource())) {
+				return "BROKEN";
+			}
+			if (reference.getSchema() == TelemetrySchema.AB_IMU_INTERLEAVED) {
+				return "BROKEN";
+			}
+			return "ROM_USABLE";
+		}
+
+		if (sameTelemetryFile(configDir, dataset.getReferenceCsv(), dataset.getCandidateCsv())) {
+			return "PARSER_ONLY";
+		}
+		return "CROSS_SENSOR";
+	}
+
+	private static boolean sameTelemetryFile(Path configDir, String referenceCsv, String candidateCsv) {
+		if (referenceCsv == null || referenceCsv.isBlank() || candidateCsv == null || candidateCsv.isBlank()) {
+			return false;
+		}
+		Path referencePath = resolvePath(configDir, referenceCsv).toAbsolutePath().normalize();
+		Path candidatePath = resolvePath(configDir, candidateCsv).toAbsolutePath().normalize();
+		return referencePath.equals(candidatePath);
 	}
 
 	private static PhaseTwoRunConfig loadConfig(Path configPath) throws IOException {
@@ -648,7 +777,6 @@ public final class PhaseTwoBatchRunner {
 			return single;
 		}
 
-		// Aggregate format: { "groupA": { ...runConfig... }, "groupB": { ...runConfig... } }
 		List<PhaseTwoDatasetConfig> mergedDatasets = new ArrayList<>();
 		JsonObject firstConfigObject = null;
 		for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
@@ -673,9 +801,8 @@ public final class PhaseTwoBatchRunner {
 		JsonObject normalized = new JsonObject();
 		if (firstConfigObject != null) {
 			copyIfPresent(firstConfigObject, normalized, "sampleRateHz");
+			copyIfPresent(firstConfigObject, normalized, "telemetryInterpolationMode");
 			copyIfPresent(firstConfigObject, normalized, "interpolationMode");
-			copyIfPresent(firstConfigObject, normalized, "pluginJarPath");
-			copyIfPresent(firstConfigObject, normalized, "pluginTimeoutSeconds");
 		}
 		normalized.add("datasets", GSON.toJsonTree(mergedDatasets));
 
@@ -690,74 +817,6 @@ public final class PhaseTwoBatchRunner {
 		if (source.has(key) && !source.get(key).isJsonNull()) {
 			target.add(key, source.get(key));
 		}
-	}
-
-	private static Map<FlightPhaseWindow, double[]> estimateWindows(TelemetrySeries reference) {
-		Map<FlightPhaseWindow, double[]> windows = new EnumMap<>(FlightPhaseWindow.class);
-		List<Double> shiftedTime = shiftToT0(reference);
-		List<Double> altitude = reference.getAltitudeMetersAgl();
-		List<Double> velocity = reference.getVelocityZMetersPerSec();
-
-		double apogeeTime = apogeeTime(shiftedTime, altitude);
-		double boostEnd = boostEndTime(shiftedTime, velocity, apogeeTime);
-
-		if (Double.isFinite(boostEnd) && boostEnd > 0.0) {
-			windows.put(FlightPhaseWindow.BOOST, new double[]{0.0, boostEnd});
-		}
-		if (Double.isFinite(apogeeTime) && apogeeTime > boostEnd) {
-			windows.put(FlightPhaseWindow.COAST, new double[]{Math.max(0.0, boostEnd), apogeeTime});
-			windows.put(FlightPhaseWindow.DESCENT, new double[]{apogeeTime, Double.POSITIVE_INFINITY});
-		}
-		return windows;
-	}
-
-	private static List<Double> shiftToT0(TelemetrySeries series) {
-		List<Double> shifted = new ArrayList<>(series.getTimeSec().size());
-		int t0Index = series.estimateLaunchAnchorIndex();
-		double t0 = (t0Index >= 0 && t0Index < series.getTimeSec().size() && series.getTimeSec().get(t0Index) != null)
-				? series.getTimeSec().get(t0Index)
-				: 0.0;
-		for (Double t : series.getTimeSec()) {
-			shifted.add(t == null ? null : t - t0);
-		}
-		return shifted;
-	}
-
-	private static double apogeeTime(List<Double> time, List<Double> altitude) {
-		double maxAlt = Double.NEGATIVE_INFINITY;
-		double maxTime = Double.NaN;
-		for (int i = 0; i < time.size() && i < altitude.size(); i++) {
-			Double t = time.get(i);
-			Double a = altitude.get(i);
-			if (t == null || a == null) {
-				continue;
-			}
-			if (a > maxAlt) {
-				maxAlt = a;
-				maxTime = t;
-			}
-		}
-		return maxTime;
-	}
-
-	private static double boostEndTime(List<Double> time, List<Double> velocityZ, double apogeeTime) {
-		double maxV = Double.NEGATIVE_INFINITY;
-		double maxVTime = Double.NaN;
-		for (int i = 0; i < time.size() && i < velocityZ.size(); i++) {
-			Double t = time.get(i);
-			Double v = velocityZ.get(i);
-			if (t == null || v == null || t < 0.0) {
-				continue;
-			}
-			if (Double.isFinite(apogeeTime) && t > apogeeTime) {
-				continue;
-			}
-			if (v > maxV) {
-				maxV = v;
-				maxVTime = t;
-			}
-		}
-		return maxVTime;
 	}
 
 	private static Path resolvePath(Path baseDir, String value) {
@@ -784,7 +843,7 @@ public final class PhaseTwoBatchRunner {
 		if (value == null) {
 			return "";
 		}
-		if (value.matches("^[A-Za-z]:[^\\/].*")) {
+		if (value.matches("^[A-Za-z]:[^\\\\/].*")) {
 			return value.substring(0, 2) + "/" + value.substring(2);
 		}
 		return value;
@@ -832,21 +891,98 @@ public final class PhaseTwoBatchRunner {
 		}
 	}
 
-	private static final class CandidateLoadResult {
+	private static final class TruthLoadResult {
+		private final Path truthPath;
 		private final TelemetrySeries series;
-		private final String fallbackReason;
 
-		private CandidateLoadResult(TelemetrySeries series, String fallbackReason) {
+		private TruthLoadResult(Path truthPath, TelemetrySeries series) {
+			this.truthPath = truthPath;
 			this.series = series;
-			this.fallbackReason = fallbackReason;
 		}
 
 		private TelemetrySeries getSeries() {
 			return series;
 		}
 
+		private String getTruthSource() {
+			return truthPath == null ? "" : truthPath.toAbsolutePath().normalize().toString();
+		}
+	}
+
+	private static final class CandidateLoadResult {
+		private final TelemetrySeries series;
+		private final TelemetrySeries rawSeries;
+		private final VerticalIntegratorDiagnostics integratorDiagnostics;
+		private final AbPluginExecutionResult pluginResult;
+		private final String fallbackReason;
+		private final String candidateSource;
+		private final String orkProvenance;
+		private final String romMode;
+		private final String romSurfaceSource;
+		private final double maxMach;
+
+		private CandidateLoadResult(TelemetrySeries series,
+									TelemetrySeries rawSeries,
+									VerticalIntegratorDiagnostics integratorDiagnostics,
+									AbPluginExecutionResult pluginResult,
+									String fallbackReason,
+									String candidateSource,
+									String orkProvenance,
+									String romMode,
+									String romSurfaceSource,
+									double maxMach) {
+			this.series = series;
+			this.rawSeries = rawSeries == null ? series : rawSeries;
+			this.integratorDiagnostics = integratorDiagnostics == null ? VerticalIntegratorDiagnostics.EMPTY : integratorDiagnostics;
+			this.pluginResult = pluginResult == null
+					? new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0, "Native airbrakes not configured")
+					: pluginResult;
+			this.fallbackReason = fallbackReason;
+			this.candidateSource = candidateSource == null ? "" : candidateSource;
+			this.orkProvenance = orkProvenance == null ? "" : orkProvenance;
+			this.romMode = romMode == null ? "" : romMode;
+			this.romSurfaceSource = romSurfaceSource == null ? "" : romSurfaceSource;
+			this.maxMach = maxMach;
+		}
+
+		private TelemetrySeries getSeries() {
+			return series;
+		}
+
+		private TelemetrySeries getRawSeries() {
+			return rawSeries;
+		}
+
+		private VerticalIntegratorDiagnostics getIntegratorDiagnostics() {
+			return integratorDiagnostics;
+		}
+
+		private AbPluginExecutionResult getPluginResult() {
+			return pluginResult;
+		}
+
 		private String getFallbackReason() {
 			return fallbackReason;
+		}
+
+		private String getCandidateSource() {
+			return candidateSource;
+		}
+
+		private String getOrkProvenance() {
+			return orkProvenance;
+		}
+
+		private String getRomMode() {
+			return romMode;
+		}
+
+		private String getRomSurfaceSource() {
+			return romSurfaceSource;
+		}
+
+		private double getMaxMach() {
+			return maxMach;
 		}
 	}
 }

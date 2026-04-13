@@ -2,6 +2,7 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
     id 'com.gradleup.shadow' version '9.2.2'
+    id 'com.install4j.gradle' version '12.0.3'
     id 'java'
     id 'checkstyle'
     id 'org.javamodularity.moduleplugin' version '2.0.0'
@@ -59,6 +60,7 @@ def appName = 'OpenRocket'
 def appDescription = baseManifestAttributes['Description']
 def appVendor = 'OpenRocket'
 def appUrl = 'https://openrocket.info/'
+def projectVersionString = version.toString()
 def launcherJvmArgs = [
         '-Dapple.awt.application.appearance=system',
         '-Dsun.java2d.noddraw=true',
@@ -107,6 +109,39 @@ def jpackageMetadataDir = jpackageRootDir.map { it.dir('metadata') }
 def jpackageAppImageDir = jpackageRootDir.map { it.dir('app-image') }
 def jpackageInstallerDir = jpackageRootDir.map { it.dir('installer') }
 def jpackageModulesFile = jpackageMetadataDir.map { it.file('modules.txt') }
+def install4jProjectVersion = projectVersionString.replaceFirst(/-SNAPSHOT$/, '')
+def install4jProjectDir = file("install4j/${install4jProjectVersion}")
+def install4jProjectFile = new File(install4jProjectDir, "openrocket-${install4jProjectVersion}.install4j")
+def install4jMediaDir = layout.buildDirectory.dir('install4j/media')
+def install4jHomeDir = providers.gradleProperty('install4jHomeDir')
+        .orElse(providers.environmentVariable('INSTALL4J_HOME'))
+def install4jSign = providers.gradleProperty('install4jSign')
+        .map { it.toBoolean() }
+        .orElse(false)
+def install4jDisableBundling = providers.gradleProperty('install4jDisableBundling')
+        .map { it.toBoolean() }
+        .orElse(false)
+def install4jBuildIds = [
+        windows: ['60', '248'],
+        mac    : ['213', '240'],
+        all    : ['60', '248', '213', '240']
+]
+def install4jExpectedArtifacts = [
+        '60' : "OpenRocket-${projectVersionString}-installer-Windows-x86_64.exe",
+        '248': "OpenRocket-${projectVersionString}-installer-Windows-Arm64.exe",
+        '213': "OpenRocket-${projectVersionString}-installer-macOS-Intel.dmg",
+        '240': "OpenRocket-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
+]
+
+install4j {
+    if (install4jHomeDir.present) {
+        installDir = file(install4jHomeDir.get())
+    }
+    disableSigning = !install4jSign.get()
+    disableNotarization = !install4jSign.get()
+    disableBundling = install4jDisableBundling.get()
+    verbose = true
+}
 
 def runExternalCommand = { List<String> command, boolean inheritIo = false ->
     def normalizedCommand = command.collect { it.toString() }
@@ -489,6 +524,57 @@ tasks.register('jpackageInstaller') {
     }
 }
 
+def configureInstall4jTask = { task, List<String> buildIds, String taskDescription ->
+    task.group = 'distribution'
+    task.description = taskDescription
+    task.dependsOn tasks.named('shadowJar', ShadowJar)
+    task.projectFile = install4jProjectFile
+    task.release = projectVersionString
+    task.destination = install4jMediaDir.get().asFile
+    task.buildIds = buildIds
+    task.variables = [
+            JAR_NAME: tasks.named('shadowJar', ShadowJar).get().archiveFileName.get()
+    ]
+    task.inputs.file(tasks.named('shadowJar', ShadowJar).flatMap { it.archiveFile })
+    task.inputs.files(fileTree(install4jProjectDir) {
+        exclude 'code_signing/**'
+    })
+
+    task.doFirst {
+        if (!install4jProjectFile.exists()) {
+            throw new GradleException("install4j project file '${install4jProjectFile.absolutePath}' does not exist.")
+        }
+
+        install4jMediaDir.get().asFile.mkdirs()
+    }
+
+    task.doLast {
+        def outputDir = install4jMediaDir.get().asFile
+        def expectedFiles = buildIds.collect { install4jExpectedArtifacts[it] }.findAll { it != null }
+        def missingFiles = expectedFiles.findAll { !new File(outputDir, it).exists() }
+
+        if (!missingFiles.isEmpty()) {
+            throw new GradleException(
+                    "install4j did not produce all requested media files in '${outputDir.absolutePath}'. " +
+                            "Missing: ${missingFiles.join(', ')}. " +
+                            "macOS media builds require an install4j Multi-Platform Edition; the auto-provisioned evaluation build skips them."
+            )
+        }
+    }
+}
+
+tasks.register('install4jWindowsInstallers', com.install4j.gradle.Install4jTask) {
+    configureInstall4jTask(delegate, install4jBuildIds.windows, 'Builds install4j Windows installers for Intel/AMD64 and ARM64.')
+}
+
+tasks.register('install4jMacInstallers', com.install4j.gradle.Install4jTask) {
+    configureInstall4jTask(delegate, install4jBuildIds.mac, 'Builds install4j macOS installers for Intel and Apple Silicon.')
+}
+
+tasks.register('install4jAllInstallers', com.install4j.gradle.Install4jTask) {
+    configureInstall4jTask(delegate, install4jBuildIds.all, 'Builds install4j installers for Windows and macOS across Intel/AMD64 and ARM64 targets.')
+}
+
 // jacoco aggregate report for all subprojects
 tasks.register('jacocoRootReport', JacocoReport) {
     group = 'verification'
@@ -526,5 +612,15 @@ tasks.register('distJpackage') {
     dependsOn 'check', 'jpackageAppImage'
     doLast {
         println "Completed the deployable jar in './build/libs' and the jpackage app image in './build/jpackage/app-image'."
+    }
+}
+
+tasks.register('distInstall4j') {
+    group = 'info.openrocket'
+    description = 'Runs verification, builds the runnable JAR, and creates install4j installers for Windows and macOS.'
+
+    dependsOn 'check', 'install4jAllInstallers'
+    doLast {
+        println "Completed the deployable jar in './build/libs' and the install4j media in './build/install4j/media'."
     }
 }

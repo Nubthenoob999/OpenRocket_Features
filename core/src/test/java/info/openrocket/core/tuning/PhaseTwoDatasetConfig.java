@@ -5,7 +5,9 @@ import java.util.List;
 
 public class PhaseTwoDatasetConfig {
 	private String name;
+	private String flightId;
 	private String referenceCsv;
+	private String truthCsv;
 	private String candidateCsv;
 	private String orkPath;
 	private boolean airbrakeEnabled;
@@ -15,8 +17,16 @@ public class PhaseTwoDatasetConfig {
 		return name;
 	}
 
+	public String getFlightId() {
+		return flightId;
+	}
+
 	public String getReferenceCsv() {
 		return referenceCsv;
+	}
+
+	public String getTruthCsv() {
+		return truthCsv;
 	}
 
 	public String getCandidateCsv() {

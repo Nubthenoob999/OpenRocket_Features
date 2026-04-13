@@ -470,4 +470,198 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		assertEquals(baselineForces.getCm(), snapshot.getEffectiveCm(), 1e-9);
 		assertEquals(RomAerodynamicCalculator.RomCoefficientMode.HYBRID_4D, snapshot.getCoefficientMode());
 	}
+
+	@Test
+	public void testBoostGuardrailFallbackDoesNotLeakIntoCoastSegment() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+		double boostTriggerCd = baselineCd * 1.75;
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(boostTriggerCd, boostTriggerCd));
+
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.POWERED_ASCENT);
+		rom.setCurrentSimulationTime(0.80);
+		AerodynamicForces boostForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot boostSnapshot = rom.getComputationSnapshots().get(0);
+
+		assertTrue(rom.isPoweredAscentSegmentFallbackActive());
+		assertFalse(rom.isCoastAscentSegmentFallbackActive());
+		assertTrue(boostSnapshot.isAscentSegmentFallbackActive());
+		assertTrue(boostSnapshot.isGuardrailTriggered());
+		assertEquals(RomAerodynamicCalculator.GuardrailReason.BOOST_DRAG_IMBALANCE,
+				boostSnapshot.getGuardrailReason());
+		assertEquals(0.0, boostSnapshot.getBlendWeight(), 1e-12);
+		assertEquals(baselineCd, boostForces.getCD(), 1e-9);
+
+		rom.clearComputationSnapshots();
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		rom.setCurrentSimulationTime(1.20);
+		AerodynamicForces coastForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot coastSnapshot = rom.getComputationSnapshots().get(0);
+
+		assertFalse(coastSnapshot.isAscentSegmentFallbackActive());
+		assertFalse(coastSnapshot.isGuardrailTriggered());
+		assertFalse(rom.isCoastAscentSegmentFallbackActive());
+		assertTrue(coastForces.getCD() > baselineCd);
+	}
+
+	@Test
+	public void testResidualPilotAppliesBoundedCorrectionInAscent() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+		double moderateRomCd = baselineCd * 1.20;
+
+		RomAerodynamicCalculator withPilot = new RomAerodynamicCalculator();
+		withPilot.installSurface(constantSurface(moderateRomCd, moderateRomCd));
+		withPilot.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		withPilot.setCurrentSimulationTime(2.0);
+		AerodynamicForces pilotForces = withPilot.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot pilotSnapshot = withPilot.getComputationSnapshots().get(0);
+
+		RomAerodynamicCalculator withoutPilot = new RomAerodynamicCalculator();
+		withoutPilot.installSurface(constantSurface(moderateRomCd, moderateRomCd));
+		withoutPilot.setResidualPilotEnabled(false);
+		withoutPilot.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		withoutPilot.setCurrentSimulationTime(2.0);
+		AerodynamicForces noPilotForces = withoutPilot.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot noPilotSnapshot = withoutPilot.getComputationSnapshots().get(0);
+
+		assertFalse(pilotSnapshot.isAscentSegmentFallbackActive());
+		assertTrue(pilotSnapshot.getResidualPilotConfidence() > 0.0);
+		assertTrue(pilotSnapshot.getResidualPilotConfidence() <= 1.0);
+		assertTrue(pilotSnapshot.getResidualPilotCorrection() < 0.0);
+		assertTrue(pilotForces.getCD() < noPilotForces.getCD());
+		assertEquals(0.0, noPilotSnapshot.getResidualPilotCorrection(), 1e-12);
+		assertEquals(0.0, noPilotSnapshot.getResidualPilotConfidence(), 1e-12);
+	}
+
+	@Test
+	public void testBoundaryTransitionTapersRomTrustNearAscentEvents() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+		double moderateRomCd = baselineCd * 1.18;
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(moderateRomCd, moderateRomCd));
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+
+		rom.setCurrentSimulationTime(4.00);
+		rom.setBoundaryEvent(RomAerodynamicCalculator.BoundaryEvent.APOGEE, 4.02);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot nearBoundary = rom.getComputationSnapshots().get(0);
+
+		rom.clearComputationSnapshots();
+		rom.setCurrentSimulationTime(4.00);
+		rom.setBoundaryEvent(RomAerodynamicCalculator.BoundaryEvent.APOGEE, 6.00);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot farBoundary = rom.getComputationSnapshots().get(0);
+
+		assertTrue(nearBoundary.getBlendWeight() < farBoundary.getBlendWeight());
+	}
+
+	@Test
+	public void testCoastHandoffDampsBlendAfterPoweredFallback() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+		double triggerCd = baselineCd * 1.62;
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(triggerCd, triggerCd));
+
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.POWERED_ASCENT);
+		rom.setCurrentSimulationTime(0.90);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+		assertTrue(rom.isPoweredAscentSegmentFallbackActive());
+
+		rom.clearComputationSnapshots();
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		rom.setBoundaryEvent(RomAerodynamicCalculator.BoundaryEvent.BURNOUT, 1.00);
+		rom.setCurrentSimulationTime(1.02);
+		AerodynamicForces nearForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot nearSnapshot = rom.getComputationSnapshots().get(0);
+
+		rom.clearComputationSnapshots();
+		rom.setBoundaryEvent(RomAerodynamicCalculator.BoundaryEvent.BURNOUT, 1.00);
+		rom.setCurrentSimulationTime(2.20);
+		AerodynamicForces farForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot farSnapshot = rom.getComputationSnapshots().get(0);
+
+		assertTrue(nearSnapshot.getBlendWeight() < farSnapshot.getBlendWeight());
+		assertTrue(nearForces.getCD() <= farForces.getCD() + 1.0e-9);
+	}
+
+	@Test
+	public void testBoostEnvelopeCapsCdWithoutGuardrailFallback() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(baselineCd * 1.30, baselineCd * 1.30));
+		rom.setResidualPilotEnabled(false);
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.POWERED_ASCENT);
+		rom.setCurrentSimulationTime(2.0);
+
+		AerodynamicForces forces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+
+		assertFalse(snapshot.isAscentSegmentFallbackActive());
+		assertFalse(snapshot.isGuardrailTriggered());
+		assertEquals(RomAerodynamicCalculator.GuardrailReason.NONE, snapshot.getGuardrailReason());
+		double boostRatio = forces.getCD() / baselineCd;
+		assertTrue(boostRatio > 1.0);
+		assertTrue(boostRatio <= 1.16);
+	}
+
+	@Test
+	public void testCoastEnvelopeFloorsCdWithoutGuardrailFallback() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(baselineCd * 0.75, baselineCd * 0.75));
+		rom.setResidualPilotEnabled(false);
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		rom.setCurrentSimulationTime(3.0);
+
+		AerodynamicForces forces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+
+		assertFalse(snapshot.isAscentSegmentFallbackActive());
+		assertFalse(snapshot.isGuardrailTriggered());
+		assertEquals(RomAerodynamicCalculator.GuardrailReason.NONE, snapshot.getGuardrailReason());
+		double coastRatio = forces.getCD() / baselineCd;
+		assertTrue(coastRatio >= 0.80);
+		assertTrue(coastRatio < 0.90);
+	}
 }

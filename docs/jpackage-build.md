@@ -35,6 +35,19 @@ On Windows, you can choose the installer format explicitly:
 .\gradlew.bat jpackageInstaller -PjpackageType=exe
 ```
 
+Build install4j installers for Windows Intel/AMD64 plus ARM64, and macOS Intel plus Apple Silicon:
+
+```powershell
+.\gradlew.bat install4jAllInstallers
+```
+
+Build only the Windows or macOS install4j artifacts:
+
+```powershell
+.\gradlew.bat install4jWindowsInstallers
+.\gradlew.bat install4jMacInstallers
+```
+
 If the runtime needs extra JDK modules that `jdeps` does not discover automatically, append them with:
 
 ```powershell
@@ -47,6 +60,7 @@ If the runtime needs extra JDK modules that `jdeps` does not discover automatica
 - jpackage input JAR copy: `build/jpackage/input/OpenRocket.jar`
 - App image: `build/jpackage/app-image/`
 - Installer artifacts: `build/jpackage/installer/`
+- install4j media: `build/install4j/media/`
 
 ## Notes
 
@@ -54,3 +68,6 @@ If the runtime needs extra JDK modules that `jdeps` does not discover automatica
 - Windows `exe` and `msi` builds require the WiX Toolset on `PATH`.
 - The Gradle build normalizes snapshot versions such as `26.xx-SNAPSHOT` into a numeric app version for `jpackage`.
 - Packaged launchers follow the saved OpenRocket UI preference, so you can switch between Classic and Modern Preview inside the app.
+- The install4j Gradle plugin will auto-provision install4j if `install4jHomeDir` or `INSTALL4J_HOME` is not set.
+- The install4j tasks default to unsigned builds on this machine. Re-enable signing and notarization with `-Pinstall4jSign=true` after restoring the signing files under `install4j/26.xx/code_signing/`.
+- Building the macOS installers from Windows requires an install4j Multi-Platform Edition. The auto-provisioned evaluation download can build the Windows media, but it skips the macOS media sets.

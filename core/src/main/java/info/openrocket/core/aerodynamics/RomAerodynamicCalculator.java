@@ -37,6 +37,32 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private static final double FOUR_D_DRAG_TRANSONIC_FADE_START = 0.45;
 	private static final double FOUR_D_DRAG_TRANSONIC_FADE_END = 0.55;
 	private static final double FOUR_D_DRAG_MIN_TRUST = 0.25;
+	private static final double ASCENT_EVENT_TRUST_WINDOW_SEC = 0.18;
+	private static final double BOUNDARY_TRANSITION_MIN_TRUST = 0.35;
+	private static final double BOOST_CD_RATIO_GUARDRAIL_LOW = 0.65;
+	private static final double BOOST_CD_RATIO_GUARDRAIL_HIGH = 1.38;
+	private static final double COAST_CD_RATIO_GUARDRAIL_LOW = 0.68;
+	private static final double COAST_CD_RATIO_GUARDRAIL_HIGH = 1.78;
+	private static final double BOOST_CD_ENVELOPE_MIN = 0.72;
+	private static final double BOOST_CD_ENVELOPE_MAX = 1.15;
+	private static final double COAST_CD_ENVELOPE_MIN = 0.80;
+	private static final double COAST_CD_ENVELOPE_MAX = 1.38;
+	private static final double TRANSITION_CD_ENVELOPE_MIN = 0.80;
+	private static final double TRANSITION_CD_ENVELOPE_MAX = 1.25;
+	private static final double BOOST_DYNAMIC_PRESSURE_MACH_START = 0.22;
+	private static final double BOOST_DYNAMIC_PRESSURE_MACH_END = 0.90;
+	private static final double BOOST_DYNAMIC_ENVELOPE_MIN = 0.86;
+	private static final double BOOST_DYNAMIC_ENVELOPE_MAX = 1.18;
+	private static final double COAST_HANDOFF_WINDOW_SEC = 0.75;
+	private static final double COAST_HANDOFF_MIN_BLEND = 0.20;
+	private static final double COAST_HANDOFF_ENVELOPE_MIN = 0.88;
+	private static final double COAST_HANDOFF_ENVELOPE_MAX = 1.16;
+	private static final double RESIDUAL_PILOT_BLEND_GAIN = 0.45;
+	private static final double RESIDUAL_PILOT_MAX_RATIO = 0.22;
+	private static final double RESIDUAL_PILOT_UNCERTAINTY_LOW = 0.25;
+	private static final double RESIDUAL_PILOT_UNCERTAINTY_HIGH = 0.85;
+	private static final double RESIDUAL_PILOT_MIN_CONFIDENCE = 0.10;
+	private static final double MIN_EFFECTIVE_CD = 1.0e-6;
 
 	private final BarrowmanCalculator barrowman;
 	private DragSurfaceInterpolator interpolator;
@@ -45,11 +71,93 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private AeroSurface4D installedSurface4D;
 	private double plumeDecayState = 0.0;
 	private double currentSimulationTimeSeconds = Double.NaN;
+	private FlightRegime currentFlightRegime = FlightRegime.PRE_LAUNCH;
+	private BoundaryEvent currentBoundaryEvent = BoundaryEvent.NONE;
+	private double currentBoundaryEventTimeSeconds = Double.NaN;
+	private boolean poweredAscentSegmentFallbackActive;
+	private boolean coastAscentSegmentFallbackActive;
+	private boolean ascentGuardrailsEnabled = true;
+	private boolean residualPilotEnabled = true;
 	private final List<RomComputationSnapshot> computationSnapshots = new ArrayList<>();
+	private final List<GuardrailActivation> guardrailActivations = new ArrayList<>();
 
 	public enum RomCoefficientMode {
 		DRAG_ONLY_3D,
 		HYBRID_4D
+	}
+
+	public enum FlightRegime {
+		PRE_LAUNCH,
+		POWERED_ASCENT,
+		COAST_ASCENT,
+		POST_APOGEE,
+		RECOVERY,
+		LANDED
+	}
+
+	public enum BoundaryEvent {
+		NONE,
+		BURNOUT,
+		APOGEE,
+		RECOVERY_DEVICE_DEPLOYMENT
+	}
+
+	public enum GuardrailReason {
+		NONE,
+		NON_FINITE_ROM_DRAG,
+		OUTSIDE_ROM_DOMAIN,
+		BOOST_DRAG_IMBALANCE,
+		COAST_DRAG_IMBALANCE,
+		BOUNDARY_TRANSITION_SPIKE
+	}
+
+	public static final class GuardrailActivation {
+		private final double timeSeconds;
+		private final FlightRegime flightRegime;
+		private final GuardrailReason reason;
+		private final double baselineCd;
+		private final double romCd;
+		private final double cdRatio;
+		private final double domainConfidence;
+
+		private GuardrailActivation(double timeSeconds, FlightRegime flightRegime, GuardrailReason reason,
+				double baselineCd, double romCd, double cdRatio, double domainConfidence) {
+			this.timeSeconds = timeSeconds;
+			this.flightRegime = flightRegime;
+			this.reason = reason == null ? GuardrailReason.NONE : reason;
+			this.baselineCd = baselineCd;
+			this.romCd = romCd;
+			this.cdRatio = cdRatio;
+			this.domainConfidence = domainConfidence;
+		}
+
+		public double getTimeSeconds() {
+			return timeSeconds;
+		}
+
+		public FlightRegime getFlightRegime() {
+			return flightRegime;
+		}
+
+		public GuardrailReason getReason() {
+			return reason;
+		}
+
+		public double getBaselineCd() {
+			return baselineCd;
+		}
+
+		public double getRomCd() {
+			return romCd;
+		}
+
+		public double getCdRatio() {
+			return cdRatio;
+		}
+
+		public double getDomainConfidence() {
+			return domainConfidence;
+		}
 	}
 
 	public static final class RomComputationSnapshot {
@@ -76,6 +184,15 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		private final double effectiveCN;
 		private final double queriedCm;
 		private final double effectiveCm;
+		private final FlightRegime flightRegime;
+		private final BoundaryEvent boundaryEvent;
+		private final double boundaryEventTimeSeconds;
+		private final double domainConfidence;
+		private final boolean ascentSegmentFallbackActive;
+		private final boolean guardrailTriggered;
+		private final GuardrailReason guardrailReason;
+		private final double residualPilotCorrection;
+		private final double residualPilotConfidence;
 		private final RomCoefficientMode coefficientMode;
 
 		private RomComputationSnapshot(double timeSeconds, double mach, double reynoldsLength,
@@ -84,6 +201,10 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 				boolean machClamped, boolean reynoldsClamped, boolean alphaClamped, boolean betaClamped,
 				double cdBefore, double cdAfter, double cdPlumeOff, double cdPlumeOn,
 				double queriedCN, double effectiveCN, double queriedCm, double effectiveCm,
+				FlightRegime flightRegime, BoundaryEvent boundaryEvent, double boundaryEventTimeSeconds,
+				double domainConfidence, boolean ascentSegmentFallbackActive,
+				boolean guardrailTriggered, GuardrailReason guardrailReason,
+				double residualPilotCorrection, double residualPilotConfidence,
 				RomCoefficientMode coefficientMode) {
 			this.timeSeconds = timeSeconds;
 			this.mach = mach;
@@ -108,6 +229,15 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			this.effectiveCN = effectiveCN;
 			this.queriedCm = queriedCm;
 			this.effectiveCm = effectiveCm;
+			this.flightRegime = flightRegime;
+			this.boundaryEvent = boundaryEvent;
+			this.boundaryEventTimeSeconds = boundaryEventTimeSeconds;
+			this.domainConfidence = domainConfidence;
+			this.ascentSegmentFallbackActive = ascentSegmentFallbackActive;
+			this.guardrailTriggered = guardrailTriggered;
+			this.guardrailReason = guardrailReason == null ? GuardrailReason.NONE : guardrailReason;
+			this.residualPilotCorrection = residualPilotCorrection;
+			this.residualPilotConfidence = residualPilotConfidence;
 			this.coefficientMode = coefficientMode;
 		}
 
@@ -215,6 +345,42 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			return effectiveCm;
 		}
 
+		public FlightRegime getFlightRegime() {
+			return flightRegime;
+		}
+
+		public BoundaryEvent getBoundaryEvent() {
+			return boundaryEvent;
+		}
+
+		public double getBoundaryEventTimeSeconds() {
+			return boundaryEventTimeSeconds;
+		}
+
+		public double getDomainConfidence() {
+			return domainConfidence;
+		}
+
+		public boolean isAscentSegmentFallbackActive() {
+			return ascentSegmentFallbackActive;
+		}
+
+		public boolean isGuardrailTriggered() {
+			return guardrailTriggered;
+		}
+
+		public GuardrailReason getGuardrailReason() {
+			return guardrailReason;
+		}
+
+		public double getResidualPilotCorrection() {
+			return residualPilotCorrection;
+		}
+
+		public double getResidualPilotConfidence() {
+			return residualPilotConfidence;
+		}
+
 		public RomCoefficientMode getCoefficientMode() {
 			return coefficientMode;
 		}
@@ -234,6 +400,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			this.installedSurface = null;
 			this.interpolator4D = null;
 			this.installedSurface4D = null;
+			resetAscentSegmentFallback();
+			clearGuardrailActivations();
 			this.computationSnapshots.clear();
 			return;
 		}
@@ -241,6 +409,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		this.interpolator = new DragSurfaceInterpolator(surface);
 		this.interpolator4D = null;
 		this.installedSurface4D = null;
+		resetAscentSegmentFallback();
+		clearGuardrailActivations();
 		this.computationSnapshots.clear();
 	}
 
@@ -250,6 +420,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			this.installedSurface4D = null;
 			this.interpolator = null;
 			this.installedSurface = null;
+			resetAscentSegmentFallback();
+			clearGuardrailActivations();
 			this.computationSnapshots.clear();
 			return;
 		}
@@ -257,6 +429,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		this.interpolator4D = new AeroSurface4DInterpolator(surface4D);
 		this.installedSurface = SurfaceAdapter.toBetaZeroDragSurface(surface4D);
 		this.interpolator = new DragSurfaceInterpolator(installedSurface);
+		resetAscentSegmentFallback();
+		clearGuardrailActivations();
 		this.computationSnapshots.clear();
 	}
 
@@ -272,12 +446,77 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		this.currentSimulationTimeSeconds = timeSeconds;
 	}
 
+	public FlightRegime getCurrentFlightRegime() {
+		return currentFlightRegime;
+	}
+
+	public void setFlightRegime(FlightRegime flightRegime) {
+		FlightRegime nextRegime = flightRegime == null ? FlightRegime.PRE_LAUNCH : flightRegime;
+		if (nextRegime == FlightRegime.PRE_LAUNCH && currentFlightRegime != FlightRegime.PRE_LAUNCH) {
+			resetAscentSegmentFallback();
+			clearGuardrailActivations();
+		}
+		this.currentFlightRegime = nextRegime;
+	}
+
+	public BoundaryEvent getCurrentBoundaryEvent() {
+		return currentBoundaryEvent;
+	}
+
+	public double getCurrentBoundaryEventTimeSeconds() {
+		return currentBoundaryEventTimeSeconds;
+	}
+
+	public void setBoundaryEvent(BoundaryEvent boundaryEvent, double boundaryEventTimeSeconds) {
+		this.currentBoundaryEvent = boundaryEvent == null ? BoundaryEvent.NONE : boundaryEvent;
+		this.currentBoundaryEventTimeSeconds = Double.isFinite(boundaryEventTimeSeconds)
+				? boundaryEventTimeSeconds
+				: Double.NaN;
+	}
+
 	public void clearComputationSnapshots() {
 		this.computationSnapshots.clear();
 	}
 
+	public void clearGuardrailActivations() {
+		this.guardrailActivations.clear();
+	}
+
 	public List<RomComputationSnapshot> getComputationSnapshots() {
 		return Collections.unmodifiableList(new ArrayList<>(computationSnapshots));
+	}
+
+	public List<GuardrailActivation> getGuardrailActivations() {
+		return Collections.unmodifiableList(new ArrayList<>(guardrailActivations));
+	}
+
+	public void resetAscentSegmentFallback() {
+		this.poweredAscentSegmentFallbackActive = false;
+		this.coastAscentSegmentFallbackActive = false;
+	}
+
+	public boolean isPoweredAscentSegmentFallbackActive() {
+		return poweredAscentSegmentFallbackActive;
+	}
+
+	public boolean isCoastAscentSegmentFallbackActive() {
+		return coastAscentSegmentFallbackActive;
+	}
+
+	public boolean isAscentGuardrailsEnabled() {
+		return ascentGuardrailsEnabled;
+	}
+
+	public void setAscentGuardrailsEnabled(boolean ascentGuardrailsEnabled) {
+		this.ascentGuardrailsEnabled = ascentGuardrailsEnabled;
+	}
+
+	public boolean isResidualPilotEnabled() {
+		return residualPilotEnabled;
+	}
+
+	public void setResidualPilotEnabled(boolean residualPilotEnabled) {
+		this.residualPilotEnabled = residualPilotEnabled;
 	}
 
 	public double getPlumeState() {
@@ -316,6 +555,14 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		}
 		copy.plumeDecayState = plumeDecayState;
 		copy.currentSimulationTimeSeconds = currentSimulationTimeSeconds;
+		copy.currentFlightRegime = currentFlightRegime;
+		copy.currentBoundaryEvent = currentBoundaryEvent;
+		copy.currentBoundaryEventTimeSeconds = currentBoundaryEventTimeSeconds;
+		copy.poweredAscentSegmentFallbackActive = poweredAscentSegmentFallbackActive;
+		copy.coastAscentSegmentFallbackActive = coastAscentSegmentFallbackActive;
+		copy.ascentGuardrailsEnabled = ascentGuardrailsEnabled;
+		copy.residualPilotEnabled = residualPilotEnabled;
+		copy.guardrailActivations.addAll(guardrailActivations);
 		return copy;
 	}
 
@@ -364,7 +611,7 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		double mach = sanitizeNonNegative(rawMach);
 		double velocity = sanitizeNonNegative(conditions.getVelocity());
 		AtmosphericConditions atm = conditions.getAtmosphericConditions();
-		double nu = atm.getKinematicViscosity();
+		double nu = (atm == null) ? Double.NaN : atm.getKinematicViscosity();
 		double length = Math.max(1e-6, configuration.getLengthAerodynamic());
 		double reL = (nu > 0.0) ? (velocity * length / nu) : 1e4;
 		double alphaDeg = Math.toDegrees(conditions.getAOA());
@@ -399,7 +646,20 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 					queryResult.machClamped,
 					queryResult.reynoldsClamped,
 					queryResult.alphaClamped,
-					queryResult.betaClamped);
+					queryResult.betaClamped,
+					computeDomainConfidence(
+							queryResult.usedMach,
+							installedSurface4D.machAxis,
+							queryResult.machClamped,
+							queryResult.usedLogRe,
+							installedSurface4D.logReAxis,
+							queryResult.reynoldsClamped,
+							queryResult.usedAlphaDeg,
+							installedSurface4D.alphaAxis,
+							queryResult.alphaClamped,
+							queryResult.usedBetaDeg,
+							installedSurface4D.betaAxis,
+							queryResult.betaClamped));
 			coefficientMode = RomCoefficientMode.HYBRID_4D;
 		} else {
 			queryValues = buildRomQueryValues(rawMach, reL, alphaDeg);
@@ -410,30 +670,72 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		}
 		double oldCd = forces.getCD();
 		double cdBlended = cdPlumeOff + plumeDecayState * (cdPlumeOn - cdPlumeOff);
+		double romCandidateCd = stabilizeDragCoefficient(cdBlended, oldCd, oldCd);
+		double boundaryTrust = computeBoundaryTransitionTrust(
+				currentFlightRegime,
+				currentBoundaryEvent,
+				currentBoundaryEventTimeSeconds,
+				currentSimulationTimeSeconds);
 		double blendWeight = computeRomBlendWeight(mach, reL);
 		if (coefficientMode == RomCoefficientMode.HYBRID_4D) {
 			blendWeight *= computeFourDDragTrust(mach);
 		}
-		double effectiveCd = blendWeight * cdBlended + (1.0 - blendWeight) * oldCd;
-		if (!Double.isFinite(effectiveCd) || effectiveCd <= 0.0) {
-			effectiveCd = cdBlended;
+		blendWeight = tuneAscentBlendWeight(blendWeight, currentFlightRegime, mach, queryValues.domainConfidence(), boundaryTrust);
+		blendWeight = applyCoastHandoffBlendWeight(blendWeight, currentFlightRegime);
+
+		boolean segmentFallbackActive = isSegmentFallbackActive(currentFlightRegime);
+		GuardrailReason guardrailReason = GuardrailReason.NONE;
+		boolean guardrailTriggered = false;
+		if (!segmentFallbackActive && ascentGuardrailsEnabled) {
+			guardrailReason = assessAscentGuardrail(currentFlightRegime, oldCd, romCandidateCd, queryValues, boundaryTrust);
+			if (guardrailReason != GuardrailReason.NONE) {
+				activateAscentSegmentFallback(currentFlightRegime);
+				segmentFallbackActive = isSegmentFallbackActive(currentFlightRegime);
+				guardrailTriggered = segmentFallbackActive;
+				recordGuardrailActivation(guardrailReason, oldCd, romCandidateCd, queryValues.domainConfidence());
+			}
 		}
+
+		double effectiveBlendWeight = segmentFallbackActive ? 0.0 : blendWeight;
+		double effectiveCd = segmentFallbackActive
+				? stabilizeDragCoefficient(oldCd, romCandidateCd, oldCd)
+				: effectiveBlendWeight * romCandidateCd + (1.0 - effectiveBlendWeight) * oldCd;
+		if (!segmentFallbackActive) {
+			effectiveCd = tuneAscentCdEnvelope(
+					effectiveCd,
+					oldCd,
+					currentFlightRegime,
+					boundaryTrust,
+					mach,
+					queryValues.domainConfidence());
+		}
+		ResidualPilotResult residualPilotResult = applyResidualPilot(
+				effectiveCd,
+				oldCd,
+				mach,
+				queryValues,
+				boundaryTrust,
+				segmentFallbackActive);
+		effectiveCd = stabilizeDragCoefficient(residualPilotResult.cd(), romCandidateCd, oldCd);
 		forces.setCD(effectiveCd);
 		// Preserve Barrowman stability coefficients in production simulation. The current 4D
 		// ROM CN/Cm fields are recorded for diagnostics, but they are not yet trusted enough
 		// to replace the flight-dynamics path without causing large trajectory regressions.
 		computationSnapshots.add(new RomComputationSnapshot(currentSimulationTimeSeconds, mach, reL,
-				alphaDeg, queryValues.thetaQueryDeg(), plumeDecayState, blendWeight,
+				alphaDeg, queryValues.thetaQueryDeg(), plumeDecayState, effectiveBlendWeight,
 				queryValues.queryMach(), queryValues.queryReynoldsLength(),
 				queryValues.queryAlphaDeg(), queryValues.queryBetaDeg(),
 				queryValues.machClamped(), queryValues.reynoldsClamped(),
 				queryValues.alphaClamped(), queryValues.betaClamped(),
 				oldCd, effectiveCd, cdPlumeOff, cdPlumeOn,
-				queriedCN, effectiveCN, queriedCm, effectiveCm, coefficientMode));
+				queriedCN, effectiveCN, queriedCm, effectiveCm,
+				currentFlightRegime, currentBoundaryEvent, currentBoundaryEventTimeSeconds,
+				queryValues.domainConfidence(), segmentFallbackActive, guardrailTriggered,
+				guardrailReason, residualPilotResult.appliedCorrection(), residualPilotResult.confidence(),
+				coefficientMode));
 
-		if (updateAxial && oldCd > 1e-9) {
-			double scaledAxial = forces.getCDaxial() * (effectiveCd / oldCd);
-			forces.setCDaxial(scaledAxial);
+		if (updateAxial) {
+			forces.setCDaxial(stabilizeAxialDrag(forces.getCDaxial(), oldCd, effectiveCd));
 		}
 	}
 
@@ -441,6 +743,7 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		ClampResult machResult = clampToAxis(mach, installedSurface.machAxis);
 		ClampResult reResult = clampReynoldsLength(reL, installedSurface.logReAxis);
 		ClampResult alphaResult = clampToAxis(alphaDeg, installedSurface.alphaAxis);
+		double logRe = Math.log10(Math.max(reResult.value, 1e4));
 		return new RomQueryValues(
 				machResult.value,
 				reResult.value,
@@ -450,7 +753,302 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 				machResult.clamped,
 				reResult.clamped,
 				alphaResult.clamped,
-				false);
+				false,
+				computeDomainConfidence(
+						machResult.value,
+						installedSurface.machAxis,
+						machResult.clamped,
+						logRe,
+						installedSurface.logReAxis,
+						reResult.clamped,
+						alphaResult.value,
+						installedSurface.alphaAxis,
+						alphaResult.clamped,
+						0.0,
+						null,
+						false));
+	}
+
+	private static double computeBoundaryTransitionTrust(FlightRegime flightRegime,
+			BoundaryEvent boundaryEvent,
+			double boundaryEventTimeSeconds,
+			double simulationTimeSeconds) {
+		if (!isAscentRegime(flightRegime)) {
+			return 1.0;
+		}
+		if (boundaryEvent != BoundaryEvent.BURNOUT && boundaryEvent != BoundaryEvent.APOGEE) {
+			return 1.0;
+		}
+		if (!Double.isFinite(boundaryEventTimeSeconds) || !Double.isFinite(simulationTimeSeconds)) {
+			return 1.0;
+		}
+		double timeToBoundary = boundaryEventTimeSeconds - simulationTimeSeconds;
+		if (timeToBoundary < 0.0 || timeToBoundary >= ASCENT_EVENT_TRUST_WINDOW_SEC) {
+			return 1.0;
+		}
+		double proximity = 1.0 - smoothStep(0.0, ASCENT_EVENT_TRUST_WINDOW_SEC, timeToBoundary);
+		return 1.0 - (1.0 - BOUNDARY_TRANSITION_MIN_TRUST) * proximity;
+	}
+
+	private static double tuneAscentBlendWeight(double blendWeight,
+			FlightRegime flightRegime,
+			double mach,
+			double domainConfidence,
+			double boundaryTrust) {
+		if (!isAscentRegime(flightRegime)) {
+			return clampUnit(blendWeight);
+		}
+		double regimeScale = flightRegime == FlightRegime.POWERED_ASCENT ? 0.92 : 0.98;
+		double confidenceScale = 0.55 + 0.45 * clampUnit(domainConfidence);
+		double tuned = blendWeight * regimeScale * confidenceScale * clampUnit(boundaryTrust);
+		if (flightRegime == FlightRegime.POWERED_ASCENT) {
+			double highDynamicPressure = smoothStep(
+					BOOST_DYNAMIC_PRESSURE_MACH_START,
+					BOOST_DYNAMIC_PRESSURE_MACH_END,
+					mach);
+			double confidenceRisk = 1.0 - clampUnit(domainConfidence);
+			double dynamicPressureScale = 1.0 - 0.22 * highDynamicPressure * (0.35 + 0.65 * confidenceRisk);
+			tuned *= clamp(dynamicPressureScale, 0.60, 1.0);
+		}
+		return clampUnit(tuned);
+	}
+
+	private double tuneAscentCdEnvelope(double candidateCd,
+			double baselineCd,
+			FlightRegime flightRegime,
+			double boundaryTrust,
+			double mach,
+			double domainConfidence) {
+		if (!isAscentRegime(flightRegime) || !Double.isFinite(baselineCd) || baselineCd <= MIN_EFFECTIVE_CD) {
+			return candidateCd;
+		}
+		double minRatio = (flightRegime == FlightRegime.POWERED_ASCENT)
+				? BOOST_CD_ENVELOPE_MIN
+				: COAST_CD_ENVELOPE_MIN;
+		double maxRatio = (flightRegime == FlightRegime.POWERED_ASCENT)
+				? BOOST_CD_ENVELOPE_MAX
+				: COAST_CD_ENVELOPE_MAX;
+		double transitionBlend = 1.0 - clampUnit(boundaryTrust);
+		minRatio = lerp(minRatio, TRANSITION_CD_ENVELOPE_MIN, transitionBlend);
+		maxRatio = lerp(maxRatio, TRANSITION_CD_ENVELOPE_MAX, transitionBlend);
+		if (flightRegime == FlightRegime.POWERED_ASCENT) {
+			double highDynamicPressure = smoothStep(
+					BOOST_DYNAMIC_PRESSURE_MACH_START,
+					BOOST_DYNAMIC_PRESSURE_MACH_END,
+					mach);
+			double confidenceRisk = 1.0 - clampUnit(domainConfidence);
+			double compression = clampUnit(0.55 * highDynamicPressure + 0.35 * confidenceRisk);
+			minRatio = lerp(minRatio, BOOST_DYNAMIC_ENVELOPE_MIN, compression);
+			maxRatio = lerp(maxRatio, BOOST_DYNAMIC_ENVELOPE_MAX, compression);
+		}
+		if (flightRegime == FlightRegime.COAST_ASCENT && shouldApplyCoastHandoffDamping()) {
+			double elapsed = Math.max(0.0, currentSimulationTimeSeconds - currentBoundaryEventTimeSeconds);
+			double recovery = smoothStep(0.0, COAST_HANDOFF_WINDOW_SEC, elapsed);
+			minRatio = lerp(COAST_HANDOFF_ENVELOPE_MIN, minRatio, recovery);
+			maxRatio = lerp(COAST_HANDOFF_ENVELOPE_MAX, maxRatio, recovery);
+		}
+		double minCd = baselineCd * minRatio;
+		double maxCd = baselineCd * maxRatio;
+		return clamp(candidateCd, minCd, maxCd);
+	}
+
+	private double applyCoastHandoffBlendWeight(double blendWeight,
+			FlightRegime flightRegime) {
+		if (flightRegime != FlightRegime.COAST_ASCENT || !shouldApplyCoastHandoffDamping()) {
+			return clampUnit(blendWeight);
+		}
+		double elapsed = Math.max(0.0, currentSimulationTimeSeconds - currentBoundaryEventTimeSeconds);
+		double recovery = smoothStep(0.0, COAST_HANDOFF_WINDOW_SEC, elapsed);
+		double handoffScale = lerp(COAST_HANDOFF_MIN_BLEND, 1.0, recovery);
+		return clampUnit(blendWeight * handoffScale);
+	}
+
+	private boolean shouldApplyCoastHandoffDamping() {
+		if (!poweredAscentSegmentFallbackActive || !Double.isFinite(currentBoundaryEventTimeSeconds)
+				|| !Double.isFinite(currentSimulationTimeSeconds)) {
+			return false;
+		}
+		if (currentFlightRegime != FlightRegime.COAST_ASCENT || currentBoundaryEvent != BoundaryEvent.BURNOUT) {
+			return false;
+		}
+		double elapsed = currentSimulationTimeSeconds - currentBoundaryEventTimeSeconds;
+		if (!Double.isFinite(elapsed) || elapsed < 0.0 || elapsed > COAST_HANDOFF_WINDOW_SEC) {
+			return false;
+		}
+		return true;
+	}
+
+	private GuardrailReason assessAscentGuardrail(FlightRegime flightRegime,
+			double baselineCd,
+			double romCandidateCd,
+			RomQueryValues queryValues,
+			double boundaryTrust) {
+		if (!isAscentRegime(flightRegime)) {
+			return GuardrailReason.NONE;
+		}
+		if (!Double.isFinite(romCandidateCd)) {
+			return GuardrailReason.NON_FINITE_ROM_DRAG;
+		}
+		if (queryValues.isOutsideDomain() && queryValues.domainConfidence() < 0.20) {
+			return GuardrailReason.OUTSIDE_ROM_DOMAIN;
+		}
+		if (!Double.isFinite(baselineCd) || baselineCd <= MIN_EFFECTIVE_CD) {
+			return GuardrailReason.NONE;
+		}
+		double ratio = romCandidateCd / baselineCd;
+		if (!Double.isFinite(ratio) || ratio <= 0.0) {
+			return GuardrailReason.NON_FINITE_ROM_DRAG;
+		}
+		if (boundaryTrust < 0.60
+				&& (ratio < TRANSITION_CD_ENVELOPE_MIN || ratio > TRANSITION_CD_ENVELOPE_MAX)) {
+			return GuardrailReason.BOUNDARY_TRANSITION_SPIKE;
+		}
+		if (flightRegime == FlightRegime.POWERED_ASCENT
+				&& (ratio < BOOST_CD_RATIO_GUARDRAIL_LOW || ratio > BOOST_CD_RATIO_GUARDRAIL_HIGH)) {
+			return GuardrailReason.BOOST_DRAG_IMBALANCE;
+		}
+		if (flightRegime == FlightRegime.COAST_ASCENT
+				&& (ratio < COAST_CD_RATIO_GUARDRAIL_LOW || ratio > COAST_CD_RATIO_GUARDRAIL_HIGH)) {
+			return GuardrailReason.COAST_DRAG_IMBALANCE;
+		}
+		return GuardrailReason.NONE;
+	}
+
+	private void activateAscentSegmentFallback(FlightRegime flightRegime) {
+		if (flightRegime == FlightRegime.POWERED_ASCENT) {
+			poweredAscentSegmentFallbackActive = true;
+		} else if (flightRegime == FlightRegime.COAST_ASCENT) {
+			coastAscentSegmentFallbackActive = true;
+		}
+	}
+
+	private boolean isSegmentFallbackActive(FlightRegime flightRegime) {
+		if (flightRegime == FlightRegime.POWERED_ASCENT) {
+			return poweredAscentSegmentFallbackActive;
+		}
+		if (flightRegime == FlightRegime.COAST_ASCENT) {
+			return coastAscentSegmentFallbackActive;
+		}
+		return false;
+	}
+
+	private void recordGuardrailActivation(GuardrailReason reason,
+			double baselineCd,
+			double romCd,
+			double domainConfidence) {
+		double ratio = (Double.isFinite(baselineCd) && baselineCd > MIN_EFFECTIVE_CD)
+				? romCd / baselineCd
+				: Double.NaN;
+		guardrailActivations.add(new GuardrailActivation(
+				currentSimulationTimeSeconds,
+				currentFlightRegime,
+				reason,
+				baselineCd,
+				romCd,
+				ratio,
+				domainConfidence));
+	}
+
+	private ResidualPilotResult applyResidualPilot(double candidateCd,
+			double baselineCd,
+			double mach,
+			RomQueryValues queryValues,
+			double boundaryTrust,
+			boolean segmentFallbackActive) {
+		if (!residualPilotEnabled || segmentFallbackActive || !isAscentRegime(currentFlightRegime)) {
+			return ResidualPilotResult.notApplied(candidateCd);
+		}
+		if (!Double.isFinite(candidateCd) || !Double.isFinite(baselineCd)) {
+			return ResidualPilotResult.notApplied(stabilizeDragCoefficient(candidateCd, baselineCd, candidateCd));
+		}
+		double rawCorrection = RESIDUAL_PILOT_BLEND_GAIN * (baselineCd - candidateCd);
+		double correctionLimit = RESIDUAL_PILOT_MAX_RATIO * Math.max(Math.max(candidateCd, baselineCd), MIN_EFFECTIVE_CD);
+		double boundedCorrection = clamp(rawCorrection, -correctionLimit, correctionLimit);
+		double uncertainty = computeResidualPilotUncertainty(mach, queryValues, boundaryTrust);
+		double confidence = 1.0 - smoothStep(RESIDUAL_PILOT_UNCERTAINTY_LOW, RESIDUAL_PILOT_UNCERTAINTY_HIGH, uncertainty);
+		if (confidence < RESIDUAL_PILOT_MIN_CONFIDENCE) {
+			confidence = 0.0;
+		}
+		double appliedCorrection = confidence * boundedCorrection;
+		double correctedCd = stabilizeDragCoefficient(candidateCd + appliedCorrection, candidateCd, baselineCd);
+		return new ResidualPilotResult(correctedCd, appliedCorrection, confidence);
+	}
+
+	private static double computeResidualPilotUncertainty(double mach,
+			RomQueryValues queryValues,
+			double boundaryTrust) {
+		double domainRisk = 1.0 - clampUnit(queryValues.domainConfidence());
+		double transitionRisk = 1.0 - clampUnit(boundaryTrust);
+		double transonicRisk = smoothStep(0.38, 0.70, mach);
+		double uncertainty = 0.55 * domainRisk + 0.25 * transitionRisk + 0.20 * transonicRisk;
+		if (queryValues.isOutsideDomain()) {
+			uncertainty = Math.max(uncertainty, 0.95);
+		}
+		return clampUnit(uncertainty);
+	}
+
+	private static boolean isAscentRegime(FlightRegime flightRegime) {
+		return flightRegime == FlightRegime.POWERED_ASCENT || flightRegime == FlightRegime.COAST_ASCENT;
+	}
+
+	private static double computeDomainConfidence(double mach,
+			double[] machAxis,
+			boolean machClamped,
+			double logRe,
+			double[] logReAxis,
+			boolean reynoldsClamped,
+			double alphaDeg,
+			double[] alphaAxis,
+			boolean alphaClamped,
+			double betaDeg,
+			double[] betaAxis,
+			boolean betaClamped) {
+		double machConfidence = computeAxisConfidence(mach, machAxis, machClamped);
+		double reConfidence = computeAxisConfidence(logRe, logReAxis, reynoldsClamped);
+		double alphaConfidence = computeAxisConfidence(alphaDeg, alphaAxis, alphaClamped);
+		double betaConfidence = (betaAxis == null || betaAxis.length == 0)
+				? 1.0
+				: computeAxisConfidence(betaDeg, betaAxis, betaClamped);
+		return clampUnit(Math.min(Math.min(machConfidence, reConfidence), Math.min(alphaConfidence, betaConfidence)));
+	}
+
+	private static double computeAxisConfidence(double value, double[] axis, boolean clamped) {
+		if (clamped || !Double.isFinite(value) || axis == null || axis.length == 0) {
+			return 0.0;
+		}
+		if (axis.length == 1) {
+			return 1.0;
+		}
+		double min = axis[0];
+		double max = axis[axis.length - 1];
+		double range = max - min;
+		if (!(range > 0.0)) {
+			return 1.0;
+		}
+		double edgeDistance = Math.min(value - min, max - value);
+		if (edgeDistance <= 0.0) {
+			return 0.0;
+		}
+		return clampUnit((2.0 * edgeDistance) / range);
+	}
+
+	private static double clamp(double value, double min, double max) {
+		if (!Double.isFinite(value)) {
+			return min;
+		}
+		return Math.max(min, Math.min(max, value));
+	}
+
+	private static double clampUnit(double value) {
+		if (!Double.isFinite(value)) {
+			return 0.0;
+		}
+		return Math.max(0.0, Math.min(1.0, value));
+	}
+
+	private static double lerp(double a, double b, double t) {
+		double blend = clampUnit(t);
+		return a + blend * (b - a);
 	}
 
 	private static double sanitizeNonNegative(double value) {
@@ -503,10 +1101,48 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 			boolean machClamped,
 			boolean reynoldsClamped,
 			boolean alphaClamped,
-			boolean betaClamped) {
+			boolean betaClamped,
+			double domainConfidence) {
+
+		boolean isOutsideDomain() {
+			return machClamped || reynoldsClamped || alphaClamped || betaClamped;
+		}
+	}
+
+	private record ResidualPilotResult(double cd, double appliedCorrection, double confidence) {
+		private static ResidualPilotResult notApplied(double cd) {
+			return new ResidualPilotResult(cd, 0.0, 0.0);
+		}
 	}
 
 	private record ClampResult(double value, boolean clamped) {
+	}
+
+	static double stabilizeDragCoefficient(double candidate, double fallbackFromSurface, double fallbackFromCurrent) {
+		if (Double.isFinite(candidate) && candidate > MIN_EFFECTIVE_CD) {
+			return candidate;
+		}
+		if (Double.isFinite(fallbackFromSurface) && fallbackFromSurface > MIN_EFFECTIVE_CD) {
+			return fallbackFromSurface;
+		}
+		if (Double.isFinite(fallbackFromCurrent) && fallbackFromCurrent > MIN_EFFECTIVE_CD) {
+			return fallbackFromCurrent;
+		}
+		return MIN_EFFECTIVE_CD;
+	}
+
+	static double stabilizeAxialDrag(double currentAxialCd, double oldCd, double effectiveCd) {
+		double stableEffectiveCd = stabilizeDragCoefficient(effectiveCd, oldCd, currentAxialCd);
+		if (!Double.isFinite(currentAxialCd)) {
+			return stableEffectiveCd;
+		}
+		if (Double.isFinite(oldCd) && oldCd > MIN_EFFECTIVE_CD) {
+			return currentAxialCd * (stableEffectiveCd / oldCd);
+		}
+		if (Math.abs(currentAxialCd) > MIN_EFFECTIVE_CD) {
+			return Math.copySign(stableEffectiveCd, currentAxialCd);
+		}
+		return stableEffectiveCd;
 	}
 
 	private static double computeRomBlendWeight(double mach, double reL) {

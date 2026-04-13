@@ -39,6 +39,20 @@ public class TelemetryParsersDiagnosticsTest extends BaseTestCase {
 	}
 
 	@Test
+	public void tabDelimitedAcceptsQuotedRows() throws Exception {
+		Path dir = Files.createTempDirectory("tab-quoted");
+		Path file = dir.resolve("perfectflite.txt");
+		String content = "\"0\t100\t68F\t9.3\"\n\"1\t150\t70F\t9.1\"\n";
+		Files.writeString(file, content, StandardCharsets.UTF_8);
+
+		TelemetrySeries series = TelemetryParsers.parse(file);
+		TelemetryParserDiagnostics d = series.getParserDiagnostics();
+
+		assertTrue(series.size() >= 2, "Quoted tab-delimited rows should be parsed");
+		assertTrue(d.getRowsAccepted() >= 2, "Quoted rows should no longer be discarded");
+	}
+
+	@Test
 	public void fluctusTracksSentinelRate() throws Exception {
 		Path dir = Files.createTempDirectory("fluctus-sentinel-rate");
 		Path file = dir.resolve("fluctus.csv");

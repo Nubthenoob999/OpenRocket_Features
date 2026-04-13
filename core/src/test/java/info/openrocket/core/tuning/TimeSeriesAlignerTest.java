@@ -6,6 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TimeSeriesAlignerTest {
 	@Test
@@ -41,5 +42,36 @@ public class TimeSeriesAlignerTest {
 		assertNotNull(values);
 		assertEquals(3, values.size());
 		assertEquals(1.0, values.get(1), 1e-9);
+	}
+
+	@Test
+	public void estimatesCrossCorrelationLagFromAltitude() {
+		TelemetrySeries reference = syntheticSeries(0.0, 0.0);
+		TelemetrySeries delayedCandidate = syntheticSeries(0.0, 0.35);
+
+		AlignmentResult alignment = TimeSeriesAligner.estimateAlignment(reference, delayedCandidate, 20.0);
+
+		assertEquals("altitude", alignment.getChannel());
+		assertTrue(Double.isFinite(alignment.getQuality()));
+		assertEquals(-0.35, alignment.getLagSec(), 0.10);
+		assertTrue(alignment.getMatchedSamples() >= 20);
+	}
+
+	private static TelemetrySeries syntheticSeries(double timeOffsetSec, double signalDelaySec) {
+		TelemetrySeries series = new TelemetrySeries(TelemetrySchema.OPENROCKET_SIMULATION);
+		TelemetryParserDiagnostics.Mutable diagnostics =
+				new TelemetryParserDiagnostics.Mutable(TelemetrySchema.OPENROCKET_SIMULATION.name());
+		for (int i = 0; i < 120; i++) {
+			double t = i * 0.05 + timeOffsetSec;
+			double relative = t - timeOffsetSec - signalDelaySec;
+			double altitude = 20.0 * Math.sin(relative) + relative * 8.0;
+			double velocity = 20.0 * Math.cos(relative) + 8.0;
+			double pressure = 101325.0 - altitude * 12.0;
+			series.addPoint(t, altitude, velocity, null, null, -20.0 * Math.sin(relative), pressure, 20.0);
+			diagnostics.incRowsRead();
+			diagnostics.incRowsAccepted();
+		}
+		series.setParserDiagnostics(diagnostics.freeze());
+		return series;
 	}
 }
