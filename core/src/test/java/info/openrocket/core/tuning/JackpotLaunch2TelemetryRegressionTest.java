@@ -7,6 +7,7 @@ import info.openrocket.core.file.GeneralRocketLoader;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.startup.OpenRocketCore;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -23,8 +24,11 @@ public class JackpotLaunch2TelemetryRegressionTest {
 	@Test
 	public void jackpotRomRunIsCloserToTelemetryThanBaseline() throws Exception {
 		double actualFeet = representativeTelemetryApogeeFeet();
-		double baselineFeet = simulateFeet(baselineVariant(loadSource()));
-		double romFeet = simulateFeet(loadSource().clone(false));
+		Simulation source = loadSource();
+		Assumptions.assumeTrue(hasEmbeddedRomData(source),
+				"Jackpot launch 2 ORK does not contain embedded ROM surfaces for a 3D/4D comparison");
+		double baselineFeet = simulateFeet(baselineVariant(source));
+		double romFeet = simulateFeet(source.clone(false));
 
 		System.out.printf(Locale.US,
 				"Jackpot actualRepresentative=%.2f ft baseline=%.2f ft rom4d=%.2f ft%n",
@@ -54,7 +58,7 @@ public class JackpotLaunch2TelemetryRegressionTest {
 
 	private static Simulation loadSource() throws Exception {
 		ensureApplicationInjector();
-		GeneralRocketLoader loader = new GeneralRocketLoader(resolve("NASA_26_PDF_Config.ork").toFile());
+		GeneralRocketLoader loader = new GeneralRocketLoader(resolve("NASA_26_PDF_Config_Something.ork").toFile());
 		OpenRocketDocument document = loader.load();
 		return document.getSimulations().get(0);
 	}
@@ -76,6 +80,10 @@ public class JackpotLaunch2TelemetryRegressionTest {
 	private static Path resolve(String file) {
 		return Path.of("src", "test", "java", "info", "openrocket", "core", "tuning",
 				"Jackpot_Launch_2", file);
+	}
+
+	private static boolean hasEmbeddedRomData(Simulation simulation) {
+		return simulation.getOptions().hasRomAeroSurface4D() || simulation.getOptions().hasRomDragSurface();
 	}
 
 	private static synchronized void ensureApplicationInjector() {

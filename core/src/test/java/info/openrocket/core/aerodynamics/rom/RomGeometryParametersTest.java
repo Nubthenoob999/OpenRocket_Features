@@ -10,11 +10,16 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import info.openrocket.core.rocketcomponent.AxialStage;
+import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.FinSet;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.TrapezoidFinSet;
+import info.openrocket.core.rocketcomponent.position.AxialMethod;
 import info.openrocket.core.util.BaseTestCase;
 import info.openrocket.core.util.TestRockets;
 
@@ -87,5 +92,92 @@ public class RomGeometryParametersTest extends BaseTestCase {
 
 		RomGeometryParameters g2 = RomGeometryParameters.fromRocket(config);
 		assertNotEquals(g1.geometryHash(), g2.geometryHash());
+	}
+
+	@Test
+	public void testGeometryExtractionRetainsDistinctFinSetsAndWeightedAggregate() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		BodyTube bodyTube = firstBodyTube(rocket);
+
+		TrapezoidFinSet canards = new TrapezoidFinSet(4, 0.03, 0.015, 0.005, 0.025);
+		canards.setThickness(0.0015);
+		canards.setAxialMethod(AxialMethod.TOP);
+		canards.setAxialOffset(0.015);
+		canards.setName("Canards");
+		bodyTube.addChild(canards);
+
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		RomGeometryParameters g = RomGeometryParameters.fromRocket(config);
+
+		assertEquals(2, g.finSets.size());
+		assertEquals(2, g.resolvedFinSets().size());
+		assertEquals(2, g.toRomGeometryInput().finSets.size());
+
+		RomGeometryParameters.FinGeom primary = findFinSet(g.finSets, 3, 0.05);
+		RomGeometryParameters.FinGeom secondary = findFinSet(g.finSets, 4, 0.03);
+		assertNotNull(primary);
+		assertNotNull(secondary);
+		assertEquals(7, g.finCount);
+
+		double primaryWeight = primary.totalPlanformArea();
+		double secondaryWeight = secondary.totalPlanformArea();
+		double totalWeight = primaryWeight + secondaryWeight;
+		double totalWettedArea = primary.wettedArea() + secondary.wettedArea();
+
+		assertEquals(totalWettedArea, g.finWettedArea, EPSILON);
+		assertEquals((primaryWeight * primary.rootChord() + secondaryWeight * secondary.rootChord()) / totalWeight,
+				g.finRootChord, EPSILON);
+		assertEquals((primaryWeight * primary.tipChord() + secondaryWeight * secondary.tipChord()) / totalWeight,
+				g.finTipChord, EPSILON);
+		assertEquals((primaryWeight * primary.span() + secondaryWeight * secondary.span()) / totalWeight,
+				g.finSpan, EPSILON);
+		assertEquals((primaryWeight * primary.thickness() + secondaryWeight * secondary.thickness()) / totalWeight,
+				g.finThickness, EPSILON);
+		assertEquals((primaryWeight * primary.sweepAngle() + secondaryWeight * secondary.sweepAngle()) / totalWeight,
+				g.finSweepAngle, EPSILON);
+	}
+
+	@Test
+	public void testBoattailBaseAreaUsesAftMostShrinkingTransition() {
+		Rocket rocket = new Rocket();
+		AxialStage stage = new AxialStage();
+		rocket.addChild(stage);
+
+		stage.addChild(new NoseCone(Transition.Shape.OGIVE, 0.12, 0.05));
+		stage.addChild(new BodyTube(0.40, 0.05, 0.002));
+
+		Transition boattail = new Transition();
+		boattail.setLength(0.10);
+		boattail.setForeRadius(0.05);
+		boattail.setAftRadius(0.03);
+		boattail.setThickness(0.002);
+		stage.addChild(boattail);
+
+		rocket.enableEvents();
+		RomGeometryParameters g = RomGeometryParameters.fromRocket(rocket.getSelectedConfiguration());
+
+		assertEquals(0.10, g.boattailLength, EPSILON);
+		assertEquals(0.06, g.boattailBaseDiameter, EPSILON);
+		assertEquals(Math.PI * 0.03 * 0.03, g.baseArea, EPSILON);
+	}
+
+	private static BodyTube firstBodyTube(Rocket rocket) {
+		for (RocketComponent component : rocket.getAllChildren()) {
+			if (component instanceof BodyTube bodyTube) {
+				return bodyTube;
+			}
+		}
+		throw new IllegalStateException("Expected a body tube in the test rocket.");
+	}
+
+	private static RomGeometryParameters.FinGeom findFinSet(List<RomGeometryParameters.FinGeom> finSets,
+			int count,
+			double rootChord) {
+		for (RomGeometryParameters.FinGeom finSet : finSets) {
+			if (finSet.count() == count && Math.abs(finSet.rootChord() - rootChord) < EPSILON) {
+				return finSet;
+			}
+		}
+		return null;
 	}
 }

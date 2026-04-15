@@ -36,6 +36,7 @@ public class RomValidationPipelineTest {
 		g.referenceArea = Math.PI * Math.pow(g.maxDiameter / 2.0, 2.0);
 		g.baseArea = g.referenceArea;
 		g.wetArea = 0.58;
+		g.bodyWetArea = g.wetArea;
 		g.noseLength = 0.3;
 		g.noseShape = RomGeometryParameters.NoseShape.OGIVE;
 		g.finessRatio = g.bodyLength / g.maxDiameter;
@@ -45,7 +46,7 @@ public class RomValidationPipelineTest {
 		g.finSpan = 0.05;
 		g.finThickness = 0.003;
 		g.finSweepAngle = Math.toRadians(22.0);
-		g.finWettedArea = 2.0 * (0.5 * (g.finRootChord + g.finTipChord) * g.finSpan);
+		g.finWettedArea = g.finCount * 2.0 * (0.5 * (g.finRootChord + g.finTipChord) * g.finSpan);
 		g.surfaceRoughness = 6.4e-6;
 		g.boattailLength = 0.0;
 		g.boattailBaseDiameter = 0.0;

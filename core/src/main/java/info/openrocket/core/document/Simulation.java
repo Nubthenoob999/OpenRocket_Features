@@ -36,6 +36,7 @@ import info.openrocket.core.simulation.SimulationStepper;
 import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.extension.SimulationExtension;
 import info.openrocket.core.simulation.listeners.SimulationListener;
+import info.openrocket.core.simulation.listeners.WeathercockingCompensationListener;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.ArrayList;
 import info.openrocket.core.util.BugException;
@@ -502,6 +503,7 @@ public class Simulation implements ChangeSource, Cloneable {
 				simulationConditions.getRomAerodynamicCalculator().clearComputationSnapshots();
 			}
 			initializeNativeAirbrakes(simulationConditions);
+			initializeWeathercockingCompensation(simulationConditions);
 			
 			for (SimulationExtension extension : simulationExtensions) {
 				extension.initialize(simulationConditions);
@@ -551,7 +553,20 @@ public class Simulation implements ChangeSource, Cloneable {
 
 		try {
 			AirbrakeConfig config = options.createAirbrakeConfig();
-			AirbrakeAerodynamics airbrakes = new AirbrakeAerodynamics(config.getCfdDataFilePath());
+			String cfdPath = config.getCfdDataFilePath();
+			if (cfdPath == null || cfdPath.isBlank()) {
+				log.warn("Native airbrakes enabled without a CFD CSV path; skipping airbrake initialization for this run");
+				return;
+			}
+
+			AirbrakeAerodynamics airbrakes;
+			try {
+				airbrakes = new AirbrakeAerodynamics(cfdPath);
+			} catch (IllegalArgumentException ex) {
+				log.warn("Native airbrakes disabled for this run: unable to load CFD CSV '{}': {}", cfdPath,
+						ex.getMessage());
+				return;
+			}
 			ApogeePredictor predictor = new ApogeePredictor();
 			AirbrakeController.ControlContext noopContext = new AirbrakeController.ControlContext() {
 				@Override
@@ -573,6 +588,19 @@ public class Simulation implements ChangeSource, Cloneable {
 		} catch (Exception e) {
 			throw new SimulationException("Failed to initialize native airbrakes", e);
 		}
+	}
+
+	private void initializeWeathercockingCompensation(SimulationConditions simulationConditions) {
+		if (!options.isWeathercockingCompensationEnabled()) {
+			return;
+		}
+
+		WeathercockingCompensationListener listener = new WeathercockingCompensationListener(
+				options.getWeathercockingStabilityMinCalibers(),
+				options.getWeathercockingStabilityMassRatioMin(),
+				options.getWeathercockingCdGain(),
+				options.getWeathercockingMaxCdDelta());
+		simulationConditions.getSimulationListenerList().add(listener);
 	}
 	
 	

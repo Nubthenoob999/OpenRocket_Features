@@ -12,9 +12,7 @@ public class PchipInterpolator1D {
 	private final double[] d;   // derivative estimates at knots (Fritsch-Carlson)
 
 	public PchipInterpolator1D(double[] x, double[] y) {
-		if (x.length != y.length || x.length < 2) {
-			throw new IllegalArgumentException("Need at least 2 matching points");
-		}
+		validateInput(x, y);
 		this.x = x.clone();
 		this.y = y.clone();
 		this.d = computeDerivatives(this.x, this.y);
@@ -63,6 +61,9 @@ public class PchipInterpolator1D {
 
 		for (int i = 0; i < n - 1; i++) {
 			h[i] = x[i + 1] - x[i];
+			if (!(h[i] > 0.0)) {
+				throw new IllegalArgumentException("PCHIP x-axis must be strictly increasing");
+			}
 			delta[i] = (y[i + 1] - y[i]) / h[i];
 		}
 
@@ -112,5 +113,22 @@ public class PchipInterpolator1D {
 			return 3 * d1;
 		}
 		return d;
+	}
+
+	private static void validateInput(double[] x, double[] y) {
+		if (x == null || y == null) {
+			throw new IllegalArgumentException("PCHIP axes must not be null");
+		}
+		if (x.length != y.length || x.length < 2) {
+			throw new IllegalArgumentException("Need at least 2 matching points");
+		}
+		for (int i = 0; i < x.length; i++) {
+			if (!Double.isFinite(x[i]) || !Double.isFinite(y[i])) {
+				throw new IllegalArgumentException("PCHIP axes must contain only finite values");
+			}
+			if (i > 0 && !(x[i] > x[i - 1])) {
+				throw new IllegalArgumentException("PCHIP x-axis must be strictly increasing");
+			}
+		}
 	}
 }

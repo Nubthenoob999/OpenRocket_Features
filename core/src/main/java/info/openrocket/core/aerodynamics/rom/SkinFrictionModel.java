@@ -87,9 +87,10 @@ public class SkinFrictionModel {
 		double cf_smooth = vanDriestII(cf_inc, mach, adiabaticWallRatio(mach));
 		double cf = cfWithRoughness(cf_smooth, g.bodyLength, g.surfaceRoughness);
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
-		// Flat-plate Cf correlations represent shear referenced to a two-sided plate.
-		// Body wetted area is single-sided, so apply normalization.
-		return 0.4 * cf * ff * (g.wetArea / g.referenceArea);
+		double bodyWetArea = (g.bodyWetArea > 0.0) ? g.bodyWetArea : g.wetArea;
+		double areaRatio = Math.max(bodyWetArea, 0.0) / Math.max(g.referenceArea, 1.0e-12);
+		double cd = 0.5 * cf * ff * areaRatio;
+		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 
 	/**

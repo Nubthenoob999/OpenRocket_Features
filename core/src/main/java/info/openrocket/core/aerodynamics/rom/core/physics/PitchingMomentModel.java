@@ -41,15 +41,28 @@ public final class PitchingMomentModel {
 		double xCpNose = noseCpFraction * g.noseLength;
 
 		double xCpFins = xCpNose;
-		if (g.finCount > 0 && g.finRootChord > 1e-6) {
-			double lambda = g.finTipChord / g.finRootChord;
-			double macLeOffset = (g.finRootChord / 3.0) * (1.0 + 2.0 * lambda) / (1.0 + lambda);
-			double finRootLeX = (g.finAxialPosition > 0.0)
-					? g.finAxialPosition
-					: Math.max(0.0, g.bodyLength - g.finRootChord - Math.max(g.boattailLength, 0.0));
-			double cMean = (g.finRootChord + g.finTipChord) / 2.0;
-			xCpFins = finRootLeX + macLeOffset + 0.25 * cMean;
-			xCpFins = Math.max(xCpNose, Math.min(xCpFins, g.bodyLength));
+		if (g.finCount > 0 && !g.finSets.isEmpty()) {
+			double weightedXcp = 0.0;
+			double totalPlanformArea = 0.0;
+			for (RomGeometryInput.FinGeom finSet : g.finSets) {
+				if (!(finSet.rootChord() > 1e-6)) {
+					continue;
+				}
+				double lambda = finSet.tipChord() / finSet.rootChord();
+				double macLeOffset = (finSet.rootChord() / 3.0) * (1.0 + 2.0 * lambda) / (1.0 + lambda);
+				double finRootLeX = (finSet.axialPosition() > 0.0)
+						? finSet.axialPosition()
+						: Math.max(0.0, g.bodyLength - finSet.rootChord() - Math.max(g.boattailLength, 0.0));
+				double cMean = finSet.meanChord();
+				double setXcp = finRootLeX + macLeOffset + 0.25 * cMean;
+				setXcp = Math.max(xCpNose, Math.min(setXcp, g.bodyLength));
+				double weight = Math.max(finSet.totalPlanformArea(), 1e-12);
+				totalPlanformArea += weight;
+				weightedXcp += weight * setXcp;
+			}
+			if (totalPlanformArea > 0.0) {
+				xCpFins = weightedXcp / totalPlanformArea;
+			}
 		}
 
 		double cnBody = 2.0 * Math.abs(alphaRad);

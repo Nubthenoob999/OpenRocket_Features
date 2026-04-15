@@ -782,8 +782,8 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 		if (!Double.isFinite(boundaryEventTimeSeconds) || !Double.isFinite(simulationTimeSeconds)) {
 			return 1.0;
 		}
-		double timeToBoundary = boundaryEventTimeSeconds - simulationTimeSeconds;
-		if (timeToBoundary < 0.0 || timeToBoundary >= ASCENT_EVENT_TRUST_WINDOW_SEC) {
+		double timeToBoundary = Math.abs(boundaryEventTimeSeconds - simulationTimeSeconds);
+		if (timeToBoundary >= ASCENT_EVENT_TRUST_WINDOW_SEC) {
 			return 1.0;
 		}
 		double proximity = 1.0 - smoothStep(0.0, ASCENT_EVENT_TRUST_WINDOW_SEC, timeToBoundary);

@@ -87,5 +87,11 @@ public class PchipInterpolator1DTest {
 				() -> new PchipInterpolator1D(new double[] { 1.0 }, new double[] { 0.3 }));
 		assertThrows(IllegalArgumentException.class,
 				() -> new PchipInterpolator1D(new double[] { 0.0, 1.0 }, new double[] { 0.1 }));
+		assertThrows(IllegalArgumentException.class,
+				() -> new PchipInterpolator1D(new double[] { 0.0, 0.5, 0.5 }, new double[] { 0.1, 0.3, 0.5 }));
+		assertThrows(IllegalArgumentException.class,
+				() -> new PchipInterpolator1D(new double[] { 0.0, Double.NaN, 1.0 }, new double[] { 0.1, 0.3, 0.5 }));
+		assertThrows(IllegalArgumentException.class,
+				() -> new PchipInterpolator1D(new double[] { 0.0, 0.5, 1.0 }, new double[] { 0.1, Double.NaN, 0.5 }));
 	}
 }

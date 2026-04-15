@@ -151,6 +151,35 @@ public class SimulationTest extends BaseTestCase {
 		assertFalse(branch.get(airbrakeExt).isEmpty(), "Airbrake extension data should be recorded");
 		assertFalse(branch.get(predictedApogee).isEmpty(), "Predicted apogee data should be recorded");
 	}
+
+	@Test
+	public void testSimulationContinuesWhenNativeAirbrakesEnabledWithoutCfdPath() throws SimulationException {
+		simulation.getOptions().setAirbrakesEnabled(true);
+		simulation.getOptions().setCfdDataFilePath("   ");
+		simulation.getOptions().setReferenceArea(0.01);
+		simulation.getOptions().setTargetApogee(10.0);
+
+		simulation.simulate();
+
+		FlightData data = simulation.getSimulatedData();
+		assertNotNull(data, "Simulation should still produce flight data when CFD path is blank");
+		assertTrue(data.getMaxAltitude() > 0, "Simulation should run to completion when airbrakes are skipped");
+	}
+
+	@Test
+	public void testSimulationContinuesWhenNativeAirbrakesCfdPathCannotBeLoaded() throws SimulationException {
+		simulation.getOptions().setAirbrakesEnabled(true);
+		simulation.getOptions().setCfdDataFilePath("Z:/path/that/does/not/exist/airbrakes.csv");
+		simulation.getOptions().setReferenceArea(0.01);
+		simulation.getOptions().setTargetApogee(10.0);
+
+		simulation.simulate();
+
+		FlightData data = simulation.getSimulatedData();
+		assertNotNull(data, "Simulation should still produce flight data when CFD path cannot be loaded");
+		assertTrue(data.getMaxAltitude() > 0, "Simulation should run to completion when airbrakes are skipped");
+	}
+
 	@Test
 	public void testBasicSimulationExecution_RK6() throws SimulationException {
 		simulation.getOptions().setSimulationStepperMethodChoice(SimulationStepperMethod.RK6);

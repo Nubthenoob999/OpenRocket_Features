@@ -50,15 +50,15 @@ def baseManifestAttributes = [
         'Description'          : 'Model-rocketry aerodynamics and trajectory simulation software',
         'SplashScreen-Image'   : 'pix/splashscreen.png',
         'Implementation-Version': buildProperties['build.version'],
-        'Implementation-Vendor': 'OpenRocket',
+    'Implementation-Vendor': 'Project Imperia',
         'Implementation-Vendor-Id': 'info.openrocket',
         'Implementation-URL'   : 'https://openrocket.info/',
         'Main-Class'           : application.mainClass.get(),
 ]
 
-def appName = 'OpenRocket'
+def appName = 'Project Imperia'
 def appDescription = baseManifestAttributes['Description']
-def appVendor = 'OpenRocket'
+def appVendor = 'Project Imperia'
 def appUrl = 'https://openrocket.info/'
 def projectVersionString = version.toString()
 def launcherJvmArgs = [
@@ -127,10 +127,10 @@ def install4jBuildIds = [
         all    : ['60', '248', '213', '240']
 ]
 def install4jExpectedArtifacts = [
-        '60' : "OpenRocket-${projectVersionString}-installer-Windows-x86_64.exe",
-        '248': "OpenRocket-${projectVersionString}-installer-Windows-Arm64.exe",
-        '213': "OpenRocket-${projectVersionString}-installer-macOS-Intel.dmg",
-        '240': "OpenRocket-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
+        '60' : "Project-Imperia-${projectVersionString}-installer-Windows-x86_64.exe",
+        '248': "Project-Imperia-${projectVersionString}-installer-Windows-Arm64.exe",
+        '213': "Project-Imperia-${projectVersionString}-installer-macOS-Intel.dmg",
+        '240': "Project-Imperia-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
 ]
 
 install4j {
@@ -370,7 +370,8 @@ tasks.named('check') {
 
 // JAR config
 jar {
-    archiveBaseName = 'OpenRocket'
+    archiveBaseName = 'Project-Imperia'
+    archiveClassifier = 'plain'
 
     manifest {
         attributes(baseManifestAttributes)
@@ -385,10 +386,9 @@ dependencies {
 
 tasks.named('shadowJar', ShadowJar) {
     dependsOn(':core:processResources')
-    archiveBaseName = 'OpenRocket'
+    archiveBaseName = 'Project-Imperia'
     archiveVersion = '' + version
     archiveClassifier = ''
-    dependsOn(distTar, distZip)
 
     manifest {
         attributes(baseManifestAttributes)
@@ -429,7 +429,7 @@ tasks.register('resolveJpackageModules') {
 
 tasks.register('jpackageAppImage') {
     group = 'distribution'
-    description = 'Builds an OpenRocket app image with jpackage using the shadow JAR.'
+    description = 'Builds a Project Imperia app image with jpackage using the shadow JAR.'
 
     dependsOn 'prepareJpackageInput', 'resolveJpackageModules'
     inputs.dir(jpackageInputDir)
@@ -454,7 +454,7 @@ tasks.register('jpackageAppImage') {
                 '--app-version', appVersionForJpackage,
                 '--vendor', appVendor,
                 '--description', appDescription,
-                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} OpenRocket contributors",
+                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} Project Imperia contributors",
                 '--icon', appIconPath,
                 '--add-modules', detectedModules,
                 '--verbose'
@@ -503,7 +503,7 @@ tasks.register('jpackageInstaller') {
                 '--app-version', appVersionForJpackage,
                 '--vendor', appVendor,
                 '--description', appDescription,
-                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} OpenRocket contributors",
+                '--copyright', "Copyright 2013-${buildProperties['build.copyright']} Project Imperia contributors",
                 '--about-url', appUrl,
                 '--icon', appIconPath,
                 '--verbose'

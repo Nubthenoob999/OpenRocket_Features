@@ -29,6 +29,8 @@ public final class PhaseTwoDatasetResult {
 	private final double candidateAlignedApogeeTimeSec;
 	private final double alignedApogeeTimeDeltaSec;
 	private final double alignedApogeeTimeErrorSec;
+	private final double apogeeTargetMeters;
+	private final String apogeeTargetSource;
 	private final Map<FlightPhaseWindow, PhaseResidualMetrics> phaseResiduals;
 	private final VerticalIntegratorDiagnostics integratorDiagnostics;
 
@@ -64,6 +66,8 @@ public final class PhaseTwoDatasetResult {
 				Double.NaN,
 				Double.NaN,
 				Double.NaN,
+				Double.NaN,
+				"",
 				Collections.emptyMap(),
 				VerticalIntegratorDiagnostics.EMPTY);
 	}
@@ -110,6 +114,8 @@ public final class PhaseTwoDatasetResult {
 				candidateAlignedApogeeTimeSec,
 				alignedApogeeTimeDeltaSec,
 				alignedApogeeTimeErrorSec,
+				Double.NaN,
+				"",
 				Collections.emptyMap(),
 				VerticalIntegratorDiagnostics.EMPTY);
 	}
@@ -137,6 +143,8 @@ public final class PhaseTwoDatasetResult {
 								 double candidateAlignedApogeeTimeSec,
 								 double alignedApogeeTimeDeltaSec,
 								 double alignedApogeeTimeErrorSec,
+								 double apogeeTargetMeters,
+								 String apogeeTargetSource,
 								 Map<FlightPhaseWindow, PhaseResidualMetrics> phaseResiduals,
 								 VerticalIntegratorDiagnostics integratorDiagnostics) {
 		this.datasetName = datasetName;
@@ -162,6 +170,8 @@ public final class PhaseTwoDatasetResult {
 		this.candidateAlignedApogeeTimeSec = candidateAlignedApogeeTimeSec;
 		this.alignedApogeeTimeDeltaSec = alignedApogeeTimeDeltaSec;
 		this.alignedApogeeTimeErrorSec = alignedApogeeTimeErrorSec;
+		this.apogeeTargetMeters = apogeeTargetMeters;
+		this.apogeeTargetSource = apogeeTargetSource == null ? "" : apogeeTargetSource;
 		this.phaseResiduals = Collections.unmodifiableMap(new LinkedHashMap<>(phaseResiduals));
 		this.integratorDiagnostics = integratorDiagnostics == null ? VerticalIntegratorDiagnostics.EMPTY : integratorDiagnostics;
 	}
@@ -256,6 +266,14 @@ public final class PhaseTwoDatasetResult {
 
 	public double getAlignedApogeeTimeErrorSec() {
 		return alignedApogeeTimeErrorSec;
+	}
+
+	public double getApogeeTargetMeters() {
+		return apogeeTargetMeters;
+	}
+
+	public String getApogeeTargetSource() {
+		return apogeeTargetSource;
 	}
 
 	public Map<FlightPhaseWindow, PhaseResidualMetrics> getPhaseResiduals() {

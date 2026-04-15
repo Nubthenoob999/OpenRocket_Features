@@ -14,6 +14,7 @@ final class RomTestFixtures {
         g.referenceArea = Math.PI * Math.pow(0.038, 2.0);
         g.baseArea = g.referenceArea;
         g.wetArea = Math.PI * g.maxDiameter * g.bodyLength;
+        g.bodyWetArea = g.wetArea;
         g.noseLength = 0.30;
         g.noseShape = RomGeometryParameters.NoseShape.OGIVE;
         g.finessRatio = g.bodyLength / g.maxDiameter;

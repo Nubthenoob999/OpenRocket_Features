@@ -10,16 +10,10 @@ public class InducedDragModel {
 	}
 
 	public static double cdInduced(double alphaRad, double mach, RomGeometryInput g) {
-		if (alphaRad < 1e-6) {
+		if (alphaRad < 1e-6 || g.finSets.isEmpty()) {
 			return 0.0;
 		}
-		double chord_mean = (g.finRootChord + g.finTipChord) / 2.0;
-		double ar = 2.0 * g.finSpan / chord_mean;
 		double e = 0.9;
-
-		double cNa_fin = 2.0 * Math.PI / (1.0 + 2.0 / ar);
-		double cl = cNa_fin * alphaRad * g.finCount
-				* (g.finSpan * chord_mean) / g.referenceArea;
 
 		double compressibilityFactor = 1.0;
 		if (mach <= 0.8) {
@@ -32,9 +26,19 @@ public class InducedDragModel {
 			double smooth = t * t * (3.0 - 2.0 * t);
 			compressibilityFactor = subsonicAt08 * (1.0 - smooth) + smooth;
 		}
-		cl *= compressibilityFactor;
 
-		double cd_induced = cl * cl / (Math.PI * ar * e);
+		double cd_induced = 0.0;
+		for (RomGeometryInput.FinGeom finSet : g.finSets) {
+			double chordMean = finSet.meanChord();
+			double ar = 2.0 * finSet.span() / Math.max(chordMean, 1e-9);
+			if (!(ar > 0.0)) {
+				continue;
+			}
+			double cNaFin = 2.0 * Math.PI / (1.0 + 2.0 / ar);
+			double cl = cNaFin * alphaRad * (finSet.totalPlanformArea() / g.referenceArea);
+			cl *= compressibilityFactor;
+			cd_induced += cl * cl / (Math.PI * ar * e);
+		}
 		double cd_body_aoa = 0.075 * Math.sin(alphaRad) * Math.sin(alphaRad);
 		return cd_induced + cd_body_aoa;
 	}

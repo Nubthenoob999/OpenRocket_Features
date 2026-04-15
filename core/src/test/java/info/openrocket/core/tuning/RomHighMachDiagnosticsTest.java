@@ -8,6 +8,7 @@ import info.openrocket.core.file.GeneralRocketLoader;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.startup.OpenRocketCore;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -20,7 +21,10 @@ public class RomHighMachDiagnosticsTest {
 
 	@Test
 	public void pelencatorFourDImprovesOverDerivedThreeDWithoutOvershootingBaseline() throws Exception {
-		VariantResults results = loadVariants("Pelencator_Launch_1", "VDF_Launch_1.ork");
+		Simulation source = loadSource("Pelencator_Launch_1", "VDF_Launch_1.ork");
+		Assumptions.assumeTrue(hasEmbeddedRomData(source),
+				"Pelencator ORK does not contain embedded ROM surfaces for a 3D/4D comparison");
+		VariantResults results = simulateVariants(source);
 		assertNotNull(results.threeD);
 		assertNotNull(results.fourD);
 		assertNotNull(results.baseline);
@@ -34,7 +38,10 @@ public class RomHighMachDiagnosticsTest {
 
 	@Test
 	public void jackpotFourDImprovesOverDerivedThreeDWithoutOvershootingBaseline() throws Exception {
-		VariantResults results = loadVariants("Jackpot_Launch_2", "NASA_26_PDF_Config.ork");
+		Simulation source = loadSource("Jackpot_Launch_2", "NASA_26_PDF_Config_Something.ork");
+		Assumptions.assumeTrue(hasEmbeddedRomData(source),
+				"Jackpot launch 2 ORK does not contain embedded ROM surfaces for a 3D/4D comparison");
+		VariantResults results = simulateVariants(source);
 		assertNotNull(results.threeD);
 		assertNotNull(results.fourD);
 		assertNotNull(results.baseline);
@@ -48,18 +55,20 @@ public class RomHighMachDiagnosticsTest {
 
 	@Test
 	public void governmentWorkLaunch2StillLoadsAndSimulatesBaseline() throws Exception {
-		VariantResults results = loadVariants("Government_Work_Launch_2", "NASA_26_Subscale_2.ork");
+		VariantResults results = simulateVariants(loadSource("Government_Work_Launch_2", "NASA_26_Subscale_2.ork"));
 		assertNotNull(results.baseline);
 		assertTrue(results.baseline.apogeeFeet > 2000.0);
 	}
 
-	private static VariantResults loadVariants(String folder, String file) throws Exception {
+	private static Simulation loadSource(String folder, String file) throws Exception {
 		ensureApplicationInjector();
 		File orkFile = Path.of("src", "test", "java", "info", "openrocket", "core", "tuning", folder, file).toFile();
 		GeneralRocketLoader loader = new GeneralRocketLoader(orkFile);
 		OpenRocketDocument document = loader.load();
-		Simulation source = document.getSimulations().get(0);
+		return document.getSimulations().get(0);
+	}
 
+	private static VariantResults simulateVariants(Simulation source) throws Exception {
 		return new VariantResults(
 				simulate(source.clone(false)),
 				simulate(baselineVariant(source)),
@@ -93,13 +102,6 @@ public class RomHighMachDiagnosticsTest {
 	}
 
 	private static SimulationResult simulate(Simulation simulation) throws Exception {
-		boolean available = simulation.getOptions().getRomSurfaceMode() != RomSurfaceMode.FOUR_D
-				? (simulation.getOptions().hasRomDragSurface() || simulation.getOptions().getRomAeroSurface4D() == null)
-				: simulation.getOptions().hasRomAeroSurface4D();
-		if (!available) {
-			return null;
-		}
-
 		simulation.simulate();
 		FlightData data = simulation.getSimulatedData();
 		double apogeeMeters = data.getMaxAltitude();
@@ -116,6 +118,10 @@ public class RomHighMachDiagnosticsTest {
 			SimulationResult baseline,
 			SimulationResult threeD,
 			SimulationResult fourD) {
+	}
+
+	private static boolean hasEmbeddedRomData(Simulation simulation) {
+		return simulation.getOptions().hasRomAeroSurface4D() || simulation.getOptions().hasRomDragSurface();
 	}
 
 	private static synchronized void ensureApplicationInjector() {

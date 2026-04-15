@@ -40,7 +40,7 @@ public final class PhaseTwoBatchReportWriter {
 	private static void writeSummaryCsv(PhaseTwoBatchResult result, Path path) throws IOException {
 		StringBuilder sb = new StringBuilder();
 		sb.append("dataset,airbrakeEnabled,airbrakesStatus,airbrakesExitCode,fullScore,fullSeverity,boostScore,coastScore,descentScore,referenceCdProxy,candidateCdProxy,")
-				.append("referenceApogeeM,candidateApogeeM,apogeeErrorM,apogeeErrorPercent,")
+				.append("referenceApogeeM,candidateApogeeM,apogeeErrorM,apogeeErrorPercent,apogeeTargetM,apogeeTargetSource,")
 				.append("datasetClass,candidateSource,orkProvenance,romMode,romSurfaceSource,candidateMaxMach,")
 				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,")
 				.append("ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,flags,")
@@ -93,6 +93,8 @@ public final class PhaseTwoBatchReportWriter {
 					.append(format(candidateApogeeM)).append(',')
 					.append(format(apogeeErrorM)).append(',')
 					.append(format(apogeeErrorPercent)).append(',')
+					.append(format(dataset.getApogeeTargetMeters())).append(',')
+					.append(csv(dataset.getApogeeTargetSource())).append(',')
 					.append(csv(dataset.getDatasetClass())).append(',')
 					.append(csv(dataset.getCandidateSource())).append(',')
 					.append(csv(dataset.getOrkProvenance())).append(',')
@@ -253,7 +255,7 @@ public final class PhaseTwoBatchReportWriter {
 		StringBuilder sb = new StringBuilder();
 		sb.append("dataset,datasetClass,candidateSource,orkProvenance,romMode,romSurfaceSource,candidateMaxMach,")
 				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,")
-				.append("fullScore,fullSeverity,apogeeErrorPercent,ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,")
+				.append("fullScore,fullSeverity,apogeeErrorPercent,apogeeTargetM,apogeeTargetSource,ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,")
 				.append("primaryWeakness,primaryWeaknessScore,primaryStrength,primaryStrengthScore,recommendedFocus,")
 				.append("truthSource,alignmentChannel,alignmentLagSec,alignmentQuality,")
 				.append("candidateAccelBiasEstimateMps2,candidateLaunchDetectedTimeSec,candidateBurnoutDetectedTimeSec,candidateDeploymentDetectedTimeSec,")
@@ -294,6 +296,8 @@ public final class PhaseTwoBatchReportWriter {
 					.append(format(full == null ? Double.NaN : full.getScore())).append(',')
 					.append(full == null ? "NA" : full.getSeverity()).append(',')
 					.append(format(apogeeErrorPercent)).append(',')
+					.append(format(dataset.getApogeeTargetMeters())).append(',')
+					.append(csv(dataset.getApogeeTargetSource())).append(',')
 					.append(format(ascentScore)).append(',')
 					.append(ascentLane.status()).append(',')
 					.append(csv(ascentLane.reasons())).append(',')
@@ -1205,8 +1209,9 @@ public final class PhaseTwoBatchReportWriter {
 																  double boostScore,
 																  double coastScore,
 																  double apogeePercentError) {
-		if ("BROKEN".equalsIgnoreCase(safe(dataset.getDatasetClass()))) {
-			return new LaneEvaluation("EXCLUDED", "datasetClass=BROKEN");
+		if ("BROKEN".equalsIgnoreCase(safe(dataset.getDatasetClass()))
+				|| "MANUAL_APOGEE_ONLY".equalsIgnoreCase(safe(dataset.getDatasetClass()))) {
+			return new LaneEvaluation("EXCLUDED", "datasetClass=" + safe(dataset.getDatasetClass()));
 		}
 
 		List<String> gateFailures = new ArrayList<>();
@@ -1243,6 +1248,9 @@ public final class PhaseTwoBatchReportWriter {
 		List<String> failures = new ArrayList<>();
 		if ("BROKEN".equalsIgnoreCase(safe(dataset.getDatasetClass()))) {
 			failures.add("datasetClass=BROKEN");
+		}
+		if ("MANUAL_APOGEE_ONLY".equalsIgnoreCase(safe(dataset.getDatasetClass()))) {
+			return new LaneEvaluation("EXCLUDED", "datasetClass=MANUAL_APOGEE_ONLY");
 		}
 
 		AbPluginExecutionResult plugin = dataset.getPluginResult();

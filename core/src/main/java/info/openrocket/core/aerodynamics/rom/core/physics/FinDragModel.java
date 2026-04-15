@@ -8,33 +8,41 @@ public final class FinDragModel {
 	}
 
 	public static double cdFinFriction(double mach, double reLBody, RomGeometryInput g) {
-		if (g.finCount == 0) {
+		if (g.finCount == 0 || g.finSets.isEmpty()) {
 			return 0.0;
 		}
-		double cMean = (g.finRootChord + g.finTipChord) / 2.0;
-		if (cMean < 1e-6 || g.bodyLength <= 0.0) {
-			return 0.0;
+		double cd = 0.0;
+		for (RomGeometryInput.FinGeom finSet : g.finSets) {
+			double cMean = finSet.meanChord();
+			if (cMean < 1e-6 || g.bodyLength <= 0.0) {
+				continue;
+			}
+			double reFin = reLBody * (cMean / g.bodyLength);
+			double cfInc = SkinFrictionModel.cfIncompressible(reFin, 5e5);
+			double cfComp = SkinFrictionModel.vanDriestII(cfInc, mach, 1.0);
+			double tc = finSet.thickness() / cMean;
+			double ffFin = 1.0 + 2.0 * tc;
+			cd += cfComp * ffFin * finSet.wettedArea() / g.referenceArea;
 		}
-		double reFin = reLBody * (cMean / g.bodyLength);
-		double cfInc = SkinFrictionModel.cfIncompressible(reFin, 5e5);
-		double cfComp = SkinFrictionModel.vanDriestII(cfInc, mach, 1.0);
-		double tc = g.finThickness / cMean;
-		double ffFin = 1.0 + 2.0 * tc;
-		return cfComp * ffFin * g.finCount * g.finWettedArea / g.referenceArea;
+		return cd;
 	}
 
 	public static double cdFinWaveSupersonic(double mach, RomGeometryInput g) {
-		if (g.finCount == 0 || mach <= 1.2) {
+		if (g.finCount == 0 || g.finSets.isEmpty() || mach <= 1.2) {
 			return 0.0;
 		}
-		double cMean = (g.finRootChord + g.finTipChord) / 2.0;
-		if (cMean < 1e-6) {
-			return 0.0;
-		}
-		double tc = g.finThickness / cMean;
 		double betaM = Math.sqrt(mach * mach - 1.0);
-		double planform = cMean * g.finSpan;
-		return 4.0 * tc * tc / betaM * g.finCount * planform / g.referenceArea;
+		double cd = 0.0;
+		for (RomGeometryInput.FinGeom finSet : g.finSets) {
+			double cMean = finSet.meanChord();
+			if (cMean < 1e-6) {
+				continue;
+			}
+			double tc = finSet.thickness() / cMean;
+			double planformTotal = finSet.totalPlanformArea();
+			cd += 4.0 * tc * tc / betaM * planformTotal / g.referenceArea;
+		}
+		return cd;
 	}
 
 	public static double cdFinInterference(double cdFinFrictionPlusWave, RomGeometryInput g) {
@@ -45,20 +53,13 @@ public final class FinDragModel {
 	}
 
 	public static double cdFinInducedDrag(double alphaRad, double betaRad, double mach, RomGeometryInput g) {
-		if (g.finCount == 0) {
+		if (g.finCount == 0 || g.finSets.isEmpty()) {
 			return 0.0;
 		}
 		double alphaEff = Math.sqrt(alphaRad * alphaRad + betaRad * betaRad);
 		if (alphaEff < 1e-8) {
 			return 0.0;
 		}
-
-		double cMean = (g.finRootChord + g.finTipChord) / 2.0;
-		if (cMean < 1e-6) {
-			return 0.0;
-		}
-		double ar = 2.0 * g.finSpan / cMean;
-		double cnAlpha = 2.0 * Math.PI / (1.0 + 2.0 / Math.max(ar, 0.5));
 
 		final double pgFactor;
 		if (mach <= 0.8) {
@@ -75,9 +76,18 @@ public final class FinDragModel {
 			pgFactor = 1.0 / Math.sqrt(beta2);
 		}
 
-		double finPlanform = cMean * g.finSpan;
-		double cl = cnAlpha * alphaEff * pgFactor * (g.finCount * finPlanform / g.referenceArea);
+		double cd = 0.0;
+		for (RomGeometryInput.FinGeom finSet : g.finSets) {
+			double cMean = finSet.meanChord();
+			if (cMean < 1e-6) {
+				continue;
+			}
+			double ar = 2.0 * finSet.span() / cMean;
+			double cnAlpha = 2.0 * Math.PI / (1.0 + 2.0 / Math.max(ar, 0.5));
+			double cl = cnAlpha * alphaEff * pgFactor * (finSet.totalPlanformArea() / g.referenceArea);
+			cd += cl * Math.sin(alphaEff);
+		}
 
-		return cl * Math.sin(alphaEff);
+		return cd;
 	}
 }

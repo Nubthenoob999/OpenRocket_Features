@@ -44,8 +44,7 @@ public class BaseDragModel {
 		double fb = transonicMultiplier(mach);
 		cd_base_area *= fb;
 
-		double baseD = (g.boattailBaseDiameter > 0) ? g.boattailBaseDiameter : maxDiameter;
-		double baseArea = Math.PI * (baseD / 2.0) * (baseD / 2.0);
+		double baseArea = Math.max(g.baseArea, 0.0);
 		double referenceArea = Math.max(g.referenceArea, EPS);
 		double cd = cd_base_area * (baseArea / referenceArea);
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
@@ -55,13 +54,14 @@ public class BaseDragModel {
 		if (g.motorExitArea <= 0) {
 			return cdBasePlumeOff(mach, cf_body, g);
 		}
-		double baseD = (g.boattailBaseDiameter > 0) ? g.boattailBaseDiameter : Math.max(g.maxDiameter, EPS);
-		double baseArea = Math.PI * (baseD / 2.0) * (baseD / 2.0);
-		if (baseArea <= EPS) {
+		double effectiveBaseArea = Math.max(0.0, g.baseArea - g.motorExitArea);
+		if (effectiveBaseArea <= EPS) {
 			return 0.0;
 		}
-		double effectiveRatio = Math.max(0.0, (baseArea - g.motorExitArea) / baseArea);
-		double cd = cdBasePlumeOff(mach, cf_body, g) * effectiveRatio;
+		double maxDiameter = Math.max(g.maxDiameter, EPS);
+		double loOverD = (g.boattailLength > 0) ? g.boattailLength / maxDiameter : 0.0;
+		double cdBaseArea = cdBaseSubsonic(cf_body, loOverD) * transonicMultiplier(mach);
+		double cd = cdBaseArea * (effectiveBaseArea / Math.max(g.referenceArea, EPS));
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 }

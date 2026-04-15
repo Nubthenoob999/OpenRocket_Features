@@ -576,6 +576,34 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 	}
 
 	@Test
+	public void testBoundaryTransitionTrustIsSymmetricAroundEventTime() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+		double moderateRomCd = baselineCd * 1.18;
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(moderateRomCd, moderateRomCd));
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		rom.setBoundaryEvent(RomAerodynamicCalculator.BoundaryEvent.APOGEE, 4.02);
+
+		rom.setCurrentSimulationTime(4.00);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot beforeEvent = rom.getComputationSnapshots().get(0);
+
+		rom.clearComputationSnapshots();
+		rom.setCurrentSimulationTime(4.04);
+		rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot afterEvent = rom.getComputationSnapshots().get(0);
+
+		assertEquals(beforeEvent.getBlendWeight(), afterEvent.getBlendWeight(), 1e-12);
+	}
+
+	@Test
 	public void testCoastHandoffDampsBlendAfterPoweredFallback() {
 		Rocket rocket = TestRockets.makeEstesAlphaIII();
 		FlightConfiguration config = rocket.getSelectedConfiguration();
@@ -593,6 +621,7 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		rom.setCurrentSimulationTime(0.90);
 		rom.getAerodynamicForces(config, conditions, new WarningSet());
 		assertTrue(rom.isPoweredAscentSegmentFallbackActive());
+		rom.installSurface(constantSurface(baselineCd * 1.12, baselineCd * 1.12));
 
 		rom.clearComputationSnapshots();
 		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);

@@ -81,8 +81,9 @@ public class SkinFrictionModel {
 		double cf_smooth = vanDriestII(cf_inc, mach, adiabaticWallRatio(mach));
 		double cf = cfWithRoughness(cf_smooth, g.bodyLength, g.surfaceRoughness);
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
-		double areaRatio = Math.max(g.wetArea, 0.0) / Math.max(g.referenceArea, EPS);
-		double cd = 0.4 * cf * ff * areaRatio;
+		double bodyWetArea = (g.bodyWetArea > 0.0) ? g.bodyWetArea : g.wetArea;
+		double areaRatio = Math.max(bodyWetArea, 0.0) / Math.max(g.referenceArea, EPS);
+		double cd = 0.5 * cf * ff * areaRatio;
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 

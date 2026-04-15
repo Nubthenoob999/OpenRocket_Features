@@ -161,6 +161,7 @@ public final class AeroGridEvaluator4D {
 		double cdBaseTransPeak = sanitizeCd(BaseDragModel.cdBasePlumeOff(1.0, cfBody, g));
 		double cdBasePlumeOffM = sanitizeCd(BaseDragModel.cdBasePlumeOff(mach, cfBody, g));
 		double cdBasePlumeOnM = sanitizeCd(BaseDragModel.cdBasePlumeOn(mach, cfBody, g));
+		double cdBasePlumeOnPeak = sanitizeCd(BaseDragModel.cdBasePlumeOn(1.0, cfBody, g));
 
 		double cdWaveNose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
 
@@ -169,13 +170,15 @@ public final class AeroGridEvaluator4D {
 		double cdFinJunct = sanitizeCd(FinDragModel.cdFinInterference(cdFinFric + cdFinWave, g));
 		double cdFinTotal = sanitizeCd(cdFinFric + cdFinWave + cdFinJunct);
 
-		double cdBodySub = sanitizeCd(cdFriction + cdBaseSubsonic);
-		double cdBodyTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdBodySub, g) + cdBaseTransPeak);
+		double cdBodyNonBaseSub = sanitizeCd(cdFriction);
+		double cdBodySub = sanitizeCd(cdBodyNonBaseSub + cdBaseSubsonic);
+		double cdBodyTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdBodyNonBaseSub, g) + cdBaseTransPeak);
 		double cdBodySup = sanitizeCd(cdFriction + cdBasePlumeOffM + cdWaveNose);
 		double cdBodyValue = withFloor(TransonicBlendingModel.blend(mach, cdBodySub, cdBodyTrans, cdBodySup), MIN_CD);
 
-		double cdSub = sanitizeCd(cdFriction + cdFinTotal + cdBaseSubsonic);
-		double cdTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdSub, g) + cdBaseTransPeak);
+		double cdNonBaseSub = sanitizeCd(cdFriction + cdFinTotal);
+		double cdSub = sanitizeCd(cdNonBaseSub + cdBaseSubsonic);
+		double cdTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdNonBaseSub, g) + cdBaseTransPeak);
 		double cdSup = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOffM + cdWaveNose);
 		double cdZeroAoA = sanitizeCd(TransonicBlendingModel.blend(mach, cdSub, cdTrans, cdSup));
 
@@ -184,8 +187,8 @@ public final class AeroGridEvaluator4D {
 		double kf = InducedDragModel.protuberanceFactor();
 		double cdPlumeOff = withFloor((cdZeroAoA + cdBodyAoA + cdSideslip) * kf, MIN_CD);
 
-		double cdSubOn = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOnM);
-		double cdTransOn = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdSubOn, g));
+		double cdSubOn = sanitizeCd(cdNonBaseSub + cdBasePlumeOnM);
+		double cdTransOn = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdNonBaseSub, g) + cdBasePlumeOnPeak);
 		double cdSupOn = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOnM + cdWaveNose);
 		double cdZeroAoAOn = sanitizeCd(TransonicBlendingModel.blend(mach, cdSubOn, cdTransOn, cdSupOn));
 		double cdPlumeOn = withFloor((cdZeroAoAOn + cdBodyAoA + cdSideslip) * kf, MIN_CD);

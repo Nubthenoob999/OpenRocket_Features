@@ -48,7 +48,9 @@ public class AeroGridEvaluator4DTest {
 		double cd3d = i3d.queryCdPlumeOff(0.3, 1e6, 0.0);
 
 		double rel = Math.abs(p.cdPlumeOff - cd3d) / Math.max(1e-12, Math.abs(cd3d));
-		assertTrue(rel < 0.01);
+		assertTrue(rel < 0.01,
+				String.format("Expected beta-zero parity within 1%% but rel=%.6f (4D=%.6f, 3D=%.6f)",
+						rel, p.cdPlumeOff, cd3d));
 	}
 
 	@Test
@@ -83,6 +85,7 @@ public class AeroGridEvaluator4DTest {
 		p.maxDiameter = g.maxDiameter;
 		p.baseArea = g.baseArea;
 		p.wetArea = g.wetArea;
+		p.bodyWetArea = g.bodyWetArea > 0.0 ? g.bodyWetArea : g.wetArea;
 		p.noseLength = g.noseLength;
 		p.noseShape = RomGeometryParameters.NoseShape.OGIVE;
 		p.finessRatio = g.finenessRatio;

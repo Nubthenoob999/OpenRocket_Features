@@ -10,6 +10,7 @@ public final class TestFixtures {
 	public static RomGeometryInput typical4Fin() {
 		double diameter = 0.15;
 		double refArea = Math.PI * diameter * diameter / 4.0;
+		double finWettedArea = 4.0 * 2.0 * (0.5 * (0.18 + 0.08) * 0.12);
 		return new RomGeometryInput(
 				2.0,
 				diameter,
@@ -27,7 +28,7 @@ public final class TestFixtures {
 				0.12,
 				0.004,
 				Math.toRadians(20.0),
-				0.008,
+				finWettedArea,
 				Math.PI * 0.02 * 0.02 / 4.0,
 				6.4e-6);
 	}
