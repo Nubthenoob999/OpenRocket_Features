@@ -81,12 +81,15 @@ import info.openrocket.core.appearance.DecalImage;
 import info.openrocket.core.arch.SystemInfo;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.OpenRocketDocumentFactory;
+import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.StorageOptions;
 import info.openrocket.core.document.StorageOptions.FileType;
 import info.openrocket.core.document.events.DocumentChangeEvent;
 import info.openrocket.core.document.events.DocumentChangeListener;
 import info.openrocket.core.file.GeneralRocketSaver;
 import info.openrocket.core.file.RocketLoadException;
+import info.openrocket.core.file.stl.STLExportOptions;
+import info.openrocket.core.file.stl.STLExporter;
 import info.openrocket.core.file.rasaero.RASAeroCommonConstants;
 import info.openrocket.core.file.svg.export.SVGExportOptions;
 import info.openrocket.core.l10n.Translator;
@@ -113,12 +116,15 @@ import info.openrocket.swing.gui.export.SVGRocketPartsExporter;
 import info.openrocket.swing.gui.export.SvgOptionsDialog;
 import info.openrocket.swing.gui.dialogs.AboutDialog;
 import info.openrocket.swing.gui.dialogs.BugReportDialog;
+import info.openrocket.swing.gui.dialogs.EjectionChargeDialog;
 import info.openrocket.swing.gui.dialogs.componentanalysis.ComponentAnalysisDialog;
 import info.openrocket.swing.gui.dialogs.DebugLogDialog;
 import info.openrocket.swing.gui.dialogs.DecalNotFoundDialog;
 import info.openrocket.swing.gui.dialogs.DetailDialog;
 import info.openrocket.swing.gui.dialogs.LicenseDialog;
+import info.openrocket.swing.gui.dialogs.flightanimation.FlightAnimationDialog;
 import info.openrocket.swing.gui.dialogs.PrintDialog;
+import info.openrocket.swing.gui.dialogs.motor.MotorRecommendationDialog;
 import info.openrocket.swing.gui.dialogs.SwingWorkerDialog;
 import info.openrocket.swing.gui.dialogs.WarningDialog;
 import info.openrocket.swing.gui.dialogs.optimization.GeneralOptimizationDialog;
@@ -587,13 +593,30 @@ private static final Translator trans = Application.getTranslator();
 			public void actionPerformed(ActionEvent e) {
 				exportWavefrontOBJAction();}
 		});
-		selectionModel.addDocumentSelectionListener(new DocumentSelectionListener() {
+
+		////// 		Export STL
+		JMenuItem exportSTL = new JMenuItem(trans.get("main.menu.file.exportAs.STL"));
+		exportSTL.setIcon(Icons.deriveMenuIcon(Icons.EXPORT_3D));
+		exportSTL.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.file.exportAs.STL.desc"));
+		exportSTL.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				exportSTLAction();}
+		});
+
+		DocumentSelectionListener export3DSelectionListener = new DocumentSelectionListener() {
 			@Override
 			public void valueChanged(int changeType) {
-				exportOBJ.setEnabled(getSelectedComponents() != null && !getSelectedComponents().isEmpty());
+				List<RocketComponent> selectedComponents = getSelectedComponents();
+				boolean enabled = selectedComponents != null && !selectedComponents.isEmpty();
+				exportOBJ.setEnabled(enabled);
+				exportSTL.setEnabled(enabled);
 			}
-		});
+		};
+		selectionModel.addDocumentSelectionListener(export3DSelectionListener);
+		export3DSelectionListener.valueChanged(DocumentSelectionListener.COMPONENT_SELECTION_CHANGE);
 		exportSubMenu.add(exportOBJ);
+		exportSubMenu.add(exportSTL);
 
 		//////		Export SVG profiles
 		JMenuItem exportSvgProfiles = new JMenuItem(trans.get("main.menu.file.exportAs.SVGProfiles"));
@@ -851,6 +874,41 @@ private static final Translator trans = Application.getTranslator();
 			public void actionPerformed(ActionEvent e) {
 				log.debug("Custom expressions selected");
 				new CustomExpressionDialog(document, BasicFrame.this).setVisible(true);
+			}
+		});
+		toolsMenu.add(item);
+
+		toolsMenu.addSeparator();
+
+		////	Motor recommendation
+		item = new JMenuItem(trans.get("main.menu.tools.motorRecommendation"), KeyEvent.VK_M);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.tools.motorRecommendation.desc"));
+		item.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				exportMotorRecommendationAction();
+			}
+		});
+		toolsMenu.add(item);
+
+		////	Ejection charge calculator
+		item = new JMenuItem(trans.get("main.menu.tools.ejectionCharge"), KeyEvent.VK_J);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.tools.ejectionCharge.desc"));
+		item.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				exportEjectionChargeAction();
+			}
+		});
+		toolsMenu.add(item);
+
+		////	Flight animation
+		item = new JMenuItem(trans.get("main.menu.tools.flightAnimation"), KeyEvent.VK_A);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.tools.flightAnimation.desc"));
+		item.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				exportFlightAnimationAction();
 			}
 		});
 		toolsMenu.add(item);
@@ -2014,6 +2072,69 @@ private static final Translator trans = Application.getTranslator();
 	}
 
 	/**
+	 * MODEL "Export as" STL file format.
+	 *
+	 * @return true if the file was saved, false otherwise
+	 */
+	public boolean exportSTLAction() {
+		try {
+			List<RocketComponent> selectedComponents = getSelectedComponents();
+			if (selectedComponents == null || selectedComponents.isEmpty()) {
+				return false;
+			}
+
+			File file = openFileSaveAsDialog(FileType.STL, selectedComponents);
+			if (file == null) {
+				return false;
+			}
+
+			file = FileHelper.forceExtension(file, "stl");
+			if (FileHelper.confirmWrite(file, BasicFrame.this)) {
+				boolean result = saveAsSTL(file, selectedComponents);
+				if (!result) {
+					file.delete();
+				}
+				return result;
+			}
+			return false;
+		} finally {
+			restoreFocus();
+		}
+	}
+
+	private boolean saveAsSTL(File file, List<RocketComponent> selectedComponents) {
+		STLExportOptions options = document.getDefaultSTLOptions();
+		return saveSTLFile(file, options, selectedComponents);
+	}
+
+	private boolean saveSTLFile(File file, STLExportOptions options, List<RocketComponent> selectedComponents) {
+		try {
+			WarningSet warnings = new WarningSet();
+			STLExporter exporter = new STLExporter(selectedComponents, rocket.getSelectedConfiguration(), file, options, warnings);
+			exporter.doExport();
+
+			if (!warnings.isEmpty()) {
+				WarningDialog.showWarnings(BasicFrame.this,
+						new Object[] {
+								trans.get("BasicFrame.WarningDialog.saving.txt1") + " '" + file.getName() + "'.",
+								trans.get("BasicFrame.WarningDialog.saving.txt2")
+						},
+						trans.get("BasicFrame.WarningDialog.saving.title"),
+						warnings);
+			}
+
+			return true;
+		} catch (RuntimeException ex) {
+			log.warn("Failed to export STL", ex);
+			JOptionPane.showMessageDialog(BasicFrame.this,
+					ex.getMessage(),
+					trans.get("main.menu.file.exportAs.STL"),
+					JOptionPane.ERROR_MESSAGE);
+			return false;
+		}
+	}
+
+	/**
 	 * Export SVG profiles. If components are provided, exports only those components;
 	 * otherwise exports all exportable components from the document.
 	 *
@@ -2156,6 +2277,54 @@ private static final Translator trans = Application.getTranslator();
 			return;
 		}
 		exportSvgProfilesAction(selectedComponents);
+	}
+
+	public void exportMotorRecommendationAction() {
+		try {
+			log.info(Markers.USER_MARKER, "Motor recommendation selected");
+			new MotorRecommendationDialog(document, BasicFrame.this).setVisible(true);
+		} finally {
+			restoreFocus();
+		}
+	}
+
+	public void exportEjectionChargeAction() {
+		log.info(Markers.USER_MARKER, "Ejection charge calculator selected");
+		new EjectionChargeDialog(BasicFrame.this, document).setVisible(true);
+	}
+
+	public void exportFlightAnimationAction() {
+		log.info(Markers.USER_MARKER, "Flight animation selected");
+		Simulation simulation = getSelectedSimulationForFlightAnimation();
+		if (simulation == null) {
+			JOptionPane.showMessageDialog(BasicFrame.this,
+					trans.get("main.menu.tools.flightAnimation.nodata"),
+					trans.get("main.menu.tools.flightAnimation"),
+					JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		info.openrocket.core.simulation.FlightData flightData = simulation.getSimulatedData();
+		if (flightData == null || flightData.getBranchCount() == 0) {
+			JOptionPane.showMessageDialog(BasicFrame.this,
+					trans.get("main.menu.tools.flightAnimation.nodata"),
+					trans.get("main.menu.tools.flightAnimation"),
+					JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		new FlightAnimationDialog(BasicFrame.this, simulation).setVisible(true);
+	}
+
+	private Simulation getSelectedSimulationForFlightAnimation() {
+		Simulation[] selectedSimulations = selectionModel.getSelectedSimulations();
+		if (selectedSimulations.length > 0) {
+			return selectedSimulations[0];
+		}
+		if (document.getSimulationCount() > 0) {
+			return document.getSimulation(0);
+		}
+		return null;
 	}
 
 

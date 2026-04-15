@@ -161,6 +161,16 @@ public class RomGeometryParametersTest extends BaseTestCase {
 		assertEquals(Math.PI * 0.03 * 0.03, g.baseArea, EPSILON);
 	}
 
+	@Test
+	public void testMotorExitDefaultsToZeroWithoutNozzleGeometry() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		RomGeometryParameters g = RomGeometryParameters.fromRocket(config);
+
+		assertEquals(0.0, g.motorExitArea, EPSILON);
+		assertEquals(0.0, g.motorExitDiameter, EPSILON);
+	}
+
 	private static BodyTube firstBodyTube(Rocket rocket) {
 		for (RocketComponent component : rocket.getAllChildren()) {
 			if (component instanceof BodyTube bodyTube) {

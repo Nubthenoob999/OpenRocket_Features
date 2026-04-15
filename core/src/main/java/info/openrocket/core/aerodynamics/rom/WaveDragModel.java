@@ -70,12 +70,18 @@ public class WaveDragModel {
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 
-	/** Mach decay factor for wave drag: 1/sqrt(M^2-1) dependence. */
+	/**
+	 * Smooth supersonic decay factor for axisymmetric wave drag.
+	 * Regularization keeps the M=1 transition finite and avoids singular spikes.
+	 */
 	private static double searsHaackDecay(double mach) {
 		if (mach <= 1.0) {
 			return 1.0;
 		}
-		return 1.0 / Math.sqrt(mach * mach - 1.0 + 0.01); // +0.01 prevents singularity at M=1
+		double beta2 = mach * mach - 1.0;
+		double regularized = Math.sqrt(beta2 + 0.25);
+		double normFactor = Math.sqrt(1.5 * 1.5 - 1.0 + 0.25);
+		return normFactor / regularized;
 	}
 
 	/**

@@ -20,6 +20,8 @@ public final class NormalForceModel {
 		double cnBody = 2.0 * alphaRad;
 		double cnFin = 0.0;
 		if (g.finCount > 0 && !g.finSets.isEmpty()) {
+			// Diagnostic approximation only: this smooth blend is not a full
+			// validated supersonic normal-force model.
 			final double pgFactor;
 			if (mach <= 0.8) {
 				double beta2 = Math.max(1.0 - mach * mach, 0.01);

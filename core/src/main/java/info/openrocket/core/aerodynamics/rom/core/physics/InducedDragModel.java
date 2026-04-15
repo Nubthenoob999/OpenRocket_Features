@@ -4,7 +4,7 @@ import info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput;
 
 public class InducedDragModel {
 
-	private static volatile double protuberanceFactor = 1.02;
+	private static final double PROTUBERANCE_FACTOR = 1.02;
 
 	private InducedDragModel() {
 	}
@@ -44,10 +44,6 @@ public class InducedDragModel {
 	}
 
 	public static double protuberanceFactor() {
-		return protuberanceFactor;
-	}
-
-	public static void setProtuberanceFactor(double factor) {
-		protuberanceFactor = Math.max(1.0, Math.min(1.20, factor));
+		return PROTUBERANCE_FACTOR;
 	}
 }

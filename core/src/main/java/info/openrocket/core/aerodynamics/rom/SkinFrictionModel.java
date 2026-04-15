@@ -69,11 +69,11 @@ public class SkinFrictionModel {
 
 	/**
 	 * Body form factor accounting for pressure gradient on body of revolution.
-	 * FF = 1 + 1.5*(d/L)^1.5 + 50*(d/L)^3
+	 * FF = 1 + 1.5*(d/L)^1.5 + 7*(d/L)^3
 	 */
 	public static double bodyFormFactor(double diameter, double length) {
 		double ratio = diameter / length;
-		return 1.0 + 1.5 * Math.pow(ratio, 1.5) + 50.0 * Math.pow(ratio, 3.0);
+		return 1.0 + 1.5 * Math.pow(ratio, 1.5) + 7.0 * Math.pow(ratio, 3.0);
 	}
 
 	/**
@@ -89,7 +89,7 @@ public class SkinFrictionModel {
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
 		double bodyWetArea = (g.bodyWetArea > 0.0) ? g.bodyWetArea : g.wetArea;
 		double areaRatio = Math.max(bodyWetArea, 0.0) / Math.max(g.referenceArea, 1.0e-12);
-		double cd = 0.5 * cf * ff * areaRatio;
+		double cd = cf * ff * areaRatio;
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 

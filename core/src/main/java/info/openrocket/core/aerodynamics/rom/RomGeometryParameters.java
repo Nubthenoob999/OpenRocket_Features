@@ -11,8 +11,7 @@ import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import info.openrocket.core.motor.Motor;
-import info.openrocket.core.motor.MotorConfiguration;
+import info.openrocket.core.aerodynamics.rom.core.eval.AeroGridEvaluator4D;
 import info.openrocket.core.rocketcomponent.ExternalComponent;
 import info.openrocket.core.rocketcomponent.FinSet;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
@@ -207,18 +206,10 @@ public class RomGeometryParameters {
 		g.finSets = Collections.unmodifiableList(new ArrayList<>(finSets));
 		populateAggregateFinGeometry(g, finSets);
 
-		double totalExitArea = 0.0;
-		for (MotorConfiguration motorConfiguration : config.getActiveMotors()) {
-			Motor motor = motorConfiguration.getMotor();
-			if (motor == null) {
-				continue;
-			}
-			double d = Math.max(0.0, motor.getDiameter());
-			double area = Math.PI * Math.pow(d / 2.0, 2.0);
-			totalExitArea += area * Math.max(1, motorConfiguration.getMotorCount());
-		}
-		g.motorExitArea = totalExitArea;
-		g.motorExitDiameter = (totalExitArea > 0.0) ? Math.sqrt(4.0 * totalExitArea / Math.PI) : 0.0;
+		// Motor diameter corresponds to casing OD, not nozzle exit diameter.
+		// Use a conservative default until explicit nozzle geometry is available.
+		g.motorExitArea = 0.0;
+		g.motorExitDiameter = 0.0;
 
 		if (g.motorExitArea > g.baseArea + 1e-12) {
 			String warning = String.format(
@@ -237,6 +228,7 @@ public class RomGeometryParameters {
 	/** Stable SHA-256 hash of all geometry fields for cache invalidation. */
 	public String geometryHash() {
 		StringBuilder data = new StringBuilder(1024);
+		data.append(AeroGridEvaluator4D.ROM_PHYSICS_VERSION).append('|');
 		append(data, bodyLength);
 		append(data, maxDiameter);
 		append(data, baseArea);
@@ -503,6 +495,9 @@ public class RomGeometryParameters {
 			return NoseShape.OGIVE;
 		}
 		String name = shape.name();
+		if ("VON_KARMAN".equals(name) || "VONKARMAN".equals(name)) {
+			return NoseShape.VON_KARMAN;
+		}
 		if ("CONICAL".equals(name)) {
 			return NoseShape.CONICAL;
 		}

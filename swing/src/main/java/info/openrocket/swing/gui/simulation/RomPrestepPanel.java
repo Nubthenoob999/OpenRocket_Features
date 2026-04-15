@@ -76,7 +76,7 @@ class RomPrestepPanel extends SimulationScrollablePanel {
     private final JComboBox<String> roughnessOverride = new JComboBox<>(new String[] {
             "Use component finish", "Polished", "Smooth", "Paint", "Unfinished", "Rough"
     });
-    private final JSpinner protuberanceSpinner = new JSpinner(new SpinnerNumberModel(1.04, 1.00, 1.20, 0.01));
+    private final JSpinner protuberanceSpinner = new JSpinner(new SpinnerNumberModel(1.02, 1.02, 1.02, 0.01));
     private final JComboBox<String> buildMode = new JComboBox<>(new String[] {
             "3D (Mach, Re, alpha)",
             "4D (Mach, Re, alpha, beta)"
@@ -140,6 +140,7 @@ class RomPrestepPanel extends SimulationScrollablePanel {
     private JPanel buildParametersPanel() {
         JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow][right][grow]", ""));
         panel.setBorder(BorderFactory.createTitledBorder("Parameters"));
+        protuberanceSpinner.setEnabled(false);
 
         panel.add(new JLabel("Body length:"));
         panel.add(bodyLengthValue);
@@ -293,7 +294,6 @@ class RomPrestepPanel extends SimulationScrollablePanel {
         FlightConfiguration config = activeConfiguration();
         RomGeometryParameters g = RomGeometryParameters.fromRocket(config);
         applyRoughnessOverride(g);
-        InducedDragModel.setProtuberanceFactor(((Number) protuberanceSpinner.getValue()).doubleValue());
 
         RomSurfaceMode selectedMode = simulation.getOptions().getRomSurfaceMode();
         DragSurface existing = simulation.getOptions().getRomDragSurface();

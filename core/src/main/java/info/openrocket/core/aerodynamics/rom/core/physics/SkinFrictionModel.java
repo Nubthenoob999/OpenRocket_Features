@@ -72,7 +72,7 @@ public class SkinFrictionModel {
 		diameter = Double.isFinite(diameter) ? Math.max(diameter, 0.0) : 0.0;
 		length = Double.isFinite(length) ? Math.max(length, EPS) : EPS;
 		double ratio = diameter / length;
-		return 1.0 + 1.5 * Math.pow(ratio, 1.5) + 50.0 * Math.pow(ratio, 3.0);
+		return 1.0 + 1.5 * Math.pow(ratio, 1.5) + 7.0 * Math.pow(ratio, 3.0);
 	}
 
 	public static double cdFriction(double mach, double re_L, RomGeometryInput g) {
@@ -83,7 +83,7 @@ public class SkinFrictionModel {
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
 		double bodyWetArea = (g.bodyWetArea > 0.0) ? g.bodyWetArea : g.wetArea;
 		double areaRatio = Math.max(bodyWetArea, 0.0) / Math.max(g.referenceArea, EPS);
-		double cd = 0.5 * cf * ff * areaRatio;
+		double cd = cf * ff * areaRatio;
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 

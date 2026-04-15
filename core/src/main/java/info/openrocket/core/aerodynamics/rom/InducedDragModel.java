@@ -4,7 +4,7 @@ import java.util.List;
 
 public class InducedDragModel {
 
-	private static volatile double protuberanceFactor = 1.02;
+	private static final double PROTUBERANCE_FACTOR = 1.02;
 
 	/**
 	 * AoA-dependent drag increment.
@@ -61,14 +61,9 @@ public class InducedDragModel {
 	/**
 	 * Protuberance correction factor (rail buttons, camera mounts, etc.).
 	 * Applied as a multiplier: Cd_total *= protuberanceFactor().
-	 * Default Kf = 1.04 (4% increment, Barrowman standard).
-	 * Can be parameterized from user input in Phase 4.
+	 * Default Kf = 1.02.
 	 */
 	public static double protuberanceFactor() {
-		return protuberanceFactor;
-	}
-
-	public static void setProtuberanceFactor(double factor) {
-		protuberanceFactor = Math.max(1.0, Math.min(1.20, factor));
+		return PROTUBERANCE_FACTOR;
 	}
 }

@@ -31,6 +31,15 @@ public class BaseDragModelTest {
 	}
 
 	@Test
+	public void testTransonicMultiplierContinuousAtMachOne() {
+		double left = BaseDragModel.transonicMultiplier(0.9999);
+		double at = BaseDragModel.transonicMultiplier(1.0);
+		double right = BaseDragModel.transonicMultiplier(1.0001);
+		assertEquals(at, left, 3e-3);
+		assertEquals(at, right, 3e-3);
+	}
+
+	@Test
 	public void testTransonicMultiplierDecaysMonotonicallyAboveMachTwo() {
 		double prev = BaseDragModel.transonicMultiplier(2.01);
 		for (double m = 2.1; m <= 4.0; m += 0.1) {

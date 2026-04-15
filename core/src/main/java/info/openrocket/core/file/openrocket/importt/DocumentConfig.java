@@ -28,6 +28,7 @@ import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
 import info.openrocket.core.rocketcomponent.ParallelStage;
 import info.openrocket.core.rocketcomponent.PodSet;
+import info.openrocket.core.rocketcomponent.RingTailFinSet;
 import info.openrocket.core.rocketcomponent.RadiusRingComponent;
 import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.RecoveryDevice;
@@ -77,6 +78,7 @@ class DocumentConfig {
 			constructors.put("freeformfinset", FreeformFinSet.class.getConstructor());
 			constructors.put("tubefinset", TubeFinSet.class.getConstructor());
 			constructors.put("launchlug", LaunchLug.class.getConstructor());
+			constructors.put("ringtailfinset", RingTailFinSet.class.getConstructor());
 			constructors.put("railbutton", RailButton.class.getConstructor());
 			
 			// Internal components
@@ -195,6 +197,14 @@ class DocumentConfig {
 				Reflection.findMethod(LaunchLug.class, "setLength", double.class)));
 		setters.put("LaunchLug:thickness", new DoubleSetter(
 				Reflection.findMethod(LaunchLug.class, "setThickness", double.class)));
+
+		// RingTailFinSet
+		setters.put("RingTailFinSet:ringradius", new DoubleSetter(
+				Reflection.findMethod(RingTailFinSet.class, "setRingRadius", double.class)));
+		setters.put("RingTailFinSet:ringchord", new DoubleSetter(
+				Reflection.findMethod(RingTailFinSet.class, "setRingChord", double.class)));
+		setters.put("RingTailFinSet:ringthickness", new DoubleSetter(
+				Reflection.findMethod(RingTailFinSet.class, "setRingThickness", double.class)));
 
 		// RailButton
 		setters.put("RailButton:instancecount", new IntSetter(

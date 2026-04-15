@@ -29,6 +29,12 @@ public final class AeroGridEvaluator4D {
 	private static final double MIN_CD = 0.001;
 	private static final double MAX_CD = 8.0;
 
+	/**
+	 * Increment this version whenever ROM physics equations or constants change.
+	 * Hashing this value forces cached ROM surface rebuilds across versions.
+	 */
+	public static final String ROM_PHYSICS_VERSION = "v2.0";
+
 	// Higher ROM resolution is intentional for smoother interpolated dynamics.
 	public static final int N_MACH = 60;
 	public static final int N_RE = 20;
@@ -379,7 +385,7 @@ public final class AeroGridEvaluator4D {
 	private static String computeHash(RomGeometryInput g) {
 		String data = String.format(
 				Locale.ROOT,
-				"%.6f|%.6f|%.6f|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
+				ROM_PHYSICS_VERSION + "|%.6f|%.6f|%.6f|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
 				g.bodyLength,
 				g.maxDiameter,
 				g.noseLength,

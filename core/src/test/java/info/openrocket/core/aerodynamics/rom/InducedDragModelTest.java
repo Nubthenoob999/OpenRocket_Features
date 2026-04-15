@@ -3,15 +3,9 @@ package info.openrocket.core.aerodynamics.rom;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 public class InducedDragModelTest {
-
-	@AfterEach
-	public void resetProtuberanceFactor() {
-		InducedDragModel.setProtuberanceFactor(1.02);
-	}
 
 	@Test
 	public void testCdInducedIsZeroAtZeroAoa() {
@@ -39,15 +33,8 @@ public class InducedDragModelTest {
 	}
 
 	@Test
-	public void testProtuberanceFactorClamp() {
-		InducedDragModel.setProtuberanceFactor(0.5);
-		assertEquals(1.0, InducedDragModel.protuberanceFactor(), 1e-12);
-
-		InducedDragModel.setProtuberanceFactor(2.0);
-		assertEquals(1.20, InducedDragModel.protuberanceFactor(), 1e-12);
-
-		InducedDragModel.setProtuberanceFactor(1.04);
-		assertEquals(1.04, InducedDragModel.protuberanceFactor(), 1e-12);
+	public void testProtuberanceFactorConstant() {
+		assertEquals(1.02, InducedDragModel.protuberanceFactor(), 1e-12);
 	}
 
 	@Test

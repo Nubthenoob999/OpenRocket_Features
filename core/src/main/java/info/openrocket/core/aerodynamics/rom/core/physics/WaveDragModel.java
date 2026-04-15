@@ -58,7 +58,10 @@ public class WaveDragModel {
 		if (mach <= 1.0) {
 			return 1.0;
 		}
-		return 1.0 / Math.sqrt(mach * mach - 1.0 + 0.01);
+		double beta2 = mach * mach - 1.0;
+		double regularized = Math.sqrt(beta2 + 0.25);
+		double normFactor = Math.sqrt(1.5 * 1.5 - 1.0 + 0.25);
+		return normFactor / regularized;
 	}
 
 	public static double cdFinWaveSupersonic(double mach, RomGeometryInput g) {

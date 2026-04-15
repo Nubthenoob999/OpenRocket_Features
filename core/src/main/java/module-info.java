@@ -50,6 +50,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.file.openrocket;
 	exports info.openrocket.core.file.openrocket.importt;
 	exports info.openrocket.core.file.openrocket.savers;
+	exports info.openrocket.core.file.stl;
 	exports info.openrocket.core.file.rasaero;
 	exports info.openrocket.core.file.rasaero.export;
 	exports info.openrocket.core.file.rasaero.importt;

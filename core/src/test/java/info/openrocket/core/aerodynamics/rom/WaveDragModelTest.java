@@ -58,4 +58,24 @@ public class WaveDragModelTest {
 		double finAt4 = WaveDragModel.cdFinWaveSupersonic(4.0, g);
 		assertTrue(finAt4 < finAt2);
 	}
+
+	@Test
+	public void testNoseWaveDragFiniteAndBoundedNearMachOne() {
+		RomGeometryParameters g = RomTestFixtures.standardGeometry();
+		double atOne = WaveDragModel.cdNoseWaveSupersonic(1.0, g);
+		double justAbove = WaveDragModel.cdNoseWaveSupersonic(1.01, g);
+		assertTrue(Double.isFinite(atOne));
+		assertTrue(Double.isFinite(justAbove));
+		assertTrue(atOne > 0.0);
+		assertTrue(justAbove > 0.0);
+		assertTrue(justAbove < atOne * 3.0);
+	}
+
+	@Test
+	public void testNoseWaveDragDecaysFromMachOnePointFiveToTwo() {
+		RomGeometryParameters g = RomTestFixtures.standardGeometry();
+		double atOnePointFive = WaveDragModel.cdNoseWaveSupersonic(1.5, g);
+		double atTwo = WaveDragModel.cdNoseWaveSupersonic(2.0, g);
+		assertTrue(atTwo < atOnePointFive);
+	}
 }

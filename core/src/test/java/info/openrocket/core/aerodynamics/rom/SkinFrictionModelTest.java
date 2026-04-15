@@ -45,6 +45,12 @@ public class SkinFrictionModelTest {
 	}
 
 	@Test
+	public void testBodyFormFactorAtTenToOneSlenderness() {
+		double ff = SkinFrictionModel.bodyFormFactor(0.1, 1.0);
+		assertEquals(1.0544, ff, 0.01);
+	}
+
+	@Test
 	public void testCdFrictionPositiveAndDecreasesWithReynolds() {
 		RomGeometryParameters g = RomTestFixtures.standardGeometry();
 		double cdAt1e6 = SkinFrictionModel.cdFriction(0.5, 1e6, g);

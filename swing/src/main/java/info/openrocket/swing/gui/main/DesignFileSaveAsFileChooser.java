@@ -12,6 +12,7 @@ import javax.swing.filechooser.FileFilter;
 import info.openrocket.core.arch.SystemInfo;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.StorageOptions.FileType;
+import info.openrocket.core.file.stl.STLExportOptions;
 import info.openrocket.core.file.wavefrontobj.export.OBJExportOptions;
 import info.openrocket.core.gui.util.SimpleFileFilter;
 import info.openrocket.core.l10n.Translator;
@@ -21,6 +22,7 @@ import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.util.FileUtils;
 
 import info.openrocket.swing.gui.choosers.OBJOptionChooser;
+import info.openrocket.swing.gui.choosers.STLOptionChooser;
 import info.openrocket.swing.gui.choosers.StorageOptionChooser;
 import info.openrocket.swing.gui.util.FileHelper;
 import info.openrocket.swing.gui.util.GUIUtil;
@@ -91,6 +93,15 @@ public class DesignFileSaveAsFileChooser extends SaveFileChooser {
 					this.setPreferredSize(newSize);
 				}
 
+				break;
+			case STL:
+				defaultFilename = FileHelper.forceExtension(defaultFilename, "stl");
+				this.setDialogTitle(trans.get("saveAs.stl.title"));
+				STLExportOptions stlOptions = document.getDefaultSTLOptions();
+				STLOptionChooser stlChooser = new STLOptionChooser(this, stlOptions, selectedComponents, document.getRocket());
+				this.setAccessory(stlChooser);
+				this.addChoosableFileFilter(FileHelper.STL_FILTER);
+				this.setFileFilter(FileHelper.STL_FILTER);
 				break;
 		}
 		

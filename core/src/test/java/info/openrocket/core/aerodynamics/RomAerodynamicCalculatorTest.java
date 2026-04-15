@@ -483,7 +483,7 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		double boostTriggerCd = baselineCd * 1.75;
 
 		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
-		rom.installSurface(constantSurface(boostTriggerCd, boostTriggerCd));
+		rom.installSurface(constantSurface(baselineCd * 1.22, baselineCd * 1.22));
 
 		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.POWERED_ASCENT);
 		rom.setCurrentSimulationTime(0.80);
@@ -651,7 +651,7 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 				.getCD();
 
 		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
-		rom.installSurface(constantSurface(baselineCd * 1.30, baselineCd * 1.30));
+		rom.installSurface(constantSurface(baselineCd * 1.15, baselineCd * 1.15));
 		rom.setResidualPilotEnabled(false);
 		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.POWERED_ASCENT);
 		rom.setCurrentSimulationTime(2.0);
@@ -678,7 +678,7 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 				.getCD();
 
 		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
-		rom.installSurface(constantSurface(baselineCd * 0.75, baselineCd * 0.75));
+		rom.installSurface(constantSurface(baselineCd * 0.85, baselineCd * 0.85));
 		rom.setResidualPilotEnabled(false);
 		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
 		rom.setCurrentSimulationTime(3.0);
@@ -690,7 +690,7 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 		assertFalse(snapshot.isGuardrailTriggered());
 		assertEquals(RomAerodynamicCalculator.GuardrailReason.NONE, snapshot.getGuardrailReason());
 		double coastRatio = forces.getCD() / baselineCd;
-		assertTrue(coastRatio >= 0.80);
+		assertTrue(coastRatio >= 0.88);
 		assertTrue(coastRatio < 0.90);
 	}
 }

@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 
 import info.openrocket.core.file.wavefrontobj.export.OBJExportOptions;
+import info.openrocket.core.file.stl.STLExportOptions;
 import info.openrocket.core.material.Material;
 import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.preferences.DocumentPreferences;
@@ -120,6 +121,7 @@ public class OpenRocketDocument implements ComponentChangeListener, StateChangeL
 	
 	private final StorageOptions storageOptions = new StorageOptions();
 	private final OBJExportOptions objOptions;
+	private final STLExportOptions stlOptions;
 
 	private final DecalRegistry decalRegistry = new DecalRegistry();
 	
@@ -134,6 +136,7 @@ public class OpenRocketDocument implements ComponentChangeListener, StateChangeL
 		this.rocket = rocket;
 		rocket.setDocument(this);
 		this.objOptions = prefs.loadOBJExportOptions(rocket);
+		this.stlOptions = new STLExportOptions(rocket);
 		rocket.enableEvents();
 		init();
 	}
@@ -283,6 +286,10 @@ public class OpenRocketDocument implements ComponentChangeListener, StateChangeL
 
 	public OBJExportOptions getDefaultOBJOptions() {
 		return objOptions;
+	}
+
+	public STLExportOptions getDefaultSTLOptions() {
+		return stlOptions;
 	}
 
 	

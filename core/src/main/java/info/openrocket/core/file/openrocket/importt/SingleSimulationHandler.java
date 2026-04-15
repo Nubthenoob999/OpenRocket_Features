@@ -10,10 +10,13 @@ import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.Simulation.Status;
+import info.openrocket.core.aerodynamics.rom.DragGridEvaluator;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
 import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
 import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.rom.adapter.SurfaceAdapter;
+import info.openrocket.core.aerodynamics.rom.core.eval.AeroGridEvaluator4D;
 import info.openrocket.core.aerodynamics.rom.core.io.AeroSurfaceSerializer;
 import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.aerodynamics.rom.RomSurfaceHashUtil;
@@ -51,6 +54,8 @@ class SingleSimulationHandler extends AbstractElementHandler {
 	private long romBuildTimestamp;
 	private long romBuildTimestamp4D;
 	private int romFinCount4D;
+	private boolean romDragSurfacePayloadPresent;
+	private boolean romDragSurface4DPayloadPresent;
 
 	private final List<SimulationExtension> extensions = new ArrayList<>();
 
@@ -106,6 +111,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		} else if (element.equals("romdragsurface")) {
 			String payload = content != null ? content.trim() : "";
 			if (!payload.isEmpty()) {
+				romDragSurfacePayloadPresent = true;
 				romGeometryHash = attributes.get("geometryhash");
 				try {
 					romLooRmse = Double.parseDouble(attributes.getOrDefault("looRmse", "0"));
@@ -130,6 +136,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		} else if (element.equals("romdragsurface4d")) {
 			String payload = content != null ? content.trim() : "";
 			if (!payload.isEmpty()) {
+				romDragSurface4DPayloadPresent = true;
 				romGeometryHash4D = attributes.get("geometryhash");
 				try {
 					romBuildTimestamp4D = Long.parseLong(attributes.getOrDefault("builttimestamp", "0"));
@@ -197,39 +204,34 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			options = new SimulationOptions();
 		}
 
-		if (romDragSurface != null) {
-			String expectedHash;
-			if (idToSet != null && !idToSet.hasError()) {
-				FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
-				expectedHash = RomGeometryParameters.fromRocket(config).geometryHash();
-			} else {
-				expectedHash = RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration()).geometryHash();
-			}
-			if (RomSurfaceHashUtil.matchesGeometry(romGeometryHash, expectedHash)) {
+		RomGeometryParameters geometryParameters = resolveGeometryParameters(idToSet);
+		String expectedHash = geometryParameters.geometryHash();
+		boolean shouldInferRomMode = conditionHandler == null || !conditionHandler.wasRomSurfaceModeSpecified();
+
+		if (romDragSurfacePayloadPresent) {
+			if (romDragSurface != null && RomSurfaceHashUtil.matchesGeometry(romGeometryHash, expectedHash)) {
 				options.setRomDragSurface(romDragSurface);
-				if (conditionHandler == null || !conditionHandler.wasRomSurfaceModeSpecified()) {
+				if (shouldInferRomMode) {
 					options.setRomSurfaceMode(RomSurfaceMode.THREE_D);
 				}
 			} else {
-				warnings.add("Ignoring romdragsurface due to geometry hash mismatch.");
+				warnings.add("Ignoring romdragsurface due to geometry hash mismatch; rebuilding for current geometry.");
+				rebuildRomDragSurface(options, geometryParameters, shouldInferRomMode, warnings);
 			}
 		}
 
-		if (romDragSurface4D != null) {
-			String expectedHash;
-			if (idToSet != null && !idToSet.hasError()) {
-				FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
-				expectedHash = RomGeometryParameters.fromRocket(config).geometryHash();
-			} else {
-				expectedHash = RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration()).geometryHash();
-			}
-			if (RomSurfaceHashUtil.matchesGeometry(romGeometryHash4D, expectedHash)) {
+		if (romDragSurface4DPayloadPresent) {
+			if (romDragSurface4D != null && RomSurfaceHashUtil.matchesGeometry(romGeometryHash4D, expectedHash)) {
 				options.setRomAeroSurface4D(romDragSurface4D);
-				if (conditionHandler == null || !conditionHandler.wasRomSurfaceModeSpecified()) {
+				if (options.getRomDragSurface() == null) {
+					options.setRomDragSurface(SurfaceAdapter.toBetaZeroDragSurface(romDragSurface4D));
+				}
+				if (shouldInferRomMode) {
 					options.setRomSurfaceMode(RomSurfaceMode.FOUR_D);
 				}
 			} else {
-				warnings.add("Ignoring romdragsurface4d due to geometry hash mismatch.");
+				warnings.add("Ignoring romdragsurface4d due to geometry hash mismatch; rebuilding for current geometry.");
+				rebuildRomAeroSurface4D(options, geometryParameters, shouldInferRomMode, warnings);
 			}
 		}
 
@@ -304,6 +306,52 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		options.setDbgCsvDir(airbrakeExtension.getDbgCsvDir());
 		options.setDbgShowConsole(airbrakeExtension.isDbgShowConsole());
 		return true;
+	}
+
+	private RomGeometryParameters resolveGeometryParameters(FlightConfigurationId idToSet) {
+		if (idToSet != null && !idToSet.hasError()) {
+			FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
+			return RomGeometryParameters.fromRocket(config);
+		}
+		return RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration());
+	}
+
+	private void rebuildRomDragSurface(SimulationOptions options,
+			RomGeometryParameters geometryParameters,
+			boolean shouldInferRomMode,
+			WarningSet warnings) {
+		try {
+			DragSurface rebuilt = DragGridEvaluator.evaluate(geometryParameters, null);
+			options.setRomDragSurface(rebuilt);
+			if (shouldInferRomMode) {
+				options.setRomSurfaceMode(RomSurfaceMode.THREE_D);
+			}
+			warnings.add("Rebuilt romdragsurface for current geometry.");
+		} catch (RuntimeException ex) {
+			warnings.add("Failed to rebuild romdragsurface for current geometry. Reason: " + ex.getMessage());
+		}
+	}
+
+	private void rebuildRomAeroSurface4D(SimulationOptions options,
+			RomGeometryParameters geometryParameters,
+			boolean shouldInferRomMode,
+			WarningSet warnings) {
+		try {
+			AeroSurface4D rebuilt = AeroGridEvaluator4D.evaluate(
+					geometryParameters.toRomGeometryInput(),
+					geometryParameters.geometryHash(RomSurfaceMode.FOUR_D),
+					(AeroGridEvaluator4D.ProgressListener) null);
+			options.setRomAeroSurface4D(rebuilt);
+			if (options.getRomDragSurface() == null) {
+				options.setRomDragSurface(SurfaceAdapter.toBetaZeroDragSurface(rebuilt));
+			}
+			if (shouldInferRomMode) {
+				options.setRomSurfaceMode(RomSurfaceMode.FOUR_D);
+			}
+			warnings.add("Rebuilt romdragsurface4d for current geometry.");
+		} catch (RuntimeException ex) {
+			warnings.add("Failed to rebuild romdragsurface4d for current geometry. Reason: " + ex.getMessage());
+		}
 	}
 
 }

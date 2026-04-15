@@ -53,6 +53,10 @@ public final class FileHelper {
 	public static final FileFilter WAVEFRONT_OBJ_FILTER =
 			new SimpleFileFilter(trans.get("FileHelper.WAVEFRONT_OBJ_FILTER"), ".obj");
 
+	/** File filter for STL files (*.stl) */
+	public static final FileFilter STL_FILTER =
+			new SimpleFileFilter(trans.get("FileHelper.STL_FILTER"), ".stl");
+
 	/** File filter for OpenRocket components and presets (*.orc) */
 	public static final FileFilter OPEN_ROCKET_COMPONENT_FILTER =
 			new SimpleFileFilter(trans.get("FileHelper.OPEN_ROCKET_COMPONENT_FILTER"), ".orc", ".orc.gz");
