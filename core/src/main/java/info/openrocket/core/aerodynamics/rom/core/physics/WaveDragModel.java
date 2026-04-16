@@ -58,24 +58,19 @@ public class WaveDragModel {
 		if (mach <= 1.0) {
 			return 1.0;
 		}
-		double beta2 = mach * mach - 1.0;
-		double regularized = Math.sqrt(beta2 + 0.25);
-		double normFactor = Math.sqrt(1.5 * 1.5 - 1.0 + 0.25);
-		return normFactor / regularized;
+		return 1.0 / Math.sqrt(mach * mach - 1.0 + 0.01);
 	}
 
 	public static double cdFinWaveSupersonic(double mach, RomGeometryInput g) {
-		if (mach <= 1.0 || g.finSets.isEmpty()) {
+		if (mach <= 1.0) {
 			return 0.0;
 		}
+		double meanChord = Math.max((g.finRootChord + g.finTipChord) / 2.0, EPS);
+		double tc = Math.max(g.finThickness, 0.0) / meanChord;
 		double beta = Math.sqrt(mach * mach - 1.0);
-		double cd = 0.0;
-		for (RomGeometryInput.FinGeom finSet : g.finSets) {
-			double meanChord = Math.max(finSet.meanChord(), EPS);
-			double tc = Math.max(finSet.thickness(), 0.0) / meanChord;
-			double cdPerFin = 4.0 * tc * tc / beta;
-			cd += cdPerFin * finSet.totalPlanformArea() / Math.max(g.referenceArea, EPS);
-		}
+		double cdPerFin = 4.0 * tc * tc / beta;
+		double finPlanform = 0.5 * Math.max(g.finRootChord + g.finTipChord, 0.0) * Math.max(g.finSpan, 0.0);
+		double cd = cdPerFin * Math.max(g.finCount, 0) * finPlanform / Math.max(g.referenceArea, EPS);
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 }

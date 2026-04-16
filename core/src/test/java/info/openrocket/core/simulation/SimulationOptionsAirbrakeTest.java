@@ -33,22 +33,12 @@ public class SimulationOptionsAirbrakeTest extends BaseTestCase {
 		source.setDbgWriteCsv(false);
 		source.setDbgCsvDir("C:/tmp/airbrake-debug");
 		source.setDbgShowConsole(true);
-		source.setWeathercockingCompensationEnabled(true);
-		source.setWeathercockingStabilityMinCalibers(2.3);
-		source.setWeathercockingStabilityMassRatioMin(1.1);
-		source.setWeathercockingCdGain(-0.045);
-		source.setWeathercockingMaxCdDelta(0.22);
 
 		SimulationOptions clone = source.clone();
 		assertTrue(clone.isAirbrakesEnabled());
 		assertEquals("C:/tmp/airbrakes.csv", clone.getCfdDataFilePath());
 		assertEquals(1450.0, clone.getTargetApogee(), 1e-12);
 		assertEquals(0.72, clone.getDbgForcedDeployFrac(), 1e-12);
-		assertTrue(clone.isWeathercockingCompensationEnabled());
-		assertEquals(2.3, clone.getWeathercockingStabilityMinCalibers(), 1e-12);
-		assertEquals(1.1, clone.getWeathercockingStabilityMassRatioMin(), 1e-12);
-		assertEquals(-0.045, clone.getWeathercockingCdGain(), 1e-12);
-		assertEquals(0.22, clone.getWeathercockingMaxCdDelta(), 1e-12);
 		assertTrue(source.equals(clone));
 
 		SimulationOptions target = new SimulationOptions();
@@ -59,11 +49,6 @@ public class SimulationOptionsAirbrakeTest extends BaseTestCase {
 		assertEquals(source.getTargetApogee(), target.getTargetApogee(), 1e-12);
 		assertEquals(source.getDbgCsvDir(), target.getDbgCsvDir());
 		assertTrue(target.isDbgShowConsole());
-		assertTrue(target.isWeathercockingCompensationEnabled());
-		assertEquals(source.getWeathercockingStabilityMinCalibers(), target.getWeathercockingStabilityMinCalibers(), 1e-12);
-		assertEquals(source.getWeathercockingStabilityMassRatioMin(), target.getWeathercockingStabilityMassRatioMin(), 1e-12);
-		assertEquals(source.getWeathercockingCdGain(), target.getWeathercockingCdGain(), 1e-12);
-		assertEquals(source.getWeathercockingMaxCdDelta(), target.getWeathercockingMaxCdDelta(), 1e-12);
 
 		assertNotSame(source.createAirbrakeConfig(), clone.createAirbrakeConfig());
 	}

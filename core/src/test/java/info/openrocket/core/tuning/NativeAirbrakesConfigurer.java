@@ -19,9 +19,6 @@ final class NativeAirbrakesConfigurer {
 	private static final Gson GSON = new Gson();
 	private static final double SQUARE_INCH_TO_SQUARE_METER = 0.00064516;
 	private static final double FOOT_TO_METER = 0.3048;
-	private static final double FIXED_WEATHERCOCKING_STABILITY_WEIGHT_RATIO = 0.35;
-	private static final double DEFAULT_FIXED_WEATHERCOCKING_CD_GAIN = 0.30;
-	private static final double WEATHERCOCKING_GAIN_EPSILON = 1.0e-9;
 
 	private NativeAirbrakesConfigurer() {
 	}
@@ -34,20 +31,14 @@ final class NativeAirbrakesConfigurer {
 					"Native airbrakes configuration failed: simulation options were unavailable");
 		}
 
-		List<String> notes = new ArrayList<>();
-		applyWeathercockingConfiguration(dataset, options, notes);
-
 		if (!dataset.isAirbrakeEnabled()) {
 			options.setAirbrakesEnabled(false);
-			StringBuilder message = new StringBuilder("Native airbrakes disabled for dataset");
-			if (!notes.isEmpty()) {
-				message.append("; ").append(String.join("; ", notes));
-			}
 			return new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0,
-					message.toString());
+					"Native airbrakes disabled for dataset");
 		}
 
 		options.setAirbrakesEnabled(true);
+		List<String> notes = new ArrayList<>();
 		List<String> arguments = resolveArguments(dataset, configDir, notes);
 		try {
 			applyArguments(arguments, dataset, configDir, options, notes);
@@ -75,43 +66,6 @@ final class NativeAirbrakesConfigurer {
 		}
 
 		return new AbPluginExecutionResult(AbPluginExecutionResult.Status.SUCCEEDED, 0, message.toString());
-	}
-
-	private static void applyWeathercockingConfiguration(PhaseTwoDatasetConfig dataset,
-												 SimulationOptions options,
-												 List<String> notes) {
-		if (dataset == null || options == null) {
-			return;
-		}
-
-		boolean enabled = dataset.isAirbrakeEnabled();
-		options.setWeathercockingCompensationEnabled(enabled);
-		if (!enabled) {
-			return;
-		}
-
-		options.setWeathercockingStabilityMassRatioMin(FIXED_WEATHERCOCKING_STABILITY_WEIGHT_RATIO);
-
-		double gainToUse;
-		String gainSource;
-		if (dataset.isWeathercockingEnabled()
-				&& Math.abs(dataset.getWeathercockingCdGain()) > WEATHERCOCKING_GAIN_EPSILON) {
-			gainToUse = dataset.getWeathercockingCdGain();
-			gainSource = "dataset override";
-		} else if (Math.abs(options.getWeathercockingCdGain()) > WEATHERCOCKING_GAIN_EPSILON) {
-			gainToUse = options.getWeathercockingCdGain();
-			gainSource = "ORK value";
-		} else {
-			gainToUse = DEFAULT_FIXED_WEATHERCOCKING_CD_GAIN;
-			gainSource = "fixed default";
-		}
-		options.setWeathercockingCdGain(gainToUse);
-
-		notes.add(String.format(Locale.US,
-				"weather-cocking enabled (fixed stability/weight ratio>%.2f calibers/kg, cdGain=%.4f, source=%s)",
-				options.getWeathercockingStabilityMassRatioMin(),
-				options.getWeathercockingCdGain(),
-				gainSource));
 	}
 
 	private static AbPluginExecutionResult autoDisabledResult(List<String> notes, String reason) {

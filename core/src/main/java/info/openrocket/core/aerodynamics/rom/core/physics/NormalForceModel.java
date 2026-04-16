@@ -19,9 +19,11 @@ public final class NormalForceModel {
 
 		double cnBody = 2.0 * alphaRad;
 		double cnFin = 0.0;
-		if (g.finCount > 0 && !g.finSets.isEmpty()) {
-			// Diagnostic approximation only: this smooth blend is not a full
-			// validated supersonic normal-force model.
+		if (g.finCount > 0) {
+			double cMean = (g.finRootChord + g.finTipChord) / 2.0;
+			double ar = (cMean > 1e-6) ? 2.0 * g.finSpan / cMean : 1.0;
+			double cnAlpha = TWO_PI / (1.0 + 2.0 / Math.max(ar, 0.5));
+
 			final double pgFactor;
 			if (mach <= 0.8) {
 				double beta2 = Math.max(1.0 - mach * mach, 0.01);
@@ -37,12 +39,8 @@ public final class NormalForceModel {
 				pgFactor = 1.0 / Math.sqrt(beta2);
 			}
 
-			for (RomGeometryInput.FinGeom finSet : g.finSets) {
-				double cMean = finSet.meanChord();
-				double ar = (cMean > 1e-6) ? 2.0 * finSet.span() / cMean : 1.0;
-				double cnAlpha = TWO_PI / (1.0 + 2.0 / Math.max(ar, 0.5));
-				cnFin += cnAlpha * alphaRad * pgFactor * finSet.totalPlanformArea() / g.referenceArea;
-			}
+			double planformTotal = cMean * g.finSpan * g.finCount;
+			cnFin = cnAlpha * alphaRad * pgFactor * planformTotal / g.referenceArea;
 		}
 
 		return cnBody + cnFin;

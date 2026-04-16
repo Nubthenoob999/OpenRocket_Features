@@ -116,8 +116,6 @@ public final class PhaseThreeSingleSimulationRunner {
 				candidateAlignedApogeeTimeSec,
 				alignedApogeeTimeDeltaSec,
 				alignedApogeeTimeErrorSec,
-				Double.NaN,
-				"",
 				residuals,
 				integratorDiagnostics);
 	}

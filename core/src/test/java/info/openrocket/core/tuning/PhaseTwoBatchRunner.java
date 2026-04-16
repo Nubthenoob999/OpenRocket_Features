@@ -16,7 +16,6 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,13 +24,9 @@ import java.util.regex.Pattern;
 
 public final class PhaseTwoBatchRunner {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-	private static final double FEET_TO_METER = 0.3048;
 	private static final double CROSS_SENSOR_CD_PROXY_RATIO_MAX = 3.0;
 	private static final double CROSS_SENSOR_ALIGNMENT_LAG_SPREAD_MAX_SEC = 0.35;
 	private static final double APOGEE_TIME_ERROR_FUSION_BLEND = 0.60;
-	private static final double ORK_APOGEE_FALLBACK_TRIGGER_PERCENT = 8.0;
-	private static final double ORK_APOGEE_FALLBACK_MIN_IMPROVEMENT_PERCENT = 5.0;
-	private static final double ORK_APOGEE_FALLBACK_RELATIVE_FACTOR = 0.80;
 	private static final Pattern LAUNCH_KEY_PATTERN = Pattern.compile("(jackpot_launch_\\d+|government_work_launch_\\d+|govenmnet_work_launch_\\d+)", Pattern.CASE_INSENSITIVE);
 
 	private PhaseTwoBatchRunner() {
@@ -194,8 +189,6 @@ public final class PhaseTwoBatchRunner {
 				Double.NaN,
 				Double.NaN,
 				Double.NaN,
-				resolveApogeeTargetMeters(dataset, Double.NaN),
-				resolveApogeeTargetSource(dataset, Double.NaN, resolveApogeeTargetMeters(dataset, Double.NaN)),
 				Map.of(),
 				VerticalIntegratorDiagnostics.EMPTY);
 	}
@@ -204,25 +197,17 @@ public final class PhaseTwoBatchRunner {
 													 PhaseTwoDatasetConfig dataset,
 													 Path configDir,
 													 Path outputDir) throws Exception {
-		if (dataset.isManualApogeeOnly()) {
-			return runManualApogeeOnlyDataset(dataset, configDir);
-		}
-
 		List<TuningFlag> flags = new ArrayList<>();
 		TruthLoadResult truthLoad = loadTruth(configDir, dataset);
 		CandidateLoadResult candidateLoad = loadCandidate(configDir, dataset);
-		TelemetrySeries reference = truthLoad.getSeries();
-		DerivedTelemetryQuantities.Quantities referenceQ = DerivedTelemetryQuantities.summarize(reference);
-		candidateLoad = maybeApplyOrkApogeeFallback(configDir, dataset, candidateLoad, referenceQ.getApogeeAltitudeMeters());
 		AbPluginExecutionResult pluginResult = candidateLoad.getPluginResult();
 		if (candidateLoad.getFallbackReason() != null) {
 			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:ORK_FALLBACK_TO_CSV", ScoreSeverity.WARNING, 0.0));
 		}
 
+		TelemetrySeries reference = truthLoad.getSeries();
 		TelemetrySeries candidateRaw = candidateLoad.getSeries();
-		double apogeeTargetMeters = resolveApogeeTargetMeters(dataset, referenceQ.getApogeeAltitudeMeters());
-		String apogeeTargetSource = resolveApogeeTargetSource(dataset, referenceQ.getApogeeAltitudeMeters(), apogeeTargetMeters);
-		referenceQ = withApogeeTarget(referenceQ, apogeeTargetMeters);
+		DerivedTelemetryQuantities.Quantities referenceQ = DerivedTelemetryQuantities.summarize(reference);
 		DerivedTelemetryQuantities.Quantities rawCandidateQ = DerivedTelemetryQuantities.summarize(candidateRaw);
 		String datasetClass = classifyDataset(configDir, dataset, candidateLoad, reference, pluginResult);
 		String pluginFailureReason = pluginPipelineFailureReason(dataset, pluginResult);
@@ -253,8 +238,6 @@ public final class PhaseTwoBatchRunner {
 					Double.NaN,
 					Double.NaN,
 					Double.NaN,
-					apogeeTargetMeters,
-					apogeeTargetSource,
 					Map.of(),
 					candidateLoad.getIntegratorDiagnostics());
 		}
@@ -306,8 +289,6 @@ public final class PhaseTwoBatchRunner {
 					candidateAlignedApogeeTimeSec,
 					alignedApogeeTimeDeltaSec,
 					alignedApogeeTimeErrorSec,
-					apogeeTargetMeters,
-					apogeeTargetSource,
 					Map.of(),
 					integratorDiagnostics);
 		}
@@ -367,91 +348,8 @@ public final class PhaseTwoBatchRunner {
 				candidateAlignedApogeeTimeSec,
 				alignedApogeeTimeDeltaSec,
 				alignedApogeeTimeErrorSec,
-				apogeeTargetMeters,
-				apogeeTargetSource,
 				residuals,
 				integratorDiagnostics);
-	}
-
-	private static PhaseTwoDatasetResult runManualApogeeOnlyDataset(PhaseTwoDatasetConfig dataset,
-															 Path configDir) throws Exception {
-		List<TuningFlag> flags = new ArrayList<>();
-		CandidateLoadResult candidateLoad = loadCandidate(configDir, dataset);
-		TelemetrySeries candidate = candidateLoad.getSeries();
-		DerivedTelemetryQuantities.Quantities candidateQ = DerivedTelemetryQuantities.summarize(candidate);
-
-		double apogeeTargetMeters = resolveApogeeTargetMeters(dataset, Double.NaN);
-		String apogeeTargetSource = resolveApogeeTargetSource(dataset, Double.NaN, apogeeTargetMeters);
-		DerivedTelemetryQuantities.Quantities referenceQ = withApogeeTarget(
-				new DerivedTelemetryQuantities.Quantities(Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN),
-				apogeeTargetMeters);
-
-		PhaseTwoScoreResult fullScore = manualApogeeScore(apogeeTargetMeters, candidateQ.getApogeeAltitudeMeters());
-		Map<FlightPhaseWindow, PhaseTwoScoreResult> scores = new EnumMap<>(FlightPhaseWindow.class);
-		scores.put(FlightPhaseWindow.FULL, fullScore);
-		PhaseThreeAnalysisSupport.appendApogeeFlag(referenceQ, candidateQ, flags);
-
-		return new PhaseTwoDatasetResult(
-				dataset.getName(),
-				dataset.isAirbrakeEnabled(),
-				candidateLoad.getPluginResult(),
-				scores,
-				flags,
-				referenceQ,
-				candidateQ,
-				TelemetryParserDiagnostics.EMPTY,
-				candidate.getParserDiagnostics(),
-				"MANUAL_APOGEE_ONLY",
-				"manual-apogee-target",
-				candidateLoad.getCandidateSource(),
-				candidateLoad.getOrkProvenance(),
-				candidateLoad.getRomMode(),
-				candidateLoad.getRomSurfaceSource(),
-				candidateLoad.getMaxMach(),
-				"",
-				Double.NaN,
-				Double.NaN,
-				Double.NaN,
-				Double.NaN,
-				Double.NaN,
-				Double.NaN,
-				apogeeTargetMeters,
-				apogeeTargetSource,
-				Map.of(),
-				candidateLoad.getIntegratorDiagnostics());
-	}
-
-	private static PhaseTwoScoreResult manualApogeeScore(double targetApogeeMeters, double candidateApogeeMeters) {
-		if (!Double.isFinite(targetApogeeMeters) || targetApogeeMeters <= 0.0 || !Double.isFinite(candidateApogeeMeters)) {
-			return new PhaseTwoScoreResult(
-					Double.NaN,
-					ScoreSeverity.WARNING,
-					Map.of(),
-					Double.NaN,
-					0,
-					0,
-					"INSUFFICIENT_DATA",
-					"manual-apogee-target-missing");
-		}
-
-		double absoluteErrorPercent = 100.0 * Math.abs(candidateApogeeMeters - targetApogeeMeters) / targetApogeeMeters;
-		double score = Math.max(0.0, 100.0 - absoluteErrorPercent);
-		ScoreSeverity severity = ScoreSeverity.OK;
-		if (absoluteErrorPercent >= 10.0) {
-			severity = ScoreSeverity.CRITICAL;
-		} else if (absoluteErrorPercent >= 5.0) {
-			severity = ScoreSeverity.WARNING;
-		}
-
-		return new PhaseTwoScoreResult(
-				score,
-				severity,
-				Map.of("apogee", score),
-				Double.NaN,
-				0,
-				0,
-				null,
-				null);
 	}
 
 	private static Map<FlightPhaseWindow, PhaseTwoScoreResult> dataQualityExcludedScores(String reason) {
@@ -543,8 +441,6 @@ public final class PhaseTwoBatchRunner {
 					dataset.getCandidateAlignedApogeeTimeSec(),
 					dataset.getAlignedApogeeTimeDeltaSec(),
 					dataset.getAlignedApogeeTimeErrorSec(),
-					dataset.getApogeeTargetMeters(),
-					dataset.getApogeeTargetSource(),
 					dataset.getPhaseResiduals(),
 					dataset.getIntegratorDiagnostics()));
 		}
@@ -834,9 +730,6 @@ public final class PhaseTwoBatchRunner {
 										  AbPluginExecutionResult pluginResult) {
 		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
 		if (hasOrk) {
-			if ("ORK_FALLBACK_TO_CSV".equals(candidateLoad.getCandidateSource())) {
-				return "CROSS_SENSOR";
-			}
 			if (candidateLoad.getFallbackReason() != null) {
 				return "BROKEN";
 			}
@@ -860,70 +753,6 @@ public final class PhaseTwoBatchRunner {
 		return "CROSS_SENSOR";
 	}
 
-	private static CandidateLoadResult maybeApplyOrkApogeeFallback(Path configDir,
-																  PhaseTwoDatasetConfig dataset,
-																  CandidateLoadResult candidateLoad,
-																  double referenceApogeeMeters) {
-		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
-		boolean hasCandidateCsv = dataset.getCandidateCsv() != null && !dataset.getCandidateCsv().isBlank();
-		if (!hasOrk || !hasCandidateCsv || candidateLoad == null) {
-			return candidateLoad;
-		}
-		if (!"ORK_SIMULATION".equals(candidateLoad.getCandidateSource())) {
-			return candidateLoad;
-		}
-		if (!Double.isFinite(referenceApogeeMeters) || referenceApogeeMeters <= 0.0) {
-			return candidateLoad;
-		}
-
-		double orkApogeeMeters = DerivedTelemetryQuantities.summarize(candidateLoad.getSeries()).getApogeeAltitudeMeters();
-		double orkApogeeErrorPercent = apogeeErrorPercent(referenceApogeeMeters, orkApogeeMeters);
-		if (!Double.isFinite(orkApogeeErrorPercent)
-				|| orkApogeeErrorPercent < ORK_APOGEE_FALLBACK_TRIGGER_PERCENT) {
-			return candidateLoad;
-		}
-
-		try {
-			TelemetrySeries fallbackSeries = TelemetryParsers.parse(resolvePath(configDir, dataset.getCandidateCsv()));
-			double fallbackApogeeMeters = DerivedTelemetryQuantities.summarize(fallbackSeries).getApogeeAltitudeMeters();
-			double fallbackApogeeErrorPercent = apogeeErrorPercent(referenceApogeeMeters, fallbackApogeeMeters);
-			if (!Double.isFinite(fallbackApogeeErrorPercent)) {
-				return candidateLoad;
-			}
-			if (fallbackApogeeErrorPercent > (orkApogeeErrorPercent - ORK_APOGEE_FALLBACK_MIN_IMPROVEMENT_PERCENT)) {
-				return candidateLoad;
-			}
-			if (fallbackApogeeErrorPercent > (orkApogeeErrorPercent * ORK_APOGEE_FALLBACK_RELATIVE_FACTOR)) {
-				return candidateLoad;
-			}
-
-			String reason = String.format(Locale.US,
-					"ORK apogee error %.3f%% exceeded fallback policy; candidateCsv error %.3f%%",
-					orkApogeeErrorPercent,
-					fallbackApogeeErrorPercent);
-			return new CandidateLoadResult(
-					fallbackSeries,
-					fallbackSeries,
-					VerticalIntegratorDiagnostics.EMPTY,
-					candidateLoad.getPluginResult(),
-					reason,
-					"ORK_FALLBACK_TO_CSV",
-					candidateLoad.getOrkProvenance(),
-					candidateLoad.getRomMode(),
-					candidateLoad.getRomSurfaceSource(),
-					candidateLoad.getMaxMach());
-		} catch (Exception ignored) {
-			return candidateLoad;
-		}
-	}
-
-	private static double apogeeErrorPercent(double referenceApogeeMeters, double candidateApogeeMeters) {
-		if (!Double.isFinite(referenceApogeeMeters) || referenceApogeeMeters <= 0.0 || !Double.isFinite(candidateApogeeMeters)) {
-			return Double.NaN;
-		}
-		return 100.0 * Math.abs(candidateApogeeMeters - referenceApogeeMeters) / referenceApogeeMeters;
-	}
-
 	private static boolean sameTelemetryFile(Path configDir, String referenceCsv, String candidateCsv) {
 		if (referenceCsv == null || referenceCsv.isBlank() || candidateCsv == null || candidateCsv.isBlank()) {
 			return false;
@@ -931,51 +760,6 @@ public final class PhaseTwoBatchRunner {
 		Path referencePath = resolvePath(configDir, referenceCsv).toAbsolutePath().normalize();
 		Path candidatePath = resolvePath(configDir, candidateCsv).toAbsolutePath().normalize();
 		return referencePath.equals(candidatePath);
-	}
-
-	private static double resolveApogeeTargetMeters(PhaseTwoDatasetConfig dataset, double fallbackApogeeMeters) {
-		if (dataset == null) {
-			return fallbackApogeeMeters;
-		}
-
-		Double overrideFeet = dataset.getApogeeTargetFtOverride();
-		if (overrideFeet != null && Double.isFinite(overrideFeet) && overrideFeet > 0.0) {
-			return overrideFeet * FEET_TO_METER;
-		}
-
-		return fallbackApogeeMeters;
-	}
-
-	private static String resolveApogeeTargetSource(PhaseTwoDatasetConfig dataset,
-															double referenceApogeeMeters,
-															double resolvedTargetMeters) {
-		Double overrideFeet = dataset == null ? null : dataset.getApogeeTargetFtOverride();
-		if (overrideFeet != null && Double.isFinite(overrideFeet) && overrideFeet > 0.0) {
-			return "OVERRIDE_FT";
-		}
-		if (Double.isFinite(referenceApogeeMeters) && Double.isFinite(resolvedTargetMeters)) {
-			return "REFERENCE_SERIES";
-		}
-		return "";
-	}
-
-	private static DerivedTelemetryQuantities.Quantities withApogeeTarget(
-			DerivedTelemetryQuantities.Quantities quantities,
-			double apogeeTargetMeters) {
-		if (quantities == null || !Double.isFinite(apogeeTargetMeters) || apogeeTargetMeters <= 0.0) {
-			return quantities;
-		}
-		return new DerivedTelemetryQuantities.Quantities(
-				quantities.getVelocityMean(),
-				quantities.getVelocityAbsPeak(),
-				quantities.getAccelMean(),
-				quantities.getAccelAbsPeak(),
-				quantities.getCdProxyMean(),
-				apogeeTargetMeters,
-				quantities.getApogeeTimeSec(),
-				quantities.getLaunchTimeSec(),
-				quantities.getBurnoutTimeSec(),
-				quantities.getDeploymentTimeSec());
 	}
 
 	private static PhaseTwoRunConfig loadConfig(Path configPath) throws IOException {

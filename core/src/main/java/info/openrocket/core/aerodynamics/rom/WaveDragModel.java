@@ -1,7 +1,5 @@
 package info.openrocket.core.aerodynamics.rom;
 
-import java.util.List;
-
 public class WaveDragModel {
 	private static final double EPS = 1e-9;
 
@@ -70,18 +68,12 @@ public class WaveDragModel {
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 
-	/**
-	 * Smooth supersonic decay factor for axisymmetric wave drag.
-	 * Regularization keeps the M=1 transition finite and avoids singular spikes.
-	 */
+	/** Mach decay factor for wave drag: 1/sqrt(M^2-1) dependence. */
 	private static double searsHaackDecay(double mach) {
 		if (mach <= 1.0) {
 			return 1.0;
 		}
-		double beta2 = mach * mach - 1.0;
-		double regularized = Math.sqrt(beta2 + 0.25);
-		double normFactor = Math.sqrt(1.5 * 1.5 - 1.0 + 0.25);
-		return normFactor / regularized;
+		return 1.0 / Math.sqrt(mach * mach - 1.0 + 0.01); // +0.01 prevents singularity at M=1
 	}
 
 	/**
@@ -89,18 +81,16 @@ public class WaveDragModel {
 	 * Cd_fin_wave = 4*(t/c)^2 / sqrt(M^2-1) per fin, summed and scaled.
 	 */
 	public static double cdFinWaveSupersonic(double mach, RomGeometryParameters g) {
-		List<RomGeometryParameters.FinGeom> finSets = g.resolvedFinSets();
-		if (mach <= 1.0 || finSets.isEmpty()) {
+		if (mach <= 1.0) {
 			return 0.0;
 		}
+		double cMean = Math.max((g.finRootChord + g.finTipChord) / 2.0, EPS);
+		double tc = Math.max(g.finThickness, 0.0) / cMean;
 		double beta = Math.sqrt(mach * mach - 1.0);
-		double cd = 0.0;
-		for (RomGeometryParameters.FinGeom finSet : finSets) {
-			double cMean = Math.max(finSet.meanChord(), EPS);
-			double tc = Math.max(finSet.thickness(), 0.0) / cMean;
-			double cdPerFin = 4.0 * tc * tc / beta;
-			cd += cdPerFin * finSet.totalPlanformArea() / Math.max(g.referenceArea, EPS);
-		}
+		double cdPerFin = 4.0 * tc * tc / beta;
+		// Scale fin wave drag to frontal reference area
+		double finPlanform = 0.5 * Math.max(g.finRootChord + g.finTipChord, 0.0) * Math.max(g.finSpan, 0.0);
+		double cd = cdPerFin * Math.max(g.finCount, 0) * finPlanform / Math.max(g.referenceArea, EPS);
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 }

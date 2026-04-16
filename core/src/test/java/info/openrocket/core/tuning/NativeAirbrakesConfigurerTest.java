@@ -40,10 +40,6 @@ public class NativeAirbrakesConfigurerTest extends BaseTestCase {
 				"  \"referenceCsv\": \"reference.csv\",\n" +
 				"  \"orkPath\": \"candidate.ork\",\n" +
 				"  \"airbrakeEnabled\": true,\n" +
-				"  \"weathercockingEnabled\": true,\n" +
-				"  \"weathercockingStabilityMinCalibers\": 2.2,\n" +
-				"  \"weathercockingStabilityMassRatioMin\": 1.05,\n" +
-				"  \"weathercockingCdGain\": 0.07,\n" +
 				"  \"plugin\": {\n" +
 				"    \"enabled\": true,\n" +
 				"    \"argumentsFile\": \"" + argsFile.getFileName().toString() + "\",\n" +
@@ -64,82 +60,6 @@ public class NativeAirbrakesConfigurerTest extends BaseTestCase {
 		assertEquals(16.4 * 0.3048, options.getApogeeToleranceMeters(), 1.0e-9);
 		assertTrue(options.isDeployAfterBurnoutOnly());
 		assertEquals(0.4, options.getDeployAfterBurnoutDelayS(), 1.0e-9);
-		assertTrue(options.isWeathercockingCompensationEnabled());
-		assertEquals(2.0, options.getWeathercockingStabilityMinCalibers(), 1.0e-9);
-		assertEquals(0.35, options.getWeathercockingStabilityMassRatioMin(), 1.0e-9);
-		assertEquals(0.07, options.getWeathercockingCdGain(), 1.0e-9);
-	}
-
-	@Test
-	public void enablesWeathercockingForAirbrakeDatasetsWithoutTagOverride() throws Exception {
-		Path tempDir = Files.createTempDirectory("native-airbrakes-weather");
-		Path cfdCsv = tempDir.resolve("drag-curve.csv");
-		Files.writeString(cfdCsv, "mach,extension,drag\n0.5,0.0,0.1\n", StandardCharsets.UTF_8);
-		Path argsFile = tempDir.resolve("airbrakes-plugin-args.json");
-		Files.writeString(argsFile, "{\n" +
-				"  \"arguments\": [\n" +
-				"    \"--cfd-csv\", \"" + cfdCsv.toString().replace("\\", "/") + "\"\n" +
-				"  ]\n" +
-				"}\n", StandardCharsets.UTF_8);
-
-		PhaseTwoDatasetConfig dataset = datasetFromJson("{\n" +
-				"  \"name\": \"native_ab_weather_default\",\n" +
-				"  \"referenceCsv\": \"reference.csv\",\n" +
-				"  \"orkPath\": \"candidate.ork\",\n" +
-				"  \"airbrakeEnabled\": true,\n" +
-				"  \"plugin\": {\n" +
-				"    \"enabled\": true,\n" +
-				"    \"argumentsFile\": \"" + argsFile.getFileName().toString() + "\",\n" +
-				"    \"arguments\": []\n" +
-				"  }\n" +
-				"}");
-
-		SimulationOptions options = new SimulationOptions();
-		options.setWeathercockingCompensationEnabled(false);
-		options.setWeathercockingStabilityMassRatioMin(2.4);
-		options.setWeathercockingCdGain(0.055);
-
-		AbPluginExecutionResult result = NativeAirbrakesConfigurer.configure(dataset, tempDir, options);
-
-		assertEquals(AbPluginExecutionResult.Status.SUCCEEDED, result.getStatus());
-		assertTrue(options.isWeathercockingCompensationEnabled());
-		assertEquals(0.35, options.getWeathercockingStabilityMassRatioMin(), 1.0e-9);
-		assertEquals(0.055, options.getWeathercockingCdGain(), 1.0e-9);
-	}
-
-	@Test
-	public void appliesFixedDefaultWeathercockingGainWhenNoOverrideExists() throws Exception {
-		Path tempDir = Files.createTempDirectory("native-airbrakes-weather-default-gain");
-		Path cfdCsv = tempDir.resolve("drag-curve.csv");
-		Files.writeString(cfdCsv, "mach,extension,drag\n0.5,0.0,0.1\n", StandardCharsets.UTF_8);
-		Path argsFile = tempDir.resolve("airbrakes-plugin-args.json");
-		Files.writeString(argsFile, "{\n" +
-				"  \"arguments\": [\n" +
-				"    \"--cfd-csv\", \"" + cfdCsv.toString().replace("\\", "/") + "\"\n" +
-				"  ]\n" +
-				"}\n", StandardCharsets.UTF_8);
-
-		PhaseTwoDatasetConfig dataset = datasetFromJson("{\n" +
-				"  \"name\": \"native_ab_weather_fixed_gain\",\n" +
-				"  \"referenceCsv\": \"reference.csv\",\n" +
-				"  \"orkPath\": \"candidate.ork\",\n" +
-				"  \"airbrakeEnabled\": true,\n" +
-				"  \"plugin\": {\n" +
-				"    \"enabled\": true,\n" +
-				"    \"argumentsFile\": \"" + argsFile.getFileName().toString() + "\",\n" +
-				"    \"arguments\": []\n" +
-				"  }\n" +
-				"}");
-
-		SimulationOptions options = new SimulationOptions();
-		options.setWeathercockingCdGain(0.0);
-
-		AbPluginExecutionResult result = NativeAirbrakesConfigurer.configure(dataset, tempDir, options);
-
-		assertEquals(AbPluginExecutionResult.Status.SUCCEEDED, result.getStatus());
-		assertTrue(options.isWeathercockingCompensationEnabled());
-		assertEquals(0.35, options.getWeathercockingStabilityMassRatioMin(), 1.0e-9);
-		assertEquals(0.30, options.getWeathercockingCdGain(), 1.0e-9);
 	}
 
 	@Test

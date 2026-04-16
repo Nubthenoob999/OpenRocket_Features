@@ -1,7 +1,5 @@
 package info.openrocket.core.aerodynamics.rom;
 
-import java.util.List;
-
 public class DragGridEvaluator {
 	private static final double MAX_CD = 8.0;
 
@@ -58,7 +56,6 @@ public class DragGridEvaluator {
 
 		// 2. Fin friction
 		double cd_fin_friction = sanitizeCd(finFriction(mach, re_L, g));
-		double cd_fin_sub = sanitizeCd(cd_fin_friction + finInterference(cd_fin_friction, g));
 
 		// 3. Base drag - compute regime-appropriate value
 		double cf_body = SkinFrictionModel.cfWithRoughness(
@@ -74,20 +71,17 @@ public class DragGridEvaluator {
 		// 4. Wave drag (supersonic)
 		double cd_wave_nose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
 		double cd_wave_fins = sanitizeCd(WaveDragModel.cdFinWaveSupersonic(mach, g));
-		double cd_fin_sup = sanitizeCd(cd_fin_friction + cd_wave_fins
-				+ finInterference(cd_fin_friction + cd_wave_fins, g));
 
 		// 5. Subsonic total (no wave drag)
-		double cd_non_base_sub = sanitizeCd(cd_friction + cd_fin_sub);
-		double cd_sub = sanitizeCd(cd_non_base_sub + cd_base_subsonic);
+		double cd_sub = sanitizeCd(cd_friction + cd_fin_friction + cd_base_subsonic);
 
 		// 6. Supersonic total
-		double cd_sup = sanitizeCd(cd_friction + cd_fin_sup
+		double cd_sup = sanitizeCd(cd_friction + cd_fin_friction
 				+ BaseDragModel.cdBasePlumeOff(mach, cf_body, g)
-				+ cd_wave_nose);
+				+ cd_wave_nose + cd_wave_fins);
 
 		// 7. Transonic peak estimate
-		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_non_base_sub, g)
+		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, g)
 				+ cd_base_transonic_peak);
 
 		// 8. Smooth blend
@@ -111,18 +105,14 @@ public class DragGridEvaluator {
 
 		double cd_friction = sanitizeCd(SkinFrictionModel.cdFriction(mach, re_L, g));
 		double cd_fin_friction = sanitizeCd(finFriction(mach, re_L, g));
-		double cd_fin_sub = sanitizeCd(cd_fin_friction + finInterference(cd_fin_friction, g));
 		double cd_base_on = sanitizeCd(BaseDragModel.cdBasePlumeOn(mach, cf_body, g));
-		double cd_base_on_peak = sanitizeCd(BaseDragModel.cdBasePlumeOn(1.0, cf_body, g));
 		double cd_wave_nose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
 		double cd_wave_fins = sanitizeCd(WaveDragModel.cdFinWaveSupersonic(mach, g));
-		double cd_fin_sup = sanitizeCd(cd_fin_friction + cd_wave_fins
-				+ finInterference(cd_fin_friction + cd_wave_fins, g));
 
-		double cd_non_base_sub = sanitizeCd(cd_friction + cd_fin_sub);
-		double cd_sub = sanitizeCd(cd_non_base_sub + cd_base_on);
-		double cd_sup = sanitizeCd(cd_friction + cd_fin_sup + cd_base_on + cd_wave_nose);
-		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_non_base_sub, g) + cd_base_on_peak);
+		double cd_sub = sanitizeCd(cd_friction + cd_fin_friction + cd_base_on);
+		double cd_sup = sanitizeCd(cd_friction + cd_fin_friction + cd_base_on
+				+ cd_wave_nose + cd_wave_fins);
+		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, g));
 
 		double cd_zero_aoa = sanitizeCd(TransonicBlendingModel.blend(mach, cd_sub, cd_trans, cd_sup));
 		double cd_aoa = sanitizeCd(InducedDragModel.cdInduced(alphaRad, mach, g));
@@ -154,31 +144,16 @@ public class DragGridEvaluator {
 
 	// Fin friction contribution (both sides, all fins, referenced to frontal area)
 	private static double finFriction(double mach, double re_L, RomGeometryParameters g) {
-		List<RomGeometryParameters.FinGeom> finSets = g.resolvedFinSets();
-		if (g.finCount == 0 || finSets.isEmpty() || g.bodyLength <= 0) {
+		if (g.finCount == 0 || g.finRootChord <= 0 || g.bodyLength <= 0) {
 			return 0.0;
 		}
-		double cd = 0.0;
-		for (RomGeometryParameters.FinGeom finSet : finSets) {
-			double cMean = finSet.meanChord();
-			if (cMean <= 1e-9) {
-				continue;
-			}
-			double tc = finSet.thickness() / cMean;
-			double re_fin = re_L * cMean / g.bodyLength;
-			double cf_fin = SkinFrictionModel.vanDriestII(
-					SkinFrictionModel.cfIncompressible(re_fin, 5e5), mach, 1.0);
-			double ff_fin = 1.0 + 2.0 * tc;
-			cd += cf_fin * ff_fin * finSet.wettedArea() / g.referenceArea;
-		}
-		return cd;
-	}
-
-	private static double finInterference(double cdFinFrictionPlusWave, RomGeometryParameters g) {
-		if (g.finCount == 0) {
-			return 0.0;
-		}
-		return 0.04 * Math.max(0.0, cdFinFrictionPlusWave);
+		double tc = g.finThickness / ((g.finRootChord + g.finTipChord) / 2.0);
+		double re_fin = re_L * g.finRootChord / g.bodyLength;
+		double cf_fin = SkinFrictionModel.vanDriestII(
+				SkinFrictionModel.cfIncompressible(re_fin, 5e5), mach, 1.0);
+		// Fin form factor: (1 + 2*t/c)
+		double ff_fin = 1.0 + 2.0 * tc;
+		return cf_fin * ff_fin * g.finCount * g.finWettedArea / g.referenceArea;
 	}
 
 	static double[] buildMachAxis() {

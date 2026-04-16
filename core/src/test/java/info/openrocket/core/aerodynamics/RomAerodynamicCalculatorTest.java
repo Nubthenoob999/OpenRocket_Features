@@ -512,6 +512,34 @@ public class RomAerodynamicCalculatorTest extends BaseTestCase {
 	}
 
 	@Test
+	public void testCoastGuardrailImbalanceKeepsRomInfluenceWithoutSegmentFallback() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration config = rocket.getSelectedConfiguration();
+		FlightConditions conditions = makeConditions(config);
+
+		double baselineCd = new BarrowmanCalculator()
+				.getAerodynamicForces(config, conditions, new WarningSet())
+				.getCD();
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator();
+		rom.installSurface(constantSurface(baselineCd * 1.70, baselineCd * 1.70));
+		rom.setResidualPilotEnabled(false);
+		rom.setFlightRegime(RomAerodynamicCalculator.FlightRegime.COAST_ASCENT);
+		rom.setCurrentSimulationTime(3.0);
+
+		AerodynamicForces coastForces = rom.getAerodynamicForces(config, conditions, new WarningSet());
+		RomAerodynamicCalculator.RomComputationSnapshot snapshot = rom.getComputationSnapshots().get(0);
+
+		assertTrue(snapshot.isGuardrailTriggered());
+		assertEquals(RomAerodynamicCalculator.GuardrailReason.COAST_DRAG_IMBALANCE,
+				snapshot.getGuardrailReason());
+		assertFalse(snapshot.isAscentSegmentFallbackActive());
+		assertFalse(rom.isCoastAscentSegmentFallbackActive());
+		assertTrue(snapshot.getBlendWeight() > 0.0);
+		assertTrue(coastForces.getCD() > baselineCd);
+	}
+
+	@Test
 	public void testResidualPilotAppliesBoundedCorrectionInAscent() {
 		Rocket rocket = TestRockets.makeEstesAlphaIII();
 		FlightConfiguration config = rocket.getSelectedConfiguration();

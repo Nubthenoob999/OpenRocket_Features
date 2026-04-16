@@ -90,8 +90,6 @@ public class PhaseTwoBatchReportWriterPolicyTest extends BaseTestCase {
 				12.1,
 				0.1,
 				0.1,
-				Double.NaN,
-				"",
 				Map.of(),
 				VerticalIntegratorDiagnostics.EMPTY);
 

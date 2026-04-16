@@ -1,10 +1,8 @@
 package info.openrocket.core.aerodynamics.rom;
 
-import java.util.List;
-
 public class InducedDragModel {
 
-	private static final double PROTUBERANCE_FACTOR = 1.02;
+	private static volatile double protuberanceFactor = 1.02;
 
 	/**
 	 * AoA-dependent drag increment.
@@ -19,11 +17,18 @@ public class InducedDragModel {
 	 */
 	public static double cdInduced(double alphaRad, double mach,
 							   RomGeometryParameters g) {
-		List<RomGeometryParameters.FinGeom> finSets = g.resolvedFinSets();
-		if (alphaRad < 1e-6 || finSets.isEmpty()) {
+		if (alphaRad < 1e-6) {
 			return 0.0;
 		}
+		// Fin aspect ratio (per fin panel)
+		double chord_mean = (g.finRootChord + g.finTipChord) / 2.0;
+		double ar = 2.0 * g.finSpan / chord_mean; // exposed semi-span, both sides
 		double e = 0.9; // span efficiency
+
+		// Normal force slope per fin: CNalpha ~= 2pi / (1 + 2/AR) per radian
+		double cNa_fin = 2.0 * Math.PI / (1.0 + 2.0 / ar);
+		double cl = cNa_fin * alphaRad * g.finCount
+				* (g.finSpan * chord_mean) / g.referenceArea;
 
 		// Smooth bounded subsonic compressibility factor.
 		// Blend from corrected subsonic behavior (M<=0.8) to unity by M=1.2.
@@ -38,19 +43,9 @@ public class InducedDragModel {
 			double smooth = t * t * (3.0 - 2.0 * t); // smoothstep
 			compressibilityFactor = subsonicAt08 * (1.0 - smooth) + smooth;
 		}
+		cl *= compressibilityFactor;
 
-		double cd_induced = 0.0;
-		for (RomGeometryParameters.FinGeom finSet : finSets) {
-			double chordMean = finSet.meanChord();
-			double ar = 2.0 * finSet.span() / Math.max(chordMean, 1.0e-9);
-			if (!(ar > 0.0)) {
-				continue;
-			}
-			double cNaFin = 2.0 * Math.PI / (1.0 + 2.0 / ar);
-			double cl = cNaFin * alphaRad * (finSet.totalPlanformArea() / g.referenceArea);
-			cl *= compressibilityFactor;
-			cd_induced += cl * cl / (Math.PI * ar * e);
-		}
+		double cd_induced = cl * cl / (Math.PI * ar * e);
 
 		// Add body AoA drag (sin^2 approximation for cross-flow)
 		double cd_body_aoa = 0.075 * Math.sin(alphaRad) * Math.sin(alphaRad);
@@ -61,9 +56,14 @@ public class InducedDragModel {
 	/**
 	 * Protuberance correction factor (rail buttons, camera mounts, etc.).
 	 * Applied as a multiplier: Cd_total *= protuberanceFactor().
-	 * Default Kf = 1.02.
+	 * Default Kf = 1.04 (4% increment, Barrowman standard).
+	 * Can be parameterized from user input in Phase 4.
 	 */
 	public static double protuberanceFactor() {
-		return PROTUBERANCE_FACTOR;
+		return protuberanceFactor;
+	}
+
+	public static void setProtuberanceFactor(double factor) {
+		protuberanceFactor = Math.max(1.0, Math.min(1.20, factor));
 	}
 }

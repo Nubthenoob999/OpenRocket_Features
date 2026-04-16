@@ -66,9 +66,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	private static final List<String> DRAG_VALUE_COLUMNS = List.of("cd");
 	private static final List<String> STABILITY_VALUE_COLUMNS = List.of("cn", "cm", "cp");
-	private static final double DEFAULT_WEATHERCOCKING_STABILITY_MIN_CALIBERS = 2.0;
-	private static final double DEFAULT_WEATHERCOCKING_STABILITY_MASS_RATIO_MIN = 1.0;
-	private static final double DEFAULT_WEATHERCOCKING_MAX_CD_DELTA = 0.35;
 
 	protected final ApplicationPreferences preferences = Application.getPreferences();
 
@@ -101,11 +98,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private boolean liveWeatherDataSelected = false;
 	private boolean airbrakesEnabled = false;
 	private AirbrakeConfig airbrakeConfig = new AirbrakeConfig();
-	private boolean weathercockingCompensationEnabled = false;
-	private double weathercockingStabilityMinCalibers = DEFAULT_WEATHERCOCKING_STABILITY_MIN_CALIBERS;
-	private double weathercockingStabilityMassRatioMin = DEFAULT_WEATHERCOCKING_STABILITY_MASS_RATIO_MIN;
-	private double weathercockingCdGain = 0.0;
-	private double weathercockingMaxCdDelta = DEFAULT_WEATHERCOCKING_MAX_CD_DELTA;
 
 	private double timeStep = preferences.getTimeStep();
 	private double maxSimulationTime = preferences.getMaxSimulationTime();
@@ -490,87 +482,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			return;
 		}
 		this.airbrakeConfig = normalized;
-		fireChangeEvent();
-	}
-
-	public boolean isWeathercockingCompensationEnabled() {
-		return weathercockingCompensationEnabled;
-	}
-
-	public void setWeathercockingCompensationEnabled(boolean weathercockingCompensationEnabled) {
-		if (this.weathercockingCompensationEnabled == weathercockingCompensationEnabled) {
-			return;
-		}
-		this.weathercockingCompensationEnabled = weathercockingCompensationEnabled;
-		fireChangeEvent();
-	}
-
-	public double getWeathercockingStabilityMinCalibers() {
-		if (!Double.isFinite(weathercockingStabilityMinCalibers) || weathercockingStabilityMinCalibers <= 0.0) {
-			return DEFAULT_WEATHERCOCKING_STABILITY_MIN_CALIBERS;
-		}
-		return weathercockingStabilityMinCalibers;
-	}
-
-	public void setWeathercockingStabilityMinCalibers(double weathercockingStabilityMinCalibers) {
-		double normalized = (!Double.isFinite(weathercockingStabilityMinCalibers)
-				|| weathercockingStabilityMinCalibers <= 0.0)
-				? DEFAULT_WEATHERCOCKING_STABILITY_MIN_CALIBERS
-				: weathercockingStabilityMinCalibers;
-		if (MathUtil.equals(this.weathercockingStabilityMinCalibers, normalized)) {
-			return;
-		}
-		this.weathercockingStabilityMinCalibers = normalized;
-		fireChangeEvent();
-	}
-
-	public double getWeathercockingStabilityMassRatioMin() {
-		if (!Double.isFinite(weathercockingStabilityMassRatioMin) || weathercockingStabilityMassRatioMin <= 0.0) {
-			return DEFAULT_WEATHERCOCKING_STABILITY_MASS_RATIO_MIN;
-		}
-		return weathercockingStabilityMassRatioMin;
-	}
-
-	public void setWeathercockingStabilityMassRatioMin(double weathercockingStabilityMassRatioMin) {
-		double normalized = (!Double.isFinite(weathercockingStabilityMassRatioMin)
-				|| weathercockingStabilityMassRatioMin <= 0.0)
-				? DEFAULT_WEATHERCOCKING_STABILITY_MASS_RATIO_MIN
-				: weathercockingStabilityMassRatioMin;
-		if (MathUtil.equals(this.weathercockingStabilityMassRatioMin, normalized)) {
-			return;
-		}
-		this.weathercockingStabilityMassRatioMin = normalized;
-		fireChangeEvent();
-	}
-
-	public double getWeathercockingCdGain() {
-		return weathercockingCdGain;
-	}
-
-	public void setWeathercockingCdGain(double weathercockingCdGain) {
-		double normalized = Double.isFinite(weathercockingCdGain) ? weathercockingCdGain : 0.0;
-		if (MathUtil.equals(this.weathercockingCdGain, normalized)) {
-			return;
-		}
-		this.weathercockingCdGain = normalized;
-		fireChangeEvent();
-	}
-
-	public double getWeathercockingMaxCdDelta() {
-		if (!Double.isFinite(weathercockingMaxCdDelta) || weathercockingMaxCdDelta <= 0.0) {
-			return DEFAULT_WEATHERCOCKING_MAX_CD_DELTA;
-		}
-		return weathercockingMaxCdDelta;
-	}
-
-	public void setWeathercockingMaxCdDelta(double weathercockingMaxCdDelta) {
-		double normalized = (!Double.isFinite(weathercockingMaxCdDelta) || weathercockingMaxCdDelta <= 0.0)
-				? DEFAULT_WEATHERCOCKING_MAX_CD_DELTA
-				: weathercockingMaxCdDelta;
-		if (MathUtil.equals(this.weathercockingMaxCdDelta, normalized)) {
-			return;
-		}
-		this.weathercockingMaxCdDelta = normalized;
 		fireChangeEvent();
 	}
 
@@ -1078,11 +989,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.liveWeatherDataSelected = this.liveWeatherDataSelected;
 			copy.airbrakesEnabled = this.airbrakesEnabled;
 			copy.airbrakeConfig = this.airbrakeConfig.clone();
-			copy.weathercockingCompensationEnabled = this.weathercockingCompensationEnabled;
-			copy.weathercockingStabilityMinCalibers = this.weathercockingStabilityMinCalibers;
-			copy.weathercockingStabilityMassRatioMin = this.weathercockingStabilityMassRatioMin;
-			copy.weathercockingCdGain = this.weathercockingCdGain;
-			copy.weathercockingMaxCdDelta = this.weathercockingMaxCdDelta;
 
 			// Create a new list for listeners
 			copy.listeners = new ArrayList<>();
@@ -1185,26 +1091,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.airbrakeConfig = src.airbrakeConfig.clone();
 		}
-		if (this.weathercockingCompensationEnabled != src.weathercockingCompensationEnabled) {
-			isChanged = true;
-			this.weathercockingCompensationEnabled = src.weathercockingCompensationEnabled;
-		}
-		if (!MathUtil.equals(this.weathercockingStabilityMinCalibers, src.weathercockingStabilityMinCalibers)) {
-			isChanged = true;
-			this.weathercockingStabilityMinCalibers = src.weathercockingStabilityMinCalibers;
-		}
-		if (!MathUtil.equals(this.weathercockingStabilityMassRatioMin, src.weathercockingStabilityMassRatioMin)) {
-			isChanged = true;
-			this.weathercockingStabilityMassRatioMin = src.weathercockingStabilityMassRatioMin;
-		}
-		if (!MathUtil.equals(this.weathercockingCdGain, src.weathercockingCdGain)) {
-			isChanged = true;
-			this.weathercockingCdGain = src.weathercockingCdGain;
-		}
-		if (!MathUtil.equals(this.weathercockingMaxCdDelta, src.weathercockingMaxCdDelta)) {
-			isChanged = true;
-			this.weathercockingMaxCdDelta = src.weathercockingMaxCdDelta;
-		}
 		if (this.maximumAngle != src.maximumAngle) {
 			isChanged = true;
 			this.maximumAngle = src.maximumAngle;
@@ -1285,11 +1171,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
 				this.airbrakesEnabled == o.airbrakesEnabled &&
 				this.airbrakeConfig.equals(o.airbrakeConfig) &&
-				this.weathercockingCompensationEnabled == o.weathercockingCompensationEnabled &&
-				MathUtil.equals(this.weathercockingStabilityMinCalibers, o.weathercockingStabilityMinCalibers) &&
-				MathUtil.equals(this.weathercockingStabilityMassRatioMin, o.weathercockingStabilityMassRatioMin) &&
-				MathUtil.equals(this.weathercockingCdGain, o.weathercockingCdGain) &&
-				MathUtil.equals(this.weathercockingMaxCdDelta, o.weathercockingMaxCdDelta) &&
 				this.averageWindModel.equals(o.averageWindModel) &&
 				this.multiLevelPinkNoiseWindModel.equals(o.multiLevelPinkNoiseWindModel) &&
 				this.gravityModelType == o.gravityModelType &&
@@ -1401,11 +1282,6 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    liveWeatherDataSelected: %b\n", liveWeatherDataSelected))
 				.concat(String.format("    airbrakesEnabled: %b\n", airbrakesEnabled))
 				.concat(String.format("    airbrakeConfig: %s\n", airbrakeConfig))
-				.concat(String.format("    weathercockingCompensationEnabled: %b\n", weathercockingCompensationEnabled))
-				.concat(String.format("    weathercockingStabilityMinCalibers: %f\n", weathercockingStabilityMinCalibers))
-				.concat(String.format("    weathercockingStabilityMassRatioMin: %f\n", weathercockingStabilityMassRatioMin))
-				.concat(String.format("    weathercockingCdGain: %f\n", weathercockingCdGain))
-				.concat(String.format("    weathercockingMaxCdDelta: %f\n", weathercockingMaxCdDelta))
 				.concat(String.format("    timeStep:  %f\n", timeStep))
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))

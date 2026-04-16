@@ -29,12 +29,6 @@ public final class AeroGridEvaluator4D {
 	private static final double MIN_CD = 0.001;
 	private static final double MAX_CD = 8.0;
 
-	/**
-	 * Increment this version whenever ROM physics equations or constants change.
-	 * Hashing this value forces cached ROM surface rebuilds across versions.
-	 */
-	public static final String ROM_PHYSICS_VERSION = "v2.0";
-
 	// Higher ROM resolution is intentional for smoother interpolated dynamics.
 	public static final int N_MACH = 60;
 	public static final int N_RE = 20;
@@ -167,7 +161,6 @@ public final class AeroGridEvaluator4D {
 		double cdBaseTransPeak = sanitizeCd(BaseDragModel.cdBasePlumeOff(1.0, cfBody, g));
 		double cdBasePlumeOffM = sanitizeCd(BaseDragModel.cdBasePlumeOff(mach, cfBody, g));
 		double cdBasePlumeOnM = sanitizeCd(BaseDragModel.cdBasePlumeOn(mach, cfBody, g));
-		double cdBasePlumeOnPeak = sanitizeCd(BaseDragModel.cdBasePlumeOn(1.0, cfBody, g));
 
 		double cdWaveNose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
 
@@ -176,15 +169,13 @@ public final class AeroGridEvaluator4D {
 		double cdFinJunct = sanitizeCd(FinDragModel.cdFinInterference(cdFinFric + cdFinWave, g));
 		double cdFinTotal = sanitizeCd(cdFinFric + cdFinWave + cdFinJunct);
 
-		double cdBodyNonBaseSub = sanitizeCd(cdFriction);
-		double cdBodySub = sanitizeCd(cdBodyNonBaseSub + cdBaseSubsonic);
-		double cdBodyTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdBodyNonBaseSub, g) + cdBaseTransPeak);
+		double cdBodySub = sanitizeCd(cdFriction + cdBaseSubsonic);
+		double cdBodyTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdBodySub, g) + cdBaseTransPeak);
 		double cdBodySup = sanitizeCd(cdFriction + cdBasePlumeOffM + cdWaveNose);
 		double cdBodyValue = withFloor(TransonicBlendingModel.blend(mach, cdBodySub, cdBodyTrans, cdBodySup), MIN_CD);
 
-		double cdNonBaseSub = sanitizeCd(cdFriction + cdFinTotal);
-		double cdSub = sanitizeCd(cdNonBaseSub + cdBaseSubsonic);
-		double cdTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdNonBaseSub, g) + cdBaseTransPeak);
+		double cdSub = sanitizeCd(cdFriction + cdFinTotal + cdBaseSubsonic);
+		double cdTrans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdSub, g) + cdBaseTransPeak);
 		double cdSup = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOffM + cdWaveNose);
 		double cdZeroAoA = sanitizeCd(TransonicBlendingModel.blend(mach, cdSub, cdTrans, cdSup));
 
@@ -193,8 +184,8 @@ public final class AeroGridEvaluator4D {
 		double kf = InducedDragModel.protuberanceFactor();
 		double cdPlumeOff = withFloor((cdZeroAoA + cdBodyAoA + cdSideslip) * kf, MIN_CD);
 
-		double cdSubOn = sanitizeCd(cdNonBaseSub + cdBasePlumeOnM);
-		double cdTransOn = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdNonBaseSub, g) + cdBasePlumeOnPeak);
+		double cdSubOn = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOnM);
+		double cdTransOn = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cdSubOn, g));
 		double cdSupOn = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOnM + cdWaveNose);
 		double cdZeroAoAOn = sanitizeCd(TransonicBlendingModel.blend(mach, cdSubOn, cdTransOn, cdSupOn));
 		double cdPlumeOn = withFloor((cdZeroAoAOn + cdBodyAoA + cdSideslip) * kf, MIN_CD);
@@ -385,7 +376,7 @@ public final class AeroGridEvaluator4D {
 	private static String computeHash(RomGeometryInput g) {
 		String data = String.format(
 				Locale.ROOT,
-				ROM_PHYSICS_VERSION + "|%.6f|%.6f|%.6f|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
+				"%.6f|%.6f|%.6f|%s|%d|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f|%.6f",
 				g.bodyLength,
 				g.maxDiameter,
 				g.noseLength,
