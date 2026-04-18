@@ -71,7 +71,7 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private ModID modIDadd = ModID.INVALID;
 
 	public AerodynamicCalculator getAerodynamicCalculator() {
-		if (romAerodynamicCalculator != null && romAerodynamicCalculator.hasSurface()) {
+		if (romAerodynamicCalculator != null && romAerodynamicCalculator.isEnabled()) {
 			return romAerodynamicCalculator;
 		}
 		return aerodynamicCalculator;

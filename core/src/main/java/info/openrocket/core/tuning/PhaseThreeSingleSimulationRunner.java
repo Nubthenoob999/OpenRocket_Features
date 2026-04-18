@@ -28,8 +28,10 @@ public final class PhaseThreeSingleSimulationRunner {
 																 InterpolationMode interpolationMode) throws IOException, SimulationException {
 		Path normalizedReference = referenceCsv.toAbsolutePath().normalize();
 		TelemetrySeries reference = TelemetryParsers.parse(normalizedReference);
+		Simulation candidateSimulation = detachedSimulationCopy(document, simulation);
+		PhaseThreeNativeAirbrakesConfigurer.forcePathlineRuntime(candidateSimulation.getOptions(), null);
 		HeadlessOrkSimulationRunner.OrkSimulationResult candidateTelemetry =
-				HeadlessOrkSimulationRunner.runSimulationDetailed(detachedSimulationCopy(document, simulation));
+				HeadlessOrkSimulationRunner.runSimulationDetailed(candidateSimulation);
 
 		List<TuningFlag> flags = new ArrayList<>();
 		TelemetrySeries candidateRaw = candidateTelemetry.getSeries();

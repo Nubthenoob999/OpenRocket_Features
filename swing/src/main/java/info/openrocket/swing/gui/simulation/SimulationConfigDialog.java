@@ -126,13 +126,17 @@ public class SimulationConfigDialog extends JDialog {
 		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"),
 				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
 
-		//// ROM Aerodynamics prestep
-		tabbedPane.addTab("Aerodynamics",
+		//// Phase I ROM diagnostics
+		tabbedPane.addTab("Phase I ROM",
 				SimulationTabLayoutUtils.wrapFormScrollable(new RomPrestepPanel(simulationList[0])));
+		tabbedPane.setToolTipTextAt(AERODYNAMICS_IDX,
+				"Developer diagnostics and readiness preview for the Phase I pathline ROM.");
 
-		//// Phase Three ROM tuning
-		tabbedPane.addTab("ROM Tuning",
+		//// ROM analysis
+		tabbedPane.addTab("ROM Analysis & Batch",
 				SimulationTabLayoutUtils.wrapDataScrollable(new RomTuningPanel(document, simulationList[0])));
+		tabbedPane.setToolTipTextAt(ROM_TUNING_IDX,
+				"Run a single telemetry comparison or the Phase 3 tuning batch suite against the bundled tuning data.");
 		if (isMultiCompEdit()) {
 			tabbedPane.setEnabledAt(ROM_TUNING_IDX, false);
 			tabbedPane.setToolTipTextAt(ROM_TUNING_IDX,

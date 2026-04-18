@@ -1,881 +1,443 @@
 package info.openrocket.swing.gui.simulation;
 
-import java.awt.BasicStroke;
-import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
-import javax.swing.JTable;
 import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
 import javax.swing.SpinnerNumberModel;
-import javax.swing.UIManager;
+import javax.swing.SwingUtilities;
+import javax.swing.event.ChangeListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.JTable;
 
 import net.miginfocom.swing.MigLayout;
 
-import info.openrocket.core.aerodynamics.rom.DragGridEvaluator;
-import info.openrocket.core.aerodynamics.rom.DragSurface;
-import info.openrocket.core.aerodynamics.rom.DragSurfaceInterpolator;
-import info.openrocket.core.aerodynamics.rom.InducedDragModel;
-import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceHashUtil;
-import info.openrocket.core.aerodynamics.rom.adapter.GeometryAdapter;
-import info.openrocket.core.aerodynamics.rom.adapter.SurfaceAdapter;
-import info.openrocket.core.aerodynamics.rom.core.eval.AeroGridEvaluator4D;
-import info.openrocket.core.aerodynamics.rom.core.io.CsvExporter;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4DInterpolator;
+import info.openrocket.core.aerodynamics.AerodynamicForces;
+import info.openrocket.core.aerodynamics.FlightConditions;
+import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomResult;
+import info.openrocket.core.aerodynamics.rom.RomSettings;
+import info.openrocket.core.aerodynamics.rom.control.AerodynamicConfidence;
+import info.openrocket.core.aerodynamics.rom.flow.FlowRegime;
+import info.openrocket.core.aerodynamics.rom.flow.FlowState;
+import info.openrocket.core.aerodynamics.rom.flow.RegimeSelector;
+import info.openrocket.core.aerodynamics.rom.geometry.FinGeometry;
+import info.openrocket.core.aerodynamics.rom.geometry.GeometryFeatureExtractor;
+import info.openrocket.core.aerodynamics.rom.geometry.GeometryFeatures;
+import info.openrocket.core.aerodynamics.rom.geometry.PathlineSeed;
+import info.openrocket.core.aerodynamics.rom.geometry.PathlineSeeder;
 import info.openrocket.core.document.Simulation;
+import info.openrocket.core.logging.WarningSet;
+import info.openrocket.core.models.atmosphere.AtmosphericConditions;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
-import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.simulation.SimulationConditions;
 
 class RomPrestepPanel extends SimulationScrollablePanel {
 
-    private static final long serialVersionUID = 2770487667033110266L;
-    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("MM/dd HH:mm", Locale.ROOT);
-
-    private final Simulation simulation;
-
-    private final JLabel surfaceStatusValue = new JLabel("Not computed");
-    private final JLabel geometryValue = new JLabel("-");
-    private final JTextArea geometryWarning = createWrappingTextArea();
-
-    private final JLabel bodyLengthValue = new JLabel("-");
-    private final JLabel maxDiameterValue = new JLabel("-");
-    private final JLabel finenessValue = new JLabel("-");
-    private final JLabel noseShapeValue = new JLabel("-");
-    private final JLabel noseLengthValue = new JLabel("-");
-    private final JLabel finCountValue = new JLabel("-");
-    private final JLabel finSpanValue = new JLabel("-");
-    private final JLabel finThicknessValue = new JLabel("-");
-
-    private final JComboBox<String> roughnessOverride = new JComboBox<>(new String[] {
-            "Use component finish", "Polished", "Smooth", "Paint", "Unfinished", "Rough"
-    });
-    private final JSpinner protuberanceSpinner = new JSpinner(new SpinnerNumberModel(1.02, 1.02, 1.02, 0.01));
-    private final JComboBox<String> buildMode = new JComboBox<>(new String[] {
-            "3D (Mach, Re, alpha)",
-            "4D (Mach, Re, alpha, beta)"
-    });
-
-    private final JButton buildButton = new JButton("Build aerodynamic surface");
-    private final JProgressBar progressBar = new JProgressBar(0, 100);
-    private final JLabel estimatedTime = new JLabel("~0.3 s");
-
-    private final PreviewChartPanel previewChart = new PreviewChartPanel();
-    private final JTextArea previewSummary = createWrappingTextArea();
-
-    private final JCheckBox validationToggle = new JCheckBox("Show validation");
-    private final JPanel validationPanel = new JPanel(new MigLayout("fill, insets 0"));
-    private final JTextArea validationInput = new JTextArea(6, 40);
-    private final JButton compareButton = new JButton("Compare");
-    private final JButton exportCsvButton = new JButton("Export 4D CSV");
-    private final DefaultTableModel validationModel = new DefaultTableModel(
-            new Object[] { "M", "Re", "beta", "Cd_CFD", "Cd_ROM", "% error" }, 0) {
-        private static final long serialVersionUID = 1L;
-
-        @Override
-        public boolean isCellEditable(int row, int column) {
-            return false;
-        }
-    };
-    private final JLabel validationSummary = new JLabel("Mean absolute error: n/a");
-
-    private long lastBuildMs = 300;
-    private boolean updatingModeSelection;
-
-    RomPrestepPanel(Simulation simulation) {
-        super(new MigLayout("fillx, insets 6, gap 8 8, wrap 2", "[grow,fill][grow,fill]", ""));
-        this.simulation = simulation;
-        add(buildStatusPanel(), "growx, top");
-        add(buildControlsPanel(), "growx, top");
-        add(buildParametersPanel(), "span 2, growx, top");
-        add(buildPreviewPanel(), "grow, top");
-        add(buildValidationPanel(), "grow, top");
-
-        wireEvents();
-        refreshFromModel();
-    }
-
-    private JPanel buildStatusPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow]", ""));
-        panel.setBorder(BorderFactory.createTitledBorder("Status"));
-
-        surfaceStatusValue.setForeground(new Color(120, 120, 120));
-        geometryWarning.setForeground(new Color(180, 30, 30));
-        geometryWarning.setText("Geometry has changed - rebuild required");
-
-        panel.add(new JLabel("Aerodynamic surface:"));
-        panel.add(surfaceStatusValue, "wrap");
-        panel.add(new JLabel("Geometry:"));
-        panel.add(geometryValue, "wrap");
-        panel.add(geometryWarning, "span 2, growx");
-        return panel;
-    }
-
-    private JPanel buildParametersPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow][right][grow]", ""));
-        panel.setBorder(BorderFactory.createTitledBorder("Parameters"));
-        protuberanceSpinner.setEnabled(false);
-
-        panel.add(new JLabel("Body length:"));
-        panel.add(bodyLengthValue);
-        panel.add(new JLabel("Max diameter:"));
-        panel.add(maxDiameterValue, "wrap");
-
-        panel.add(new JLabel("Fineness ratio:"));
-        panel.add(finenessValue);
-        panel.add(new JLabel("Nose shape:"));
-        panel.add(noseShapeValue, "wrap");
-
-        panel.add(new JLabel("Nose length:"));
-        panel.add(noseLengthValue);
-        panel.add(new JLabel("Fin count:"));
-        panel.add(finCountValue, "wrap");
-
-        panel.add(new JLabel("Fin span:"));
-        panel.add(finSpanValue);
-        panel.add(new JLabel("Fin thickness:"));
-        panel.add(finThicknessValue, "wrap");
-
-        panel.add(new JLabel("Surface roughness:"));
-        panel.add(roughnessOverride);
-        panel.add(new JLabel("Build mode:"));
-        panel.add(buildMode, "wrap");
-
-        panel.add(new JLabel("Protuberance factor:"));
-        panel.add(protuberanceSpinner, "wrap");
-
-        return panel;
-    }
-
-    private JPanel buildControlsPanel() {
-        JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[][grow][]", ""));
-        panel.setBorder(BorderFactory.createTitledBorder("Build"));
-
-        progressBar.setVisible(false);
-        progressBar.setStringPainted(true);
-
-        panel.add(buildButton);
-        panel.add(progressBar, "growx");
-        panel.add(estimatedTime);
-
-        return panel;
-    }
-
-    private JPanel buildPreviewPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder("Cd(M) preview"));
-        previewChart.setPreferredSize(new Dimension(360, 210));
-        previewSummary.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 8));
-        previewSummary.setText("Build a ROM surface to preview drag coefficient versus Mach.");
-        panel.add(previewChart, BorderLayout.CENTER);
-        panel.add(previewSummary, BorderLayout.SOUTH);
-        return panel;
-    }
-
-    private JPanel buildValidationPanel() {
-        JPanel container = new JPanel(new MigLayout("fillx, insets 0, gapy 6, wrap 1", "[grow]", ""));
-
-        validationPanel.setBorder(BorderFactory.createTitledBorder("Validation"));
-        validationInput.setText("# Paste rows: M,Re,Cd\n");
-        validationInput.setLineWrap(true);
-        validationInput.setWrapStyleWord(false);
-
-        JTable table = new JTable(validationModel);
-        JScrollPane tableScroll = new JScrollPane(table);
-        tableScroll.setPreferredSize(new Dimension(320, 130));
-
-        validationPanel.add(new JLabel("CFD CSV rows (M,Re,Cd):"), "wrap");
-        validationPanel.add(new JScrollPane(validationInput), "growx, wrap");
-        validationPanel.add(compareButton, "split 3");
-        validationPanel.add(exportCsvButton);
-        validationPanel.add(validationSummary, "wrap");
-        validationPanel.add(tableScroll, "growx");
-
-        validationPanel.setVisible(false);
-
-        container.add(validationToggle);
-        container.add(validationPanel, "growx");
-        return container;
-    }
-
-    private void wireEvents() {
-        buildButton.addActionListener(e -> buildSurfaceAsync());
-        buildMode.addActionListener(e -> handleBuildModeSelectionChanged());
-        validationToggle.addActionListener(e -> validationPanel.setVisible(validationToggle.isSelected()));
-        compareButton.addActionListener(e -> runValidationCompare());
-        exportCsvButton.addActionListener(e -> exportSurfaceCsv());
-    }
-
-    private void refreshFromModel() {
-        FlightConfiguration config = activeConfiguration();
-        RomGeometryParameters g = RomGeometryParameters.fromRocket(config);
-
-        bodyLengthValue.setText(formatMeters(g.bodyLength));
-        maxDiameterValue.setText(formatMeters(g.maxDiameter));
-        finenessValue.setText(String.format(Locale.ROOT, "%.2f", g.finessRatio));
-        noseShapeValue.setText(String.valueOf(g.noseShape));
-        noseLengthValue.setText(formatMeters(g.noseLength));
-        finCountValue.setText(Integer.toString(g.finCount));
-        finSpanValue.setText(formatMeters(g.finSpan));
-        finThicknessValue.setText(formatMeters(g.finThickness));
-
-        geometryValue.setText(g.geometryHash().substring(0, 8));
-
-        RomSurfaceMode selectedMode = simulation.getOptions().getRomSurfaceMode();
-        setBuildModeSelection(selectedMode);
-
-        DragSurface current = selectedMode == RomSurfaceMode.THREE_D
-                ? simulation.getOptions().getRomDragSurface() : null;
-        AeroSurface4D current4D = selectedMode == RomSurfaceMode.FOUR_D
-                ? simulation.getOptions().getRomAeroSurface4D() : null;
-        if (current == null && current4D == null) {
-            boolean hasOtherModeSurface = simulation.getOptions().getRomDragSurface() != null
-                    || simulation.getOptions().getRomAeroSurface4D() != null;
-            surfaceStatusValue.setText(hasOtherModeSurface
-                    ? "Selected ROM mode changed - rebuild required"
-                    : "Not computed");
-            surfaceStatusValue.setForeground(new Color(120, 120, 120));
-            geometryWarning.setText(hasOtherModeSurface
-                    ? "ROM dimensionality changed - rebuild required"
-                    : "Geometry has changed - rebuild required");
-            geometryWarning.setVisible(hasOtherModeSurface);
-            previewChart.clear();
-            previewSummary.setText("Build a ROM surface to preview drag coefficient versus Mach. "
-                    + "The chart will highlight the transonic band, plume-on/plume-off behavior, "
-                    + "and any beta sweep included in the selected ROM mode.");
-            return;
-        }
-
-        long buildMs = current4D != null ? current4D.buildTimestampMs : current.buildTimestampMs;
-        String ts = TS_FORMAT.format(Instant.ofEpochMilli(buildMs).atZone(ZoneId.systemDefault()));
-        surfaceStatusValue.setText("Ready - built " + ts
-                + (selectedMode == RomSurfaceMode.FOUR_D ? " (4D)" : " (3D)"));
-        surfaceStatusValue.setForeground(new Color(20, 120, 20));
-
-        String hash = current4D != null ? current4D.geometryHash : current.geometryHash;
-        boolean mismatch = !RomSurfaceHashUtil.matchesGeometry(hash, g.geometryHash());
-        geometryWarning.setText("Geometry has changed - rebuild required");
-        geometryWarning.setVisible(mismatch);
-
-        if (current4D != null) {
-            rebuildPreview(current4D);
-        } else {
-            rebuildPreview(current);
-        }
-    }
-
-    private void buildSurfaceAsync() {
-        FlightConfiguration config = activeConfiguration();
-        RomGeometryParameters g = RomGeometryParameters.fromRocket(config);
-        applyRoughnessOverride(g);
-
-        RomSurfaceMode selectedMode = simulation.getOptions().getRomSurfaceMode();
-        DragSurface existing = simulation.getOptions().getRomDragSurface();
-        AeroSurface4D existing4D = simulation.getOptions().getRomAeroSurface4D();
-        boolean use4D = selectedMode == RomSurfaceMode.FOUR_D;
-
-        if (use4D && existing4D != null && RomSurfaceHashUtil.matchesGeometry(existing4D.geometryHash, g.geometryHash())) {
-            surfaceStatusValue.setText("Ready - already current");
-            surfaceStatusValue.setForeground(new Color(20, 120, 20));
-            return;
-        }
-        if (!use4D && existing != null && RomSurfaceHashUtil.matchesGeometry(existing.geometryHash, g.geometryHash())) {
-            surfaceStatusValue.setText("Ready - already current");
-            surfaceStatusValue.setForeground(new Color(20, 120, 20));
-            return;
-        }
-
-        buildButton.setEnabled(false);
-        progressBar.setVisible(true);
-        progressBar.setValue(0);
-
-        long startNs = System.nanoTime();
-
-        Thread worker = new Thread(() -> {
-            try {
-                if (use4D) {
-                    AeroSurface4D surface4D = AeroGridEvaluator4D.evaluate(
-                            GeometryAdapter.toInput(g),
-                            g.geometryHash(),
-                            fraction -> SwingUtilities.invokeLater(() -> progressBar.setValue((int) Math.round(fraction * 100.0))));
-
-                    SwingUtilities.invokeLater(() -> {
-                        simulation.getOptions().setRomAeroSurface4D(surface4D);
-                        simulation.getOptions().setRomDragSurface(SurfaceAdapter.toBetaZeroDragSurface(surface4D));
-                        lastBuildMs = Math.max(1L, (System.nanoTime() - startNs) / 1_000_000L);
-                        estimatedTime.setText(String.format(Locale.ROOT, "~%.1f s", lastBuildMs / 1000.0));
-                        refreshFromModel();
-                        progressBar.setVisible(false);
-                        buildButton.setEnabled(true);
-                    });
-                } else {
-                    DragSurface surface = DragGridEvaluator.evaluate(g,
-                            fraction -> SwingUtilities.invokeLater(() -> progressBar.setValue((int) Math.round(fraction * 100.0))));
-
-                    SwingUtilities.invokeLater(() -> {
-                        simulation.getOptions().setRomDragSurface(surface);
-                        simulation.getOptions().setRomAeroSurface4D(null);
-                        lastBuildMs = Math.max(1L, (System.nanoTime() - startNs) / 1_000_000L);
-                        estimatedTime.setText(String.format(Locale.ROOT, "~%.1f s", lastBuildMs / 1000.0));
-                        refreshFromModel();
-                        progressBar.setVisible(false);
-                        buildButton.setEnabled(true);
-                    });
-                }
-            } catch (RuntimeException ex) {
-                SwingUtilities.invokeLater(() -> {
-                    surfaceStatusValue.setText("Build failed: " + ex.getMessage());
-                    surfaceStatusValue.setForeground(new Color(180, 30, 30));
-                    progressBar.setVisible(false);
-                    buildButton.setEnabled(true);
-                });
-            }
-        }, "rom-surface-build");
-        worker.setDaemon(true);
-        worker.start();
-    }
-
-    private void runValidationCompare() {
-        DragSurface surface = simulation.getOptions().getRomDragSurface();
-        AeroSurface4D surface4D = simulation.getOptions().getRomAeroSurface4D();
-        validationModel.setRowCount(0);
-        validationSummary.setText("Mean absolute error: n/a");
-        if (surface == null && surface4D == null) {
-            validationSummary.setText("Mean absolute error: n/a (no surface built)");
-            return;
-        }
-
-        DragSurfaceInterpolator interpolator = surface != null ? new DragSurfaceInterpolator(surface) : null;
-        AeroSurface4DInterpolator interpolator4D = surface4D != null ? new AeroSurface4DInterpolator(surface4D) : null;
-        String[] lines = validationInput.getText().split("\\r?\\n");
-
-        int count = 0;
-        double absSum = 0.0;
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            String[] parts = trimmed.split(",");
-            if (parts.length < 3) {
-                continue;
-            }
-            try {
-                double mach = Double.parseDouble(parts[0].trim());
-                double re = Double.parseDouble(parts[1].trim());
-                double beta = parts.length >= 4 ? Double.parseDouble(parts[2].trim()) : 0.0;
-                double cdRef = Double.parseDouble(parts.length >= 4 ? parts[3].trim() : parts[2].trim());
-                double cdRom;
-                if (interpolator4D != null) {
-                    cdRom = interpolator4D.queryCdPlumeOff(mach, re, 0.0, beta);
-                } else {
-                    cdRom = interpolator.queryCdPlumeOff(mach, re, 0.0);
-                }
-                double errPct = Math.abs(cdRom - cdRef) * 100.0 / Math.max(1e-9, Math.abs(cdRef));
-
-                validationModel.addRow(new Object[] {
-                        formatDec(mach),
-                        formatSci(re),
-                        formatDec(beta),
-                        formatDec(cdRef),
-                        formatDec(cdRom),
-                        formatDec(errPct)
-                });
-
-                absSum += errPct;
-                count++;
-            } catch (RuntimeException ignore) {
-                // Skip malformed rows.
-            }
-        }
-
-        if (count > 0) {
-            validationSummary.setText(String.format(Locale.ROOT, "Mean absolute error: %.2f%%", absSum / count));
-        }
-    }
-
-    private void rebuildPreview(DragSurface surface) {
-        DragSurfaceInterpolator interpolator = new DragSurfaceInterpolator(surface);
-        double[] mach = new double[81];
-        double[] off = new double[81];
-        double[] on = new double[81];
-
-        double re = 1e6;
-        for (int i = 0; i < mach.length; i++) {
-            mach[i] = 4.0 * i / (mach.length - 1);
-            off[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0);
-            on[i] = interpolator.queryCdPlumeOn(mach[i], re, 0.0);
-        }
-        previewChart.setSeries(mach, off, on, null);
-        previewSummary.setText(buildPreviewSummary(re, mach, off, on, null));
-    }
-
-    private void rebuildPreview(AeroSurface4D surface) {
-        AeroSurface4DInterpolator interpolator = new AeroSurface4DInterpolator(surface);
-        double[] mach = new double[81];
-        double[] off0 = new double[81];
-        double[] on0 = new double[81];
-        double[] off15 = new double[81];
-
-        double re = 1e6;
-        for (int i = 0; i < mach.length; i++) {
-            mach[i] = 4.0 * i / (mach.length - 1);
-            off0[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0, 0.0);
-            on0[i] = interpolator.queryCdPlumeOn(mach[i], re, 0.0, 0.0);
-            off15[i] = interpolator.queryCdPlumeOff(mach[i], re, 0.0, 15.0);
-        }
-        previewChart.setSeries(mach, off0, on0, off15);
-        previewSummary.setText(buildPreviewSummary(re, mach, off0, on0, off15));
-    }
-
-    private void exportSurfaceCsv() {
-        AeroSurface4D surface = simulation.getOptions().getRomAeroSurface4D();
-        if (surface == null) {
-            validationSummary.setText("Mean absolute error: n/a (build a 4D surface before export)");
-            return;
-        }
-
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Export 4D ROM CSV");
-        chooser.setSelectedFile(new java.io.File("rom_surface_4d.csv"));
-        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        Path target = chooser.getSelectedFile().toPath();
-        try (FileOutputStream out = new FileOutputStream(target.toFile())) {
-            CsvExporter.exportToCsv(surface, out);
-            validationSummary.setText("Exported 4D CSV: " + target.getFileName());
-        } catch (IOException ex) {
-            validationSummary.setText("CSV export failed: " + ex.getMessage());
-        }
-    }
-
-    private FlightConfiguration activeConfiguration() {
-        return simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId());
-    }
-
-    private static JTextArea createWrappingTextArea() {
-        JTextArea area = new JTextArea();
-        area.setEditable(false);
-        area.setOpaque(false);
-        area.setLineWrap(true);
-        area.setWrapStyleWord(true);
-        area.setFocusable(false);
-        area.setBorder(BorderFactory.createEmptyBorder());
-        return area;
-    }
-
-    private void handleBuildModeSelectionChanged() {
-        if (updatingModeSelection) {
-            return;
-        }
-        RomSurfaceMode selectedMode = getSelectedBuildMode();
-        if (simulation.getOptions().getRomSurfaceMode() == selectedMode) {
-            return;
-        }
-
-        simulation.getOptions().setRomSurfaceMode(selectedMode);
-        simulation.getOptions().setRomDragSurface(null);
-        simulation.getOptions().setRomAeroSurface4D(null);
-        refreshFromModel();
-    }
-
-    private void setBuildModeSelection(RomSurfaceMode mode) {
-        int index = mode == RomSurfaceMode.FOUR_D ? 1 : 0;
-        if (buildMode.getSelectedIndex() == index) {
-            return;
-        }
-        updatingModeSelection = true;
-        try {
-            buildMode.setSelectedIndex(index);
-        } finally {
-            updatingModeSelection = false;
-        }
-    }
-
-    private RomSurfaceMode getSelectedBuildMode() {
-        return buildMode.getSelectedIndex() == 1 ? RomSurfaceMode.FOUR_D : RomSurfaceMode.THREE_D;
-    }
-
-    private void applyRoughnessOverride(RomGeometryParameters g) {
-        String choice = String.valueOf(roughnessOverride.getSelectedItem());
-        if ("Polished".equals(choice)) {
-            g.surfaceRoughness = 0.5e-6;
-        } else if ("Smooth".equals(choice)) {
-            g.surfaceRoughness = 2e-6;
-        } else if ("Paint".equals(choice)) {
-            g.surfaceRoughness = 6.4e-6;
-        } else if ("Unfinished".equals(choice)) {
-            g.surfaceRoughness = 60e-6;
-        } else if ("Rough".equals(choice)) {
-            g.surfaceRoughness = 500e-6;
-        }
-    }
-
-    private static String formatMeters(double value) {
-        return String.format(Locale.ROOT, "%.4f m", value);
-    }
-
-    private static String formatSci(double value) {
-        return String.format(Locale.ROOT, "%.3e", value);
-    }
-
-    private static String formatDec(double value) {
-        return String.format(Locale.ROOT, "%.4f", value);
-    }
-
-    private static String buildPreviewSummary(double reynolds, double[] mach, double[] plumeOff,
-                                              double[] plumeOn, double[] plumeOffBeta) {
-        int peakIndex = indexOfPeak(plumeOff);
-        double peakMach = peakIndex >= 0 ? mach[peakIndex] : Double.NaN;
-        double peakCd = peakIndex >= 0 ? plumeOff[peakIndex] : Double.NaN;
-        String betaLine = plumeOffBeta == null
-                ? "Blue is plume-off and orange dashed is plume-on at alpha = 0 deg."
-                : "Blue is plume-off at beta = 0 deg, orange dashed is plume-on at beta = 0 deg, and green is plume-off at beta = 15 deg.";
-        String peakLine = peakIndex < 0
-                ? "The transonic band (Mach 0.8 to 1.2) is where wave drag typically peaks."
-                : String.format(Locale.ROOT,
-                "The transonic band (Mach 0.8 to 1.2) captures the wave-drag rise, with the plume-off peak near Mach %.2f at Cd %.3f.",
-                peakMach, peakCd);
-        return String.format(Locale.ROOT,
-                "Preview conditions: Re = %.3e, alpha = 0 deg. %s %s Above Mach 1.2 the curves relax toward their supersonic trend.",
-                reynolds, betaLine, peakLine);
-    }
-
-    private static int indexOfPeak(double[] values) {
-        if (values == null || values.length == 0) {
-            return -1;
-        }
-        int bestIndex = 0;
-        double bestValue = values[0];
-        for (int i = 1; i < values.length; i++) {
-            if (values[i] > bestValue) {
-                bestValue = values[i];
-                bestIndex = i;
-            }
-        }
-        return bestIndex;
-    }
-
-    private static final class PreviewChartPanel extends JPanel {
-        private static final long serialVersionUID = -1115574697605012065L;
-        private static final double MAX_MACH = 4.0;
-        private static final double TRANSONIC_START = 0.8;
-        private static final double TRANSONIC_END = 1.2;
-
-        private double[] mach;
-        private double[] off;
-        private double[] on;
-        private double[] offBeta;
-
-        void clear() {
-            this.mach = null;
-            this.off = null;
-            this.on = null;
-            this.offBeta = null;
-            repaint();
-        }
-
-        void setSeries(double[] mach, double[] off, double[] on, double[] offBeta) {
-            this.mach = mach;
-            this.off = off;
-            this.on = on;
-            this.offBeta = offBeta;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int w = getWidth();
-                int h = getHeight();
-
-                Color panelBackground = fallbackColor(getBackground(), UIManager.getColor("Panel.background"),
-                        new Color(32, 36, 41));
-                Color textColor = fallbackColor(getForeground(), UIManager.getColor("Label.foreground"), Color.WHITE);
-                boolean darkTheme = isDark(panelBackground);
-                Color plotBackground = darkTheme ? new Color(25, 29, 34) : new Color(248, 248, 248);
-                Color plotBorder = darkTheme ? new Color(95, 103, 112) : new Color(200, 200, 200);
-                Color gridColor = darkTheme ? new Color(255, 255, 255, 26) : new Color(0, 0, 0, 24);
-                Color dimText = withAlpha(textColor, darkTheme ? 185 : 150);
-                Color guideColor = darkTheme ? new Color(255, 218, 145, 150) : new Color(140, 110, 70, 130);
-                Color transonicFill = darkTheme ? new Color(255, 184, 77, 28) : new Color(255, 171, 64, 32);
-                Color machOneColor = darkTheme ? new Color(255, 240, 212, 100) : new Color(140, 100, 55, 100);
-                Color offColor = darkTheme ? new Color(96, 174, 255) : new Color(25, 90, 180);
-                Color onColor = darkTheme ? new Color(255, 164, 92) : new Color(190, 80, 20);
-                Color betaColor = darkTheme ? new Color(123, 214, 145) : new Color(40, 140, 60);
-                Color legendBackground = darkTheme ? new Color(18, 22, 28, 215) : new Color(255, 255, 255, 220);
-
-                int left = 54;
-                int right = 20;
-                int top = 20;
-                int bottom = 38;
-
-                int pw = Math.max(1, w - left - right);
-                int ph = Math.max(1, h - top - bottom);
-                double yMax = computeRangeMax(off, on, offBeta);
-                double yStep = computeTickStep(yMax / 4.0);
-
-                g2.setColor(plotBackground);
-                g2.fillRect(left, top, pw, ph);
-                shadeMachBand(g2, left, top, pw, ph, TRANSONIC_START, TRANSONIC_END, transonicFill);
-
-                g2.setFont(getFont().deriveFont(Font.PLAIN, 11f));
-                for (double y = 0.0; y <= yMax + 1e-9; y += yStep) {
-                    int py = toPixelY(y, top, ph, yMax);
-                    g2.setColor(gridColor);
-                    g2.drawLine(left, py, left + pw, py);
-                    g2.setColor(dimText);
-                    g2.drawString(formatTick(yStep, y), 10, py + 4);
-                }
-
-                for (int xTick = 0; xTick <= 4; xTick++) {
-                    int px = toPixelX(xTick, left, pw);
-                    g2.setColor(gridColor);
-                    g2.drawLine(px, top, px, top + ph);
-                    g2.setColor(dimText);
-                    String label = Integer.toString(xTick);
-                    g2.drawString(label, px - g2.getFontMetrics().stringWidth(label) / 2, top + ph + 16);
-                }
-
-                drawVLine(g2, left, top, pw, ph, TRANSONIC_START, guideColor);
-                drawVLine(g2, left, top, pw, ph, TRANSONIC_END, guideColor);
-                drawVLine(g2, left, top, pw, ph, 1.0, machOneColor);
-
-                g2.setColor(plotBorder);
-                g2.drawRect(left, top, pw, ph);
-
-                g2.setColor(textColor);
-                g2.drawString("Mach", left + pw / 2 - 14, h - 8);
-
-                g2.rotate(-Math.PI / 2.0);
-                g2.drawString("Cd", -top - ph / 2 - 8, 18);
-                g2.rotate(Math.PI / 2.0);
-
-                if (mach == null || off == null || on == null) {
-                    g2.setColor(textColor);
-                    g2.setFont(getFont().deriveFont(Font.PLAIN, 12f));
-                    String line1 = "Build a ROM surface to preview drag versus Mach.";
-                    String line2 = "The shaded band highlights the transonic regime around Mach 1.";
-                    g2.drawString(line1, left + 14, top + ph / 2 - 6);
-                    g2.setColor(dimText);
-                    g2.drawString(line2, left + 14, top + ph / 2 + 14);
-                    return;
-                }
-
-                drawSeries(g2, left, top, pw, ph, yMax, mach, off, offColor, null);
-                drawSeries(g2, left, top, pw, ph, yMax, mach, on, onColor, new float[] { 6f, 6f });
-                if (offBeta != null) {
-                    drawSeries(g2, left, top, pw, ph, yMax, mach, offBeta, betaColor, new float[] { 2f, 4f });
-                }
-
-                drawLegend(g2, left + 10, top + 10, legendBackground, textColor, dimText, offBeta != null,
-                        offColor, onColor, betaColor);
-                drawPeakMarker(g2, left, top, pw, ph, yMax, mach, off, offColor, legendBackground, textColor);
-
-                g2.setColor(dimText);
-                g2.setFont(getFont().deriveFont(Font.PLAIN, 10f));
-                String bandLabel = "Transonic band";
-                int bandCenter = (toPixelX(TRANSONIC_START, left, pw) + toPixelX(TRANSONIC_END, left, pw)) / 2;
-                g2.drawString(bandLabel, bandCenter - g2.getFontMetrics().stringWidth(bandLabel) / 2, top + 12);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        private static void drawSeries(Graphics2D g2, int left, int top, int pw, int ph, double yMax,
-                                       double[] x, double[] y, Color color, float[] dash) {
-            g2.setColor(color);
-            if (dash == null) {
-                g2.setStroke(new BasicStroke(2f));
-            } else {
-                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, dash, 0f));
-            }
-            for (int i = 1; i < x.length; i++) {
-                int x1 = toPixelX(x[i - 1], left, pw);
-                int y1 = toPixelY(y[i - 1], top, ph, yMax);
-                int x2 = toPixelX(x[i], left, pw);
-                int y2 = toPixelY(y[i], top, ph, yMax);
-                g2.drawLine(x1, y1, x2, y2);
-            }
-        }
-
-        private static void drawVLine(Graphics2D g2, int left, int top, int pw, int ph, double mach, Color color) {
-            int x = toPixelX(mach, left, pw);
-            java.awt.Stroke old = g2.getStroke();
-            g2.setColor(color);
-            g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, new float[] { 4f, 4f }, 0f));
-            g2.drawLine(x, top, x, top + ph);
-            g2.setStroke(old);
-        }
-
-        private static void shadeMachBand(Graphics2D g2, int left, int top, int pw, int ph,
-                                          double startMach, double endMach, Color fill) {
-            int x1 = toPixelX(startMach, left, pw);
-            int x2 = toPixelX(endMach, left, pw);
-            g2.setColor(fill);
-            g2.fillRect(x1, top, Math.max(1, x2 - x1), ph);
-        }
-
-        private static void drawLegend(Graphics2D g2, int x, int y, Color background, Color textColor,
-                                       Color dimText, boolean showBeta, Color offColor, Color onColor, Color betaColor) {
-            int width = showBeta ? 180 : 156;
-            int height = showBeta ? 56 : 42;
-            g2.setColor(background);
-            g2.fillRoundRect(x, y, width, height, 10, 10);
-            g2.setColor(withAlpha(dimText, 90));
-            g2.drawRoundRect(x, y, width, height, 10, 10);
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
-            drawLegendEntry(g2, x + 10, y + 15, offColor, null, textColor, "Plume off");
-            drawLegendEntry(g2, x + 10, y + 29, onColor, new float[] { 6f, 6f }, textColor, "Plume on");
-            if (showBeta) {
-                drawLegendEntry(g2, x + 10, y + 43, betaColor, new float[] { 2f, 4f }, textColor, "Beta = 15 deg");
-            }
-        }
-
-        private static void drawLegendEntry(Graphics2D g2, int x, int y, Color lineColor, float[] dash,
-                                            Color textColor, String label) {
-            java.awt.Stroke old = g2.getStroke();
-            if (dash == null) {
-                g2.setStroke(new BasicStroke(2f));
-            } else {
-                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, dash, 0f));
-            }
-            g2.setColor(lineColor);
-            g2.drawLine(x, y, x + 18, y);
-            g2.setStroke(old);
-            g2.setColor(textColor);
-            g2.drawString(label, x + 24, y + 4);
-        }
-
-        private static void drawPeakMarker(Graphics2D g2, int left, int top, int pw, int ph, double yMax,
-                                           double[] mach, double[] off, Color offColor, Color boxColor, Color textColor) {
-            int peakIndex = indexOfPeak(off);
-            if (peakIndex < 0) {
-                return;
-            }
-            int px = toPixelX(mach[peakIndex], left, pw);
-            int py = toPixelY(off[peakIndex], top, ph, yMax);
-            String label = String.format(Locale.ROOT, "Peak %.3f @ M %.2f", off[peakIndex], mach[peakIndex]);
-            int labelWidth = g2.getFontMetrics().stringWidth(label);
-            int boxX = px > left + pw * 0.63 ? px - labelWidth - 22 : px + 12;
-            boxX = Math.max(left + 6, Math.min(boxX, left + pw - labelWidth - 14));
-            int boxY = Math.max(top + 6, py - 18);
-
-            g2.setColor(offColor);
-            g2.fillOval(px - 4, py - 4, 8, 8);
-            g2.drawLine(px, py, boxX + (boxX < px ? labelWidth + 8 : 0), boxY + 8);
-
-            g2.setColor(boxColor);
-            g2.fillRoundRect(boxX - 4, boxY - 10, labelWidth + 10, 16, 8, 8);
-            g2.setColor(withAlpha(textColor, 90));
-            g2.drawRoundRect(boxX - 4, boxY - 10, labelWidth + 10, 16, 8, 8);
-            g2.setColor(textColor);
-            g2.drawString(label, boxX, boxY + 2);
-        }
-
-        private static int toPixelX(double mach, int left, int pw) {
-            return left + (int) Math.round(pw * MathUtil.clamp(mach / MAX_MACH, 0.0, 1.0));
-        }
-
-        private static int toPixelY(double value, int top, int ph, double yMax) {
-            return top + ph - (int) Math.round(ph * MathUtil.clamp(value / yMax, 0.0, 1.0));
-        }
-
-        private static double computeRangeMax(double[]... series) {
-            double max = 0.3;
-            for (double[] values : series) {
-                if (values == null) {
-                    continue;
-                }
-                for (double value : values) {
-                    if (Double.isFinite(value)) {
-                        max = Math.max(max, value);
-                    }
-                }
-            }
-            double padded = max * 1.12;
-            double step = computeTickStep(padded / 4.0);
-            return Math.ceil(padded / step) * step;
-        }
-
-        private static double computeTickStep(double roughStep) {
-            if (!(roughStep > 0.0)) {
-                return 0.1;
-            }
-            double exponent = Math.pow(10.0, Math.floor(Math.log10(roughStep)));
-            double fraction = roughStep / exponent;
-            double niceFraction;
-            if (fraction <= 1.0) {
-                niceFraction = 1.0;
-            } else if (fraction <= 2.0) {
-                niceFraction = 2.0;
-            } else if (fraction <= 5.0) {
-                niceFraction = 5.0;
-            } else {
-                niceFraction = 10.0;
-            }
-            return niceFraction * exponent;
-        }
-
-        private static String formatTick(double step, double value) {
-            if (step >= 1.0) {
-                return String.format(Locale.ROOT, "%.0f", value);
-            }
-            if (step >= 0.1) {
-                return String.format(Locale.ROOT, "%.1f", value);
-            }
-            return String.format(Locale.ROOT, "%.2f", value);
-        }
-
-        private static Color fallbackColor(Color preferred, Color secondary, Color fallback) {
-            if (preferred != null) {
-                return preferred;
-            }
-            if (secondary != null) {
-                return secondary;
-            }
-            return fallback;
-        }
-
-        private static Color withAlpha(Color color, int alpha) {
-            return new Color(color.getRed(), color.getGreen(), color.getBlue(), MathUtil.clamp(alpha, 0, 255));
-        }
-
-        private static boolean isDark(Color color) {
-            double luminance = (0.2126 * color.getRed() + 0.7152 * color.getGreen() + 0.0722 * color.getBlue()) / 255.0;
-            return luminance < 0.5;
-        }
-    }
+	private static final long serialVersionUID = 2770487667033110266L;
+
+	private final Simulation simulation;
+	private final GeometryFeatureExtractor geometryFeatureExtractor = new GeometryFeatureExtractor();
+	private final PathlineSeeder pathlineSeeder = new PathlineSeeder();
+	private final RegimeSelector regimeSelector = new RegimeSelector();
+
+	// ---- Geometry snapshot labels ----
+	private final JLabel geometryHashValue    = new JLabel("-");
+	private final JLabel bodyLengthValue      = new JLabel("-");
+	private final JLabel maxDiameterValue     = new JLabel("-");
+	private final JLabel finCountValue        = new JLabel("-");
+	private final JLabel shoulderValue        = new JLabel("-");
+	private final JLabel romStatusValue       = new JLabel("-");
+	private final JLabel modeValue            = new JLabel("-");
+	private final JLabel fallbackValue        = new JLabel("-");
+
+	// ---- Compute inputs ----
+	private final JSpinner machSpinner   = new JSpinner(new SpinnerNumberModel(0.80, 0.0, 8.0, 0.05));
+	private final JSpinner aoaSpinner    = new JSpinner(new SpinnerNumberModel(5.0, -30.0, 30.0, 0.5));
+	private final JSpinner thetaSpinner  = new JSpinner(new SpinnerNumberModel(0.0, -180.0, 180.0, 5.0));
+	private final JSpinner plumeSpinner  = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 1.0, 0.05));
+
+	// ---- Pathline count controls (write-through to RomSettings) ----
+	private final JSpinner bodyPathlineSpinner = new JSpinner(new SpinnerNumberModel(12, 2, 64, 1));
+	private final JSpinner finPathlineSpinner  = new JSpinner(new SpinnerNumberModel(3, 1, 16, 1));
+
+	// ---- Seed table ----
+	private final DefaultTableModel seedTableModel = new DefaultTableModel(
+			new Object[]{"Family", "Component", "x (m)", "Area weight"}, 0) {
+		private static final long serialVersionUID = 1L;
+		@Override public boolean isCellEditable(int r, int c) { return false; }
+	};
+	private final JLabel seedCountLabel = new JLabel("–");
+
+	// ---- Results ----
+	private final JTextArea resultArea = createTextArea(10);
+	private final JLabel regimeLabel      = new JLabel("–");
+	private final JLabel confidenceLabel  = new JLabel("–");
+	private final JLabel fallbackPctLabel = new JLabel("–");
+
+	// Suppress feedback loop when loading settings into spinners
+	private boolean loadingSettings = false;
+
+	RomPrestepPanel(Simulation simulation) {
+		super(new MigLayout("fillx, insets 8, gap 8 8, wrap 2", "[grow,fill][grow,fill]", ""));
+		this.simulation = simulation;
+
+		add(buildStatusAndGeometryPanel(), "span 2, growx, wrap");
+		add(buildPathlinePanel(),          "growx, top");
+		add(buildSeedTablePanel(),         "grow, top");
+		add(buildComputePanel(),           "span 2, growx, wrap");
+
+		wireEvents();
+		refreshFromModel();
+	}
+
+	// ─── panel builders ───────────────────────────────────────────────────────
+
+	private JPanel buildStatusAndGeometryPanel() {
+		JPanel p = new JPanel(new MigLayout("fillx, insets 0, gap 12 0", "[grow,fill][grow,fill]", ""));
+
+		// Left: ROM config status
+		JPanel status = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5", "[right][grow]", ""));
+		status.setBorder(BorderFactory.createTitledBorder("ROM status"));
+		status.add(new JLabel("Enabled:"));  status.add(romStatusValue, "wrap");
+		status.add(new JLabel("Mode:"));     status.add(modeValue, "wrap");
+		status.add(new JLabel("Fallback:")); status.add(fallbackValue, "wrap");
+		p.add(status, "grow, top");
+
+		// Right: geometry snapshot
+		JPanel geo = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5",
+				"[right][grow][right][grow]", ""));
+		geo.setBorder(BorderFactory.createTitledBorder("Geometry snapshot"));
+		geo.add(new JLabel("Geometry hash:"));    geo.add(geometryHashValue);
+		geo.add(new JLabel("Body length:"));      geo.add(bodyLengthValue, "wrap");
+		geo.add(new JLabel("Max diameter:"));     geo.add(maxDiameterValue);
+		geo.add(new JLabel("Total fins:"));       geo.add(finCountValue, "wrap");
+		geo.add(new JLabel("Shoulders / boattails:")); geo.add(shoulderValue, "span 3, wrap");
+		p.add(geo, "grow, top");
+
+		return p;
+	}
+
+	private JPanel buildPathlinePanel() {
+		JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
+				"[right][grow][right][grow]", ""));
+		p.setBorder(BorderFactory.createTitledBorder("Pathline configuration"));
+
+		p.add(new JLabel("Body meridian pathlines:"));
+		p.add(bodyPathlineSpinner, "growx");
+		p.add(new JLabel("Fin surface pathlines:"));
+		p.add(finPathlineSpinner, "growx, wrap");
+
+		p.add(new JLabel("Mach:"));
+		p.add(machSpinner, "growx");
+		p.add(new JLabel("AoA (deg):"));
+		p.add(aoaSpinner, "growx, wrap");
+
+		p.add(new JLabel("Roll plane θ (deg):"));
+		p.add(thetaSpinner, "growx");
+		p.add(new JLabel("Plume state:"));
+		p.add(plumeSpinner, "growx, wrap");
+
+		return p;
+	}
+
+	private JPanel buildSeedTablePanel() {
+		JPanel p = new JPanel(new MigLayout("fill, insets 6, gapy 4", "[grow,fill]", "[][grow]"));
+		p.setBorder(BorderFactory.createTitledBorder("Pathline seed plan"));
+		p.add(seedCountLabel, "wrap");
+		JTable table = new JTable(seedTableModel);
+		table.setFillsViewportHeight(true);
+		p.add(new JScrollPane(table), "grow, hmin 120");
+		return p;
+	}
+
+	private JPanel buildComputePanel() {
+		JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
+				"[][grow][][grow][][grow]", ""));
+		p.setBorder(BorderFactory.createTitledBorder("ROM compute"));
+
+		// Prominent compute button
+		JButton computeBtn = new JButton("Compute ROM");
+		computeBtn.setFont(computeBtn.getFont().deriveFont(Font.BOLD, 13f));
+		computeBtn.setBackground(new Color(60, 120, 200));
+		computeBtn.setForeground(Color.WHITE);
+		computeBtn.setOpaque(true);
+		computeBtn.addActionListener(e -> runCompute());
+		p.add(computeBtn, "h 32!, w 160!");
+
+		// Quick-read status line
+		p.add(new JLabel("Regime:"));    p.add(regimeLabel, "growx");
+		p.add(new JLabel("Confidence:")); p.add(confidenceLabel, "growx");
+		p.add(new JLabel("Fallback:"));   p.add(fallbackPctLabel, "growx, wrap");
+
+		// Results area
+		p.add(new JScrollPane(resultArea), "span 7, growx, h 200!");
+
+		return p;
+	}
+
+	// ─── wiring ───────────────────────────────────────────────────────────────
+
+	private void wireEvents() {
+		// Refresh geometry snapshot when simulation options change
+		simulation.getOptions().addChangeListener(
+				e -> SwingUtilities.invokeLater(this::refreshFromModel));
+
+		// Pathline count spinners write through to RomSettings immediately
+		bodyPathlineSpinner.addChangeListener(e -> {
+			if (loadingSettings) return;
+			applyPathlineCounts();
+		});
+		finPathlineSpinner.addChangeListener(e -> {
+			if (loadingSettings) return;
+			applyPathlineCounts();
+		});
+
+		// Seed preview refreshes when pathline counts or Mach/AoA change
+		ChangeListener previewListener = e -> refreshSeedPreview();
+		machSpinner.addChangeListener(previewListener);
+		aoaSpinner.addChangeListener(previewListener);
+		bodyPathlineSpinner.addChangeListener(previewListener);
+		finPathlineSpinner.addChangeListener(previewListener);
+	}
+
+	private void applyPathlineCounts() {
+		RomSettings settings = simulation.getOptions().getRomSettings().copy();
+		settings.setBodyMeridianSeedCount((int) spinnerValue(bodyPathlineSpinner));
+		settings.setFinSurfaceSeedCount((int) spinnerValue(finPathlineSpinner));
+		simulation.getOptions().setRomSettings(settings);
+		refreshSeedPreview();
+	}
+
+	// ─── refresh / compute ────────────────────────────────────────────────────
+
+	private void refreshFromModel() {
+		RomSettings settings = simulation.getOptions().getRomSettings();
+		GeometryFeatures geometry = geometryFeatureExtractor.extract(activeConfiguration());
+
+		// Status
+		romStatusValue.setText(settings.isEnabled() ? "Enabled" : "Disabled");
+		modeValue.setText(formatMode(settings.getMode()));
+		fallbackValue.setText(formatFallback(settings.getFallbackMode()));
+
+		// Geometry — total fin count is sum of finCount across all fin sets
+		int totalFins = geometry.getFins().stream().mapToInt(FinGeometry::getFinCount).sum();
+		int finSets   = geometry.getFins().size();
+		finCountValue.setText(totalFins + (finSets > 0
+				? String.format("  (%d set%s)", finSets, finSets == 1 ? "" : "s") : ""));
+		geometryHashValue.setText(shortHash(geometry.getGeometryHash()));
+		bodyLengthValue.setText(formatMeters(geometry.getBodyLength()));
+		maxDiameterValue.setText(formatMeters(geometry.getMaxDiameter()));
+		shoulderValue.setText(geometry.getShoulderCount() + " / " + geometry.getBoattailCount());
+
+		// Load pathline counts without triggering write-back
+		loadingSettings = true;
+		bodyPathlineSpinner.setValue(settings.getBodyMeridianSeedCount());
+		finPathlineSpinner.setValue(settings.getFinSurfaceSeedCount());
+		loadingSettings = false;
+
+		refreshSeedPreview();
+
+		if (resultArea.getText().isBlank()) {
+			resultArea.setText("Press \"Compute ROM\" to evaluate aerodynamic coefficients at the current conditions.");
+		}
+	}
+
+	private void refreshSeedPreview() {
+		RomSettings settings = simulation.getOptions().getRomSettings();
+		GeometryFeatures geometry = geometryFeatureExtractor.extract(activeConfiguration());
+		List<PathlineSeed> seeds = pathlineSeeder.createSeeds(geometry, settings);
+
+		int totalFins = geometry.getFins().stream().mapToInt(FinGeometry::getFinCount).sum();
+		seedCountLabel.setText(String.format(Locale.ROOT,
+				"%d total seeds  (body: %d  |  fin per set: %d  |  %d individual fins)",
+				seeds.size(),
+				settings.getBodyMeridianSeedCount(),
+				settings.getFinSurfaceSeedCount(),
+				totalFins));
+
+		seedTableModel.setRowCount(0);
+		for (PathlineSeed seed : seeds) {
+			seedTableModel.addRow(new Object[]{
+					formatSeedFamily(seed),
+					seed.getComponentName(),
+					String.format(Locale.ROOT, "%.3f", seed.getX()),
+					String.format(Locale.ROOT, "%.4f", seed.getAreaWeight())
+			});
+		}
+	}
+
+	private void runCompute() {
+		FlightConfiguration configuration = activeConfiguration();
+		SimulationConditions prepared = simulation.getOptions().toSimulationConditions();
+		RomAerodynamicCalculator calculator = prepared.getRomAerodynamicCalculator();
+
+		FlightConditions conditions = new FlightConditions(configuration);
+		conditions.setAtmosphericConditions(new AtmosphericConditions(
+				simulation.getOptions().getLaunchTemperature(),
+				simulation.getOptions().getLaunchPressure(),
+				simulation.getOptions().getLaunchRelativeHumidity()));
+		conditions.setMach(spinnerValue(machSpinner));
+		conditions.setAOA(Math.toRadians(spinnerValue(aoaSpinner)));
+		conditions.setTheta(Math.toRadians(spinnerValue(thetaSpinner)));
+		calculator.setPlumeState(spinnerValue(plumeSpinner));
+
+		WarningSet warnings = new WarningSet();
+		AerodynamicForces forces = prepared.getAerodynamicCalculator()
+				.getAerodynamicForces(configuration, conditions, warnings);
+
+		if (!calculator.isEnabled()) {
+			showDisabledResult(forces);
+			return;
+		}
+
+		RomResult result = calculator.getLastResult();
+		if (result == null) {
+			resultArea.setText("ROM returned no result. Check that the rocket has valid geometry.");
+			return;
+		}
+
+		// Update quick-read labels
+		regimeLabel.setText(formatRegime(result.getRegime()));
+		double conf = result.getConfidence().getOverallScore();
+		confidenceLabel.setText(String.format(Locale.ROOT, "%.1f%%", conf * 100.0));
+		confidenceLabel.setForeground(conf > 0.75 ? new Color(0, 150, 0)
+				: conf > 0.45 ? new Color(180, 100, 0) : Color.RED);
+		fallbackPctLabel.setText(String.format(Locale.ROOT, "%.0f%% Barrowman",
+				result.getFallbackWeight() * 100.0));
+
+		// Build detailed result text
+		StringBuilder sb = new StringBuilder();
+		sb.append(String.format(Locale.ROOT, "%-22s %s%n", "Regime:", formatRegime(result.getRegime())));
+		sb.append(String.format(Locale.ROOT, "%-22s M=%.3f  AoA=%.1f°  θ=%.1f°  plume=%.2f%n",
+				"Conditions:",
+				spinnerValue(machSpinner), spinnerValue(aoaSpinner),
+				spinnerValue(thetaSpinner), spinnerValue(plumeSpinner)));
+		sb.append("\n");
+		sb.append(String.format(Locale.ROOT, "%-22s %.4f%n", "CD (total):",  result.getBlendedForces().getCD()));
+		sb.append(String.format(Locale.ROOT, "  %-20s %.4f%n", "pressure:", result.getBlendedForces().getPressureCD()));
+		sb.append(String.format(Locale.ROOT, "  %-20s %.4f%n", "friction:",  result.getBlendedForces().getFrictionCD()));
+		sb.append(String.format(Locale.ROOT, "  %-20s %.4f%n", "base:",      result.getBlendedForces().getBaseCD()));
+		sb.append(String.format(Locale.ROOT, "%-22s %.4f%n", "CN:",          result.getBlendedForces().getCN()));
+		sb.append(String.format(Locale.ROOT, "%-22s %.4f%n", "Cm:",          result.getBlendedForces().getCm()));
+		sb.append(String.format(Locale.ROOT, "%-22s %.4f m%n", "CP x:",      result.getBlendedForces().getCP().getX()));
+		sb.append("\n");
+		sb.append(String.format(Locale.ROOT, "%-22s %.3f  (%.0f%% Barrowman)%n",
+				"Confidence:", conf, result.getFallbackWeight() * 100.0));
+		sb.append(String.format(Locale.ROOT, "%-22s %.3f%n", "Separation fraction:", result.getSeparationFraction()));
+		sb.append(String.format(Locale.ROOT, "%-22s %d%n", "Active seeds:", result.getSeeds().size()));
+
+		if (!result.getConfidence().getReasons().isEmpty()) {
+			sb.append("\nConfidence flags:\n");
+			for (String reason : result.getConfidence().getReasons()) {
+				sb.append("  • ").append(reason).append("\n");
+			}
+		}
+		if (!warnings.isEmpty()) {
+			sb.append("\nWarnings:\n");
+			sb.append(warnings).append("\n");
+		}
+		if (!result.getNotes().isBlank()) {
+			sb.append("\nNotes:\n").append(result.getNotes()).append("\n");
+		}
+
+		// Side-by-side ROM vs Barrowman
+		sb.append("\n── ROM vs Barrowman comparison ──────────────────────────\n");
+		sb.append(String.format(Locale.ROOT, "  %-18s  ROM: %.4f   Barrowman: %.4f%n",
+				"CD:", result.getRomForces().getCD(), forces.getCD()));
+		sb.append(String.format(Locale.ROOT, "  %-18s  ROM: %.4f   Barrowman: %.4f%n",
+				"CN:", result.getRomForces().getCN(), forces.getCN()));
+		sb.append(String.format(Locale.ROOT, "  %-18s  ROM: %.4f   Barrowman: %.4f%n",
+				"Cm:", result.getRomForces().getCm(), forces.getCm()));
+
+		resultArea.setText(sb.toString());
+		resultArea.setCaretPosition(0);
+	}
+
+	private void showDisabledResult(AerodynamicForces forces) {
+		regimeLabel.setText("–");
+		confidenceLabel.setText("–");
+		fallbackPctLabel.setText("100% Barrowman");
+
+		resultArea.setText(String.format(Locale.ROOT,
+				"ROM is disabled — showing Barrowman reference only.%n%n"
+				+ "  CD = %.4f%n  CN = %.4f%n  Cm = %.4f%n  CP = %.4f m%n%n"
+				+ "Enable the ROM in Simulation Options to use the reduced-order solver.",
+				forces.getCD(), forces.getCN(), forces.getCm(),
+				forces.getCP() != null ? forces.getCP().getX() : 0.0));
+		resultArea.setCaretPosition(0);
+	}
+
+	// ─── helpers ─────────────────────────────────────────────────────────────
+
+	private FlightConfiguration activeConfiguration() {
+		return simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId());
+	}
+
+	private static JTextArea createTextArea(int rows) {
+		JTextArea area = new JTextArea(rows, 60);
+		area.setEditable(false);
+		area.setLineWrap(false);
+		area.setWrapStyleWord(false);
+		area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+		return area;
+	}
+
+	private static String formatMeters(double v) {
+		return String.format(Locale.ROOT, "%.4f m", v);
+	}
+
+	private static String shortHash(String hash) {
+		if (hash == null || hash.isBlank()) return "–";
+		return hash.length() <= 12 ? hash : hash.substring(0, 12);
+	}
+
+	private static String formatMode(RomMode mode) {
+		if (mode == null) return "Standard";
+		String raw = mode.name().toLowerCase(Locale.ROOT);
+		return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+	}
+
+	private static String formatFallback(RomFallbackMode m) {
+		if (m == null) return "Blend";
+		return switch (m) {
+			case BLEND         -> "Blend";
+			case BARROWMAN_ONLY -> "Barrowman only";
+			case FORCE_ROM      -> "Force ROM";
+		};
+	}
+
+	private static String formatRegime(FlowRegime r) {
+		if (r == null) return "–";
+		return switch (r) {
+			case SUBSONIC         -> "Subsonic";
+			case TRANSONIC        -> "Transonic";
+			case SUPERSONIC       -> "Supersonic";
+			case HYPERSONIC_LEANING -> "Hypersonic leaning";
+		};
+	}
+
+	private static String formatSeedFamily(PathlineSeed seed) {
+		return switch (seed.getFamily()) {
+			case BODY_MERIDIAN       -> "Body";
+			case FIN_SURFACE         -> "Fin";
+			case AFT_BODY_PLACEHOLDER -> "Aft body";
+		};
+	}
+
+	private static double spinnerValue(JSpinner s) {
+		Object v = s.getValue();
+		return v instanceof Number n ? n.doubleValue() : 0.0;
+	}
 }

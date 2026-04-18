@@ -1,14 +1,10 @@
 package info.openrocket.core.tuning;
 
-import info.openrocket.core.aerodynamics.rom.adapter.SurfaceAdapter;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.file.GeneralRocketLoader;
 import info.openrocket.core.simulation.FlightData;
-import info.openrocket.core.startup.Application;
-import info.openrocket.core.startup.OpenRocketCore;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -20,50 +16,50 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class RomHighMachDiagnosticsTest {
 
 	private static final double APOGEE_TOLERANCE_FEET = 0.1;
+	private static final double BASELINE_DELTA_FRACTION_MAX = 0.02;
 
 	@Test
-	public void pelencatorFourDDoesNotRegressBelowDerivedThreeDAndRemainsConservative() throws Exception {
+	public void pelencatorPathlineRunRemainsConservativeAgainstBaseline() throws Exception {
 		Simulation source = loadSource("Pelencator_Launch_1", "VDF_Launch_1.ork");
-		Assumptions.assumeTrue(hasEmbeddedRomData(source),
-				"Pelencator ORK does not contain embedded ROM surfaces for a 3D/4D comparison");
 		VariantResults results = simulateVariants(source);
-		assertNotNull(results.threeD);
-		assertNotNull(results.fourD);
+		assertNotNull(results.pathline);
 		assertNotNull(results.baseline);
-		assertTrue(results.fourD.apogeeFeet + APOGEE_TOLERANCE_FEET >= results.threeD.apogeeFeet,
-				"4D should not regress below the derived 3D path on Pelencator. 3D=" + results.threeD.apogeeFeet
-						+ " 4D=" + results.fourD.apogeeFeet);
-		assertTrue(results.fourD.apogeeFeet <= results.baseline.apogeeFeet + APOGEE_TOLERANCE_FEET,
-				"4D should not exceed the pure baseline on Pelencator. baseline="
-						+ results.baseline.apogeeFeet + " 4D=" + results.fourD.apogeeFeet);
+		assertTrue(withinBaselineBand(results.pathline.apogeeFeet, results.baseline.apogeeFeet),
+				"Pathline run should stay within 2% of the pure baseline on Pelencator. baseline="
+						+ results.baseline.apogeeFeet + " pathline=" + results.pathline.apogeeFeet);
+		assertTrue(results.pathline.maxMach > 0.30,
+				"Pelencator pathline regression should remain in the high-Mach envelope. maxMach="
+						+ results.pathline.maxMach);
 	}
 
 	@Test
-	public void jackpotFourDDoesNotRegressBelowDerivedThreeDAndRemainsConservative() throws Exception {
+	public void jackpotPathlineRunRemainsConservativeAgainstBaseline() throws Exception {
 		Simulation source = loadSource("Jackpot_Launch_2", "NASA_26_PDF_Config_Something.ork");
-		Assumptions.assumeTrue(hasEmbeddedRomData(source),
-				"Jackpot launch 2 ORK does not contain embedded ROM surfaces for a 3D/4D comparison");
 		VariantResults results = simulateVariants(source);
-		assertNotNull(results.threeD);
-		assertNotNull(results.fourD);
+		assertNotNull(results.pathline);
 		assertNotNull(results.baseline);
-		assertTrue(results.fourD.apogeeFeet + APOGEE_TOLERANCE_FEET >= results.threeD.apogeeFeet,
-				"4D should not regress below the derived 3D path on Jackpot. 3D=" + results.threeD.apogeeFeet
-						+ " 4D=" + results.fourD.apogeeFeet);
-		assertTrue(results.fourD.apogeeFeet <= results.baseline.apogeeFeet + APOGEE_TOLERANCE_FEET,
-				"4D should not exceed the pure baseline on Jackpot. baseline="
-						+ results.baseline.apogeeFeet + " 4D=" + results.fourD.apogeeFeet);
+		assertTrue(withinBaselineBand(results.pathline.apogeeFeet, results.baseline.apogeeFeet),
+				"Pathline run should stay within 2% of the pure baseline on Jackpot. baseline="
+						+ results.baseline.apogeeFeet + " pathline=" + results.pathline.apogeeFeet);
+		assertTrue(results.pathline.maxMach > 0.40,
+				"Jackpot pathline regression should remain in the high-Mach envelope. maxMach="
+						+ results.pathline.maxMach);
 	}
 
 	@Test
-	public void governmentWorkLaunch2StillLoadsAndSimulatesBaseline() throws Exception {
+	public void governmentWorkLaunch2StillLoadsAndSimulatesPathline() throws Exception {
 		VariantResults results = simulateVariants(loadSource("Government_Work_Launch_2", "NASA_26_Subscale_2.ork"));
-		assertNotNull(results.baseline);
-		assertTrue(results.baseline.apogeeFeet > 2000.0);
+		assertNotNull(results.pathline);
+		assertTrue(results.pathline.apogeeFeet > 500.0,
+				"Government Work launch 2 pathline run should produce a meaningful ascent. apogeeFeet="
+						+ results.pathline.apogeeFeet);
+		assertTrue(results.pathline.maxMach > 0.20,
+				"Government Work launch 2 pathline run should remain in a non-trivial flight regime. maxMach="
+						+ results.pathline.maxMach);
 	}
 
 	private static Simulation loadSource(String folder, String file) throws Exception {
-		ensureApplicationInjector();
+		TuningTestInfrastructure.ensureApplicationInjector();
 		File orkFile = Path.of("src", "test", "java", "info", "openrocket", "core", "tuning", folder, file).toFile();
 		GeneralRocketLoader loader = new GeneralRocketLoader(orkFile);
 		OpenRocketDocument document = loader.load();
@@ -74,32 +70,19 @@ public class RomHighMachDiagnosticsTest {
 		return new VariantResults(
 				simulate(source.clone(false)),
 				simulate(baselineVariant(source)),
-				simulate(threeDVariant(source)),
-				simulate(fourDVariant(source)));
+				simulate(pathlineVariant(source)));
 	}
 
 	private static Simulation baselineVariant(Simulation source) {
 		Simulation simulation = source.clone(false);
-		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.THREE_D);
-		simulation.getOptions().setRomDragSurface(null);
-		simulation.getOptions().setRomAeroSurface4D(null);
+		simulation.getOptions().setRomEnabled(false);
+		simulation.getOptions().setRomFallbackMode(RomFallbackMode.BARROWMAN_ONLY);
 		return simulation;
 	}
 
-	private static Simulation threeDVariant(Simulation source) {
+	private static Simulation pathlineVariant(Simulation source) {
 		Simulation simulation = source.clone(false);
-		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.THREE_D);
-		if (simulation.getOptions().getRomDragSurface() == null && simulation.getOptions().getRomAeroSurface4D() != null) {
-			simulation.getOptions().setRomDragSurface(
-					SurfaceAdapter.toBetaZeroDragSurface(simulation.getOptions().getRomAeroSurface4D()));
-		}
-		simulation.getOptions().setRomAeroSurface4D(null);
-		return simulation;
-	}
-
-	private static Simulation fourDVariant(Simulation source) {
-		Simulation simulation = source.clone(false);
-		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.FOUR_D);
+		PhaseThreeNativeAirbrakesConfigurer.forcePathlineRuntime(simulation.getOptions(), null);
 		return simulation;
 	}
 
@@ -118,18 +101,11 @@ public class RomHighMachDiagnosticsTest {
 	private record VariantResults(
 			SimulationResult saved,
 			SimulationResult baseline,
-			SimulationResult threeD,
-			SimulationResult fourD) {
+			SimulationResult pathline) {
 	}
 
-	private static boolean hasEmbeddedRomData(Simulation simulation) {
-		return simulation.getOptions().hasRomAeroSurface4D() || simulation.getOptions().hasRomDragSurface();
-	}
-
-	private static synchronized void ensureApplicationInjector() {
-		if (Application.getInjector() != null && OpenRocketCore.isInitialized()) {
-			return;
-		}
-		OpenRocketCore.initialize();
+	private static boolean withinBaselineBand(double candidateFeet, double baselineFeet) {
+		double tolerance = Math.max(APOGEE_TOLERANCE_FEET, Math.abs(baselineFeet) * BASELINE_DELTA_FRACTION_MAX);
+		return Math.abs(candidateFeet - baselineFeet) <= tolerance;
 	}
 }

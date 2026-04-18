@@ -24,15 +24,17 @@ import info.openrocket.core.util.WorldCoordinate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanDragCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanStabilityCalculator;
-import info.openrocket.core.aerodynamics.LookupTableDragCalculator;
-import info.openrocket.core.aerodynamics.LookupTableStabilityCalculator;
 import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.aerodynamics.lookup.CsvMachAoALookup;
 import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSettings;
 import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.masscalc.MassCalculator;
@@ -123,6 +125,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private DragSurface romDragSurface;
 	private AeroSurface4D romAeroSurface4D;
 	private RomSurfaceMode romSurfaceMode = RomSurfaceMode.THREE_D;
+	private RomSettings romSettings = RomSettings.defaults();
 	private List<String> dragLookupCsvRows;
 	private List<String> stabilityLookupCsvRows;
 
@@ -808,23 +811,21 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	}
 
 	/**
-	 * Returns whether the Cd(M, AoA) prerequisite for ROM drag workflows is met.
+	 * The pathline ROM no longer depends on a lookup-table prerequisite.
+	 *
+	 * The lookup APIs remain available for compatibility with saved documents and
+	 * ancillary tooling, but the active ROM runtime should always be considered
+	 * ready from a prerequisite perspective.
 	 */
 	public boolean isRomDragPrerequisiteReady() {
-		return hasDragLookupWithAoA();
+		return true;
 	}
 
 	/**
-	 * Ensures that the Cd(M, AoA) prerequisite for ROM drag workflows is met.
-	 *
-	 * @throws IllegalStateException when no Mach-AoA drag lookup table is configured.
+	 * The pathline ROM no longer throws when lookup tables are absent.
 	 */
 	public void verifyRomDragPrerequisite() {
-		if (isRomDragPrerequisiteReady()) {
-			return;
-		}
-		throw new IllegalStateException(
-				"ROM prerequisite not satisfied: configure a drag lookup table with Mach and AoA (Cd(M, AoA)) data.");
+		// Pathline-only runtime: no-op.
 	}
 
 	public List<String> getDragLookupCsvRows() {
@@ -916,6 +917,71 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public RomSettings getRomSettings() {
+		return romSettings.copy();
+	}
+
+	public void setRomSettings(RomSettings romSettings) {
+		RomSettings normalized = romSettings != null ? romSettings.copy() : RomSettings.defaults();
+		if (this.romSettings.equals(normalized)) {
+			return;
+		}
+		this.romSettings = normalized;
+		fireChangeEvent();
+	}
+
+	public boolean isRomEnabled() {
+		return romSettings.isEnabled();
+	}
+
+	public void setRomEnabled(boolean enabled) {
+		if (romSettings.isEnabled() == enabled) {
+			return;
+		}
+		RomSettings updated = romSettings.copy();
+		updated.setEnabled(enabled);
+		setRomSettings(updated);
+	}
+
+	public RomMode getRomMode() {
+		return romSettings.getMode();
+	}
+
+	public void setRomMode(RomMode mode) {
+		if (romSettings.getMode() == mode) {
+			return;
+		}
+		RomSettings updated = romSettings.copy();
+		updated.setMode(mode);
+		setRomSettings(updated);
+	}
+
+	public RomFallbackMode getRomFallbackMode() {
+		return romSettings.getFallbackMode();
+	}
+
+	public void setRomFallbackMode(RomFallbackMode fallbackMode) {
+		if (romSettings.getFallbackMode() == fallbackMode) {
+			return;
+		}
+		RomSettings updated = romSettings.copy();
+		updated.setFallbackMode(fallbackMode);
+		setRomSettings(updated);
+	}
+
+	public boolean isRomDiagnosticsEnabled() {
+		return romSettings.isDiagnosticsEnabled();
+	}
+
+	public void setRomDiagnosticsEnabled(boolean diagnosticsEnabled) {
+		if (romSettings.isDiagnosticsEnabled() == diagnosticsEnabled) {
+			return;
+		}
+		RomSettings updated = romSettings.copy();
+		updated.setDiagnosticsEnabled(diagnosticsEnabled);
+		setRomSettings(updated);
+	}
+
 	private void updateDragLookup(Path path, MachAoALookup table) {
 		boolean changed = !Objects.equals(this.dragLookupCsvPath, path) || this.dragLookupTable != table;
 		this.dragLookupCsvPath = path;
@@ -980,6 +1046,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.romDragSurface = this.romDragSurface;
 			copy.romAeroSurface4D = this.romAeroSurface4D;
 			copy.romSurfaceMode = this.romSurfaceMode;
+			copy.romSettings = this.romSettings.copy();
 			copy.dragLookupCsvRows = this.dragLookupCsvRows != null ? new ArrayList<>(this.dragLookupCsvRows) : null;
 			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
 			copy.stabilityLookupTable = this.stabilityLookupTable;
@@ -1132,6 +1199,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.romSurfaceMode = src.romSurfaceMode;
 		}
+		if (!this.romSettings.equals(src.romSettings)) {
+			isChanged = true;
+			this.romSettings = src.romSettings.copy();
+		}
 
 		if (isChanged) {
 			// Only copy the randomSeed if something else has changed.
@@ -1164,7 +1235,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.timeStep, o.timeStep) &&
 				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime) &&
 				Objects.equals(this.liveWeatherLaunchDate, o.liveWeatherLaunchDate) &&
-				Objects.equals(this.liveWeatherLaunchTime, o.liveWeatherLaunchTime)) &&
+				Objects.equals(this.liveWeatherLaunchTime, o.liveWeatherLaunchTime) &&
+				this.romSettings.equals(o.romSettings)) &&
 				this.stepperMethodChoice == o.stepperMethodChoice &&
 				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
@@ -1237,18 +1309,14 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		}
 		conditions.setGravityModel(gravityModel);
 
-		conditions.setAerodynamicCalculator(new BarrowmanCalculator(
-				stabilityLookupTable != null ? new LookupTableStabilityCalculator(stabilityLookupTable)
-						: new BarrowmanStabilityCalculator(),
-				dragLookupTable != null ? new LookupTableDragCalculator(dragLookupTable)
-						: new BarrowmanDragCalculator()));
-		RomAerodynamicCalculator romCalculator = new RomAerodynamicCalculator();
-		if (romSurfaceMode == RomSurfaceMode.THREE_D && romDragSurface != null) {
-			romCalculator.installSurface(romDragSurface);
-		}
-		if (romSurfaceMode == RomSurfaceMode.FOUR_D && romAeroSurface4D != null) {
-			romCalculator.installSurface4D(romAeroSurface4D);
-		}
+		// Pathline ROM testing uses a pure Barrowman fallback calculator. Legacy
+		// lookup-table aerodynamic overrides remain loadable for compatibility, but
+		// they no longer participate in the active ROM execution path.
+		AerodynamicCalculator legacyCalculator = new BarrowmanCalculator(
+				new BarrowmanStabilityCalculator(),
+				new BarrowmanDragCalculator());
+		conditions.setAerodynamicCalculator(legacyCalculator);
+		RomAerodynamicCalculator romCalculator = new RomAerodynamicCalculator(legacyCalculator.newInstance(), romSettings);
 		conditions.setRomAerodynamicCalculator(romCalculator);
 		conditions.setMassCalculator(new MassCalculator());
 
@@ -1286,6 +1354,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))
 				.concat(String.format("    stepperMethodChoice: %s\n", stepperMethodChoice))
+				.concat(String.format("    romEnabled: %b\n", romSettings.isEnabled()))
+				.concat(String.format("    romMode: %s\n", romSettings.getMode()))
+				.concat(String.format("    romFallbackMode: %s\n", romSettings.getFallbackMode()))
 				.concat("]\n");
 	}
 

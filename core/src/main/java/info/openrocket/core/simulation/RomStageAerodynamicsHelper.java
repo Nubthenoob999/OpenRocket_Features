@@ -1,6 +1,5 @@
 package info.openrocket.core.simulation;
 
-import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 
 final class RomStageAerodynamicsHelper {
@@ -9,8 +8,8 @@ final class RomStageAerodynamicsHelper {
 	}
 
 	static StageContext capture(SimulationStatus status) {
-		AerodynamicCalculator calculator = status.getSimulationConditions().getAerodynamicCalculator();
-		if (calculator instanceof RomAerodynamicCalculator romCalculator && romCalculator.hasSurface()) {
+		RomAerodynamicCalculator romCalculator = status.getSimulationConditions().getRomAerodynamicCalculator();
+		if (romCalculator != null && romCalculator.isEnabled()) {
 			return new StageContext(romCalculator, status.getSimulationTime(), romCalculator.getPlumeState());
 		}
 		return StageContext.inactive();

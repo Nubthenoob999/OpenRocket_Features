@@ -85,8 +85,8 @@ public final class HeadlessOrkSimulationRunner {
 				reconstruction.getCorrectedSeries(),
 				reconstruction.getRawSeries(),
 				reconstruction.getDiagnostics(),
-				options.getRomSurfaceMode() == null ? "" : options.getRomSurfaceMode().name(),
-				describeRomSurfaceSource(options),
+				describeRomRuntime(options),
+				describePathlineSource(options),
 				maxFinite(mach));
 	}
 
@@ -159,25 +159,27 @@ public final class HeadlessOrkSimulationRunner {
 		}
 	}
 
-	private static String describeRomSurfaceSource(SimulationOptions options) {
+	private static String describeRomRuntime(SimulationOptions options) {
 		if (options == null) {
 			return "";
 		}
-		if (options.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.FOUR_D
-				&& options.getRomAeroSurface4D() != null) {
-			return "FOUR_D_ACTIVE";
+		if (!options.isRomEnabled()) {
+			return "BARROWMAN_ONLY";
 		}
-		if (options.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.THREE_D
-				&& options.getRomDragSurface() != null) {
-			return "THREE_D_ACTIVE";
+		return "PATHLINE_" + options.getRomMode().name();
+	}
+
+	private static String describePathlineSource(SimulationOptions options) {
+		if (options == null) {
+			return "";
 		}
-		if (options.getRomAeroSurface4D() != null) {
-			return "FOUR_D_AVAILABLE_INACTIVE";
+		if (!options.isRomEnabled()) {
+			return "PATHLINE_DISABLED";
 		}
-		if (options.getRomDragSurface() != null) {
-			return "THREE_D_AVAILABLE_INACTIVE";
+		if (options.getRomAeroSurface4D() != null || options.getRomDragSurface() != null) {
+			return "PATHLINE_ACTIVE_LEGACY_SURFACES_IGNORED";
 		}
-		return "NONE";
+		return "PATHLINE_ACTIVE";
 	}
 
 	private static double maxFinite(List<Double> values) {

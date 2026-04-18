@@ -1,19 +1,21 @@
 package info.openrocket.swing.gui.simulation;
 
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dialog.ModalityType;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -29,7 +31,8 @@ import javax.swing.SwingUtilities;
 
 import com.google.inject.Key;
 
-import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.l10n.Translator;
@@ -72,7 +75,14 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	final Simulation simulation;
 	private final SimulationOptions options;
 
+	private JLabel aerodynamicMethodValue;
 	private JTextArea aerodynamicLookupSummaryArea;
+	private JCheckBox romEnabledCheckBox;
+	private JComboBox<RomMode> romModeCombo;
+	private JComboBox<RomFallbackMode> romFallbackCombo;
+	private JCheckBox romDiagnosticsCheckBox;
+	private JTextArea romStatusArea;
+	private boolean updatingRomControls;
 
 	private JPanel currentExtensions;
 	final JPopupMenu extensionMenu;
@@ -120,9 +130,9 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		label.setToolTipText(tip);
 		optionsForm.add(label, "gapright para");
 
-		JLabel methodValue = new JLabel(trans.get("simedtdlg.lbl.ExtBarrowman"));
-		methodValue.setToolTipText(tip);
-		optionsForm.add(methodValue, "span 3, growx, wrap");
+		aerodynamicMethodValue = new JLabel();
+		aerodynamicMethodValue.setToolTipText(tip);
+		optionsForm.add(aerodynamicMethodValue, "span 3, growx, wrap");
 
 		tip = trans.get("simedtdlg.lbl.ttip.Simmethod1") + trans.get("simedtdlg.lbl.ttip.Simmethod2");
 		label = new JLabel(trans.get("simedtdlg.lbl.Simmethod"));
@@ -145,15 +155,21 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		simulationStepperMethodChoiceComboTTipListener.actionPerformed(null);
 		optionsForm.add(simulationStepperMethodChoiceCombo, "span 3, growx, wrap");
 
-		label = new JLabel(trans.get("AerodynamicLookupDialog.lbl.summary"));
+		label = new JLabel("Pathline runtime");
+		label.setToolTipText("Phase I tuning and test runs now use the pathline ROM only.");
 		optionsForm.add(label, "gaptop para, gapright para");
-
-		JButton configureLookupButton = new JButton(trans.get("AerodynamicLookupDialog.btn.configure"));
-		configureLookupButton.addActionListener(e -> openLookupDialog());
-		optionsForm.add(configureLookupButton, "span 3, alignx left, wrap");
 
 		aerodynamicLookupSummaryArea = createWrappingTextArea(infoTextColor);
 		optionsForm.add(aerodynamicLookupSummaryArea, "gapleft para, span 4, growx, wrap para");
+
+		label = new JLabel("Phase I ROM");
+		label.setToolTipText("Enable the Phase I pathline ROM, choose its operating preset, and select fallback behavior.");
+		optionsForm.add(label, "gapright para");
+
+		optionsForm.add(createRomControlPanel(), "span 3, growx, wrap");
+
+		romStatusArea = createWrappingTextArea(infoTextColor);
+		optionsForm.add(romStatusArea, "gapleft para, span 4, growx, wrap para");
 
 		label = new JLabel(trans.get("simedtdlg.lbl.GeodeticMethod"));
 		label.setToolTipText(trans.get("simedtdlg.lbl.ttip.GeodeticMethodTip"));
@@ -381,8 +397,8 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		updateCurrentExtensions();
 		updateMonteCarloControls();
 
-		options.addChangeListener(e -> SwingUtilities.invokeLater(this::updateLookupSummary));
-		updateLookupSummary();
+		options.addChangeListener(e -> SwingUtilities.invokeLater(this::refreshRomPresentation));
+		refreshRomPresentation();
 	}
 
 	private static void initColors() {
@@ -509,39 +525,164 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		return (JComponent) menu;
 	}
 
-	private void openLookupDialog() {
-		AerodynamicLookupDialog dialog = new AerodynamicLookupDialog(
-				SwingUtilities.windowForComponent(this),
-				options);
-		dialog.setVisible(true);
-		updateLookupSummary();
-	}
-
 	private void updateLookupSummary() {
 		if (aerodynamicLookupSummaryArea == null) {
 			return;
 		}
-		String dragDetail = buildLookupDetail(options.getDragLookupCsvPath(), options.getDragLookupTable());
-		String stabilityDetail = buildLookupDetail(options.getStabilityLookupCsvPath(), options.getStabilityLookupTable());
-		String romPrerequisite = options.isRomDragPrerequisiteReady()
-				? "ROM prerequisite: ready (Cd(M, AoA) drag table loaded)"
-				: "ROM prerequisite: missing Cd(M, AoA) drag table";
-		String summary = String.format(trans.get("AerodynamicLookupDialog.lbl.summaryDrag"), dragDetail)
-				+ "\n"
-				+ String.format(trans.get("AerodynamicLookupDialog.lbl.summaryStability"), stabilityDetail)
-				+ "\n"
-				+ romPrerequisite;
+		String summary = "Phase I runtime is pathline-only."
+				+ "\nLegacy lookup-table aerodynamic overrides do not participate in active ROM testing."
+				+ "\nFallback calculator: pure Barrowman."
+				+ "\nBatch and tuning runs force pathline ROM with FORCE_ROM fallback.";
 		aerodynamicLookupSummaryArea.setText(summary);
 		aerodynamicLookupSummaryArea.setCaretPosition(0);
 	}
 
-	private String buildLookupDetail(Path path, MachAoALookup table) {
-		if (path == null || table == null) {
-			return trans.get("AerodynamicLookupDialog.summary.none");
+	private JPanel createRomControlPanel() {
+		JPanel panel = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 6", "[grow,fill][grow,fill]", ""));
+
+		romEnabledCheckBox = new JCheckBox("Enable Phase I pathline ROM");
+		romEnabledCheckBox.setToolTipText("Use the Phase I pathline reduced-order model instead of plain legacy aerodynamics.");
+		romEnabledCheckBox.addActionListener(e -> {
+			if (updatingRomControls) {
+				return;
+			}
+			options.setRomEnabled(romEnabledCheckBox.isSelected());
+			refreshRomPresentation();
+		});
+		panel.add(romEnabledCheckBox, "span 2, wrap");
+
+		panel.add(new JLabel("Operating preset:"));
+		romModeCombo = new JComboBox<>(RomMode.values());
+		romModeCombo.setToolTipText("Controls the Phase I seed density and normal-force gain.");
+		configureEnumCombo(romModeCombo, SimulationOptionsPanel::formatRomMode);
+		romModeCombo.addActionListener(e -> {
+			if (updatingRomControls) {
+				return;
+			}
+			options.setRomMode((RomMode) romModeCombo.getSelectedItem());
+			refreshRomPresentation();
+		});
+		panel.add(romModeCombo, "growx, wrap");
+
+		panel.add(new JLabel("Fallback behavior:"));
+		romFallbackCombo = new JComboBox<>(RomFallbackMode.values());
+		romFallbackCombo.setToolTipText("Select how the calculator behaves when Phase I confidence drops.");
+		configureEnumCombo(romFallbackCombo, SimulationOptionsPanel::formatRomFallbackMode);
+		romFallbackCombo.addActionListener(e -> {
+			if (updatingRomControls) {
+				return;
+			}
+			options.setRomFallbackMode((RomFallbackMode) romFallbackCombo.getSelectedItem());
+			refreshRomPresentation();
+		});
+		panel.add(romFallbackCombo, "growx, wrap");
+
+		romDiagnosticsCheckBox = new JCheckBox("Enable developer diagnostics");
+		romDiagnosticsCheckBox.setToolTipText("Keep per-step Phase I computation snapshots for log export and debugging.");
+		romDiagnosticsCheckBox.addActionListener(e -> {
+			if (updatingRomControls) {
+				return;
+			}
+			options.setRomDiagnosticsEnabled(romDiagnosticsCheckBox.isSelected());
+			refreshRomPresentation();
+		});
+		panel.add(romDiagnosticsCheckBox, "span 2, wrap");
+
+		return panel;
+	}
+
+	private void refreshRomPresentation() {
+		updateLookupSummary();
+		refreshRomControls();
+	}
+
+	private void refreshRomControls() {
+		updatingRomControls = true;
+		try {
+			boolean enabled = options.isRomEnabled();
+			romEnabledCheckBox.setSelected(enabled);
+			romModeCombo.setSelectedItem(options.getRomMode());
+			romFallbackCombo.setSelectedItem(options.getRomFallbackMode());
+			romDiagnosticsCheckBox.setSelected(options.isRomDiagnosticsEnabled());
+
+			romModeCombo.setEnabled(enabled);
+			romFallbackCombo.setEnabled(enabled);
+			romDiagnosticsCheckBox.setEnabled(enabled);
+
+			aerodynamicMethodValue.setText(buildAerodynamicMethodLabel());
+			romStatusArea.setText(buildRomStatusSummary());
+			romStatusArea.setCaretPosition(0);
+		} finally {
+			updatingRomControls = false;
 		}
-		String fileName = path.getFileName() != null ? path.getFileName().toString() : path.toString();
-		String detail = AerodynamicLookupDialog.formatLookupSummary(trans, table);
-		return fileName + " - " + detail;
+	}
+
+	private String buildAerodynamicMethodLabel() {
+		if (!options.isRomEnabled()) {
+			return trans.get("simedtdlg.lbl.ExtBarrowman") + " (Pathline ROM disabled)";
+		}
+		return "Pathline ROM - " + formatRomMode(options.getRomMode())
+				+ ", " + formatRomFallbackMode(options.getRomFallbackMode());
+	}
+
+	private String buildRomStatusSummary() {
+		if (!options.isRomEnabled()) {
+			return "Pathline ROM is currently disabled. Simulations will use Barrowman fallback only.";
+		}
+		return "Pathline ROM is active."
+				+ "\nMode: " + formatRomMode(options.getRomMode())
+				+ " | Fallback: " + formatRomFallbackMode(options.getRomFallbackMode())
+				+ " | Diagnostics: " + (options.isRomDiagnosticsEnabled() ? "enabled" : "disabled")
+				+ "\nLegacy ROM surfaces and lookup overrides are ignored by the active test runtime."
+				+ "\nSeed plan: " + options.getRomSettings().getBodyMeridianSeedCount()
+				+ " body meridian seeds, " + options.getRomSettings().getFinSurfaceSeedCount()
+				+ " seeds per fin surface."
+				+ "\nConfidence gates: transonic band +/- "
+				+ String.format("%.2f", options.getRomSettings().getTransonicBandHalfWidth())
+				+ " Mach, high-angle threshold "
+				+ String.format("%.1f", options.getRomSettings().getHighAngleDeg())
+				+ " deg, trusted separation fraction "
+				+ String.format("%.0f%%", 100.0 * options.getRomSettings().getMaxTrustedSeparationFraction()) + ".";
+	}
+
+	private static String formatRomMode(RomMode mode) {
+		if (mode == null) {
+			return "Standard";
+		}
+		return switch (mode) {
+			case STANDARD -> "Standard";
+			case CONSERVATIVE -> "Conservative";
+			case DIAGNOSTIC -> "Diagnostic";
+		};
+	}
+
+	private static String formatRomFallbackMode(RomFallbackMode fallbackMode) {
+		if (fallbackMode == null) {
+			return "Blend to legacy";
+		}
+		return switch (fallbackMode) {
+			case BLEND -> "Blend to legacy";
+			case BARROWMAN_ONLY -> "Legacy only";
+			case FORCE_ROM -> "Force ROM";
+		};
+	}
+
+	private static <T> void configureEnumCombo(JComboBox<T> comboBox, Function<T, String> formatter) {
+		comboBox.setRenderer(new DefaultListCellRenderer() {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index,
+					boolean isSelected, boolean cellHasFocus) {
+				super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				if (value != null) {
+					@SuppressWarnings("unchecked")
+					T typedValue = (T) value;
+					setText(formatter.apply(typedValue));
+				}
+				return this;
+			}
+		});
 	}
 
 	private MonteCarloExtension findMonteCarloExtension() {

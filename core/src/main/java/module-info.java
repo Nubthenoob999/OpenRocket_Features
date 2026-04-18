@@ -110,6 +110,13 @@ open module info.openrocket.core {
 	exports info.openrocket.core.thrustcurve.serialization;
 	exports info.openrocket.core.aerodynamics.lookup;
 	exports info.openrocket.core.aerodynamics.rom;
+	exports info.openrocket.core.aerodynamics.rom.bl;
+	exports info.openrocket.core.aerodynamics.rom.control;
+	exports info.openrocket.core.aerodynamics.rom.flow;
+	exports info.openrocket.core.aerodynamics.rom.force;
+	exports info.openrocket.core.aerodynamics.rom.geometry;
+	exports info.openrocket.core.aerodynamics.rom.outer;
+	exports info.openrocket.core.aerodynamics.rom.util;
 	exports info.openrocket.core.tuning;
 	exports info.openrocket.core.aerodynamics.rom.adapter;
 	exports info.openrocket.core.aerodynamics.rom.core.eval;
@@ -117,6 +124,11 @@ open module info.openrocket.core {
 	exports info.openrocket.core.aerodynamics.rom.core.io;
 	exports info.openrocket.core.aerodynamics.rom.core.physics;
 	exports info.openrocket.core.aerodynamics.rom.core.surface;
+	exports info.openrocket.core.aerodynamics.rom.math;
+	exports info.openrocket.core.aerodynamics.rom.marching;
+	exports info.openrocket.core.aerodynamics.rom.plume;
+	exports info.openrocket.core.aerodynamics.rom.fins;
+	exports info.openrocket.core.aerodynamics.rom.integration;
 
 	// Service providers
 	// Also edit core/src/main/resources/META-INF/services !! (until gradle-modules-plugin supports service

@@ -1,6 +1,7 @@
 package info.openrocket.swing.gui.simulation;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,8 +11,11 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JPopupMenu;
+import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -32,6 +36,8 @@ import info.openrocket.core.l10n.DebugTranslator;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.preferences.ApplicationPreferences;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.TestRockets;
 import info.openrocket.swing.ServicesForTesting;
@@ -85,8 +91,61 @@ public class SimulationOptionsPanelTest {
 		assertFalse(menuContainsText(panel.extensionMenu, "AirBrakes Simulation"));
 	}
 
+	@Test
+	public void testPhaseIRomControlsUpdateOptionsAndMethodLabel() throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> holder[0] = new SimulationOptionsPanel(document, simulation));
+		SimulationOptionsPanel panel = holder[0];
+		assertNotNull(panel);
+
+		JCheckBox enableRom = findCheckBox(panel, "Enable Phase I pathline ROM");
+		JCheckBox diagnostics = field(panel, "romDiagnosticsCheckBox", JCheckBox.class);
+		@SuppressWarnings("unchecked")
+		JComboBox<RomMode> modeCombo = field(panel, "romModeCombo", JComboBox.class);
+		@SuppressWarnings("unchecked")
+		JComboBox<RomFallbackMode> fallbackCombo = field(panel, "romFallbackCombo", JComboBox.class);
+		JLabel methodLabel = field(panel, "aerodynamicMethodValue", JLabel.class);
+		JTextArea romSummary = field(panel, "romStatusArea", JTextArea.class);
+
+		assertTrue(methodLabel.getText().contains("Pathline ROM disabled"));
+		assertFalse(modeCombo.isEnabled());
+
+		SwingUtilities.invokeAndWait(enableRom::doClick);
+		assertTrue(simulation.getOptions().isRomEnabled());
+		assertTrue(modeCombo.isEnabled());
+
+		SwingUtilities.invokeAndWait(() -> {
+			modeCombo.setSelectedItem(RomMode.DIAGNOSTIC);
+			fallbackCombo.setSelectedItem(RomFallbackMode.FORCE_ROM);
+			diagnostics.doClick();
+		});
+
+		assertEquals(RomMode.DIAGNOSTIC, simulation.getOptions().getRomMode());
+		assertEquals(RomFallbackMode.FORCE_ROM, simulation.getOptions().getRomFallbackMode());
+		assertFalse(simulation.getOptions().isRomDiagnosticsEnabled());
+		assertTrue(methodLabel.getText().contains("Pathline ROM"));
+		assertTrue(methodLabel.getText().contains("Diagnostic"));
+		assertTrue(romSummary.getText().contains("Force ROM"));
+		assertTrue(romSummary.getText().contains("ignored"));
+		assertTrue(romSummary.getText().contains("Seed plan"));
+	}
+
 	private static JCheckBox findCheckBox(Container root, String text) {
 		return findComponent(root, JCheckBox.class, component -> text.equals(component.getText()));
+	}
+
+	private static <T> T field(Object target, String fieldName, Class<T> type) {
+		try {
+			java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
+			field.setAccessible(true);
+			return type.cast(field.get(target));
+		} catch (ReflectiveOperationException e) {
+			throw new AssertionError("Unable to read field " + fieldName, e);
+		}
 	}
 
 	private static boolean menuContainsText(JPopupMenu popupMenu, String text) {
