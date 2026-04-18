@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,12 +39,19 @@ public final class PhaseTwoBatchRunner {
 		Path configDir = configPath.getParent() == null ? Path.of(".") : configPath.getParent();
 		PhaseTwoRunConfig config = loadConfig(configPath);
 		DeduplicationResult deduplication = deduplicateDatasets(config.getDatasets(), configDir);
+		PreflightAudit preflightAudit = preflightDatasets(deduplication.getDatasets(), configDir);
 		Files.createDirectories(outputDir);
+		writeWiringAudit(outputDir.resolve("phase-three-wiring-audit.csv"), preflightAudit);
 
 		List<PhaseTwoDatasetResult> results = new ArrayList<>();
 		for (PhaseTwoDatasetConfig dataset : deduplication.getDatasets()) {
+			DatasetPreflight datasetAudit = preflightAudit.getDatasetAudit(dataset);
+			if (datasetAudit.hasErrors()) {
+				results.add(preflightFailedDatasetResult(dataset, datasetAudit));
+				continue;
+			}
 			try {
-				results.add(runDataset(config, dataset, configDir, outputDir));
+				results.add(runDataset(config, dataset, configDir, outputDir, datasetAudit));
 			} catch (Throwable ex) {
 				results.add(failedDatasetResult(dataset, ex));
 			}
@@ -52,7 +60,7 @@ public final class PhaseTwoBatchRunner {
 
 		PhaseTwoBatchResult batch = new PhaseTwoBatchResult(results);
 		PhaseTwoBatchReportWriter.write(batch, outputDir);
-		writeRunMetadata(outputDir.resolve("phase-two-run-metadata.log"), configPath, config, deduplication);
+		writeRunMetadata(outputDir.resolve("phase-two-run-metadata.log"), configPath, config, deduplication, preflightAudit);
 		return batch;
 	}
 
@@ -130,7 +138,8 @@ public final class PhaseTwoBatchRunner {
 	private static void writeRunMetadata(Path metadataPath,
 										 Path configPath,
 										 PhaseTwoRunConfig config,
-										 DeduplicationResult deduplication) throws IOException {
+										 DeduplicationResult deduplication,
+										 PreflightAudit preflightAudit) throws IOException {
 		StringBuilder metadata = new StringBuilder();
 		metadata.append("timestamp=").append(Instant.now()).append(System.lineSeparator());
 		metadata.append("config=").append(configPath).append(System.lineSeparator());
@@ -141,12 +150,16 @@ public final class PhaseTwoBatchRunner {
 		metadata.append("datasetsExecuted=").append(deduplication.getDatasets().size()).append(System.lineSeparator());
 		metadata.append("datasetsSkippedAsRedundant=").append(deduplication.getSkippedCount()).append(System.lineSeparator());
 		metadata.append("openRocketDatasets=").append(deduplication.getOrkDatasetCount()).append(System.lineSeparator());
+		metadata.append("datasetsBlockedByPreflight=").append(preflightAudit.getDatasetErrorCount()).append(System.lineSeparator());
+		metadata.append("datasetsWithPreflightWarnings=").append(preflightAudit.getDatasetWarningCount()).append(System.lineSeparator());
 
-		for (int i = 0; i < deduplication.getWarnings().size(); i++) {
+		List<String> warnings = new ArrayList<>(deduplication.getWarnings());
+		warnings.addAll(preflightAudit.getGlobalWarnings());
+		for (int i = 0; i < warnings.size(); i++) {
 			metadata.append("warning.")
 					.append(i + 1)
 					.append('=')
-					.append(deduplication.getWarnings().get(i))
+					.append(warnings.get(i))
 					.append(System.lineSeparator());
 		}
 
@@ -162,22 +175,25 @@ public final class PhaseTwoBatchRunner {
 				Double.NaN,
 				Double.NaN);
 		AbPluginExecutionResult pluginResult = new AbPluginExecutionResult(
-				AbPluginExecutionResult.Status.FAILED,
-				-1,
-				ex.getClass().getSimpleName() + ": " + ex.getMessage());
+				AbPluginExecutionResult.Status.SKIPPED,
+				0,
+				"Dataset execution failed before plugin classification: "
+						+ ex.getClass().getSimpleName() + ": " + safeExceptionMessage(ex));
+		List<TuningFlag> flags = List.of(
+				new TuningFlag("dataset-wiring", "DATA_QUALITY:DATASET_EXECUTION_FAILED", ScoreSeverity.CRITICAL, 0.0));
 		return new PhaseTwoDatasetResult(
 				dataset.getName(),
 				dataset.isAirbrakeEnabled(),
 				pluginResult,
-				emptyScores,
-				List.of(),
+				dataQualityExcludedScores("dataset-execution-failed: " + safeExceptionMessage(ex)),
+				flags,
 				nanQuantities,
 				nanQuantities,
 				TelemetryParserDiagnostics.EMPTY,
 				TelemetryParserDiagnostics.EMPTY,
 				"BROKEN",
 				"",
-				"",
+				"DATASET_EXECUTION_FAILED",
 				"",
 				"",
 				"",
@@ -196,13 +212,17 @@ public final class PhaseTwoBatchRunner {
 	private static PhaseTwoDatasetResult runDataset(PhaseTwoRunConfig config,
 													 PhaseTwoDatasetConfig dataset,
 													 Path configDir,
-													 Path outputDir) throws Exception {
+													 Path outputDir,
+													 DatasetPreflight datasetAudit) throws Exception {
 		List<TuningFlag> flags = new ArrayList<>();
+		if (datasetAudit.hasWarnings()) {
+			flags.add(new TuningFlag("dataset-wiring", "DATA_QUALITY:CONFIG_PRECHECK_WARNING", ScoreSeverity.WARNING, 0.0));
+		}
 		TruthLoadResult truthLoad = loadTruth(configDir, dataset);
 		CandidateLoadResult candidateLoad = loadCandidate(configDir, dataset);
 		AbPluginExecutionResult pluginResult = candidateLoad.getPluginResult();
 		if (candidateLoad.getFallbackReason() != null) {
-			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:ORK_FALLBACK_TO_CSV", ScoreSeverity.WARNING, 0.0));
+			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:ORK_FALLBACK_TO_CSV", ScoreSeverity.CRITICAL, 0.0));
 		}
 
 		TelemetrySeries reference = truthLoad.getSeries();
@@ -210,15 +230,9 @@ public final class PhaseTwoBatchRunner {
 		DerivedTelemetryQuantities.Quantities referenceQ = DerivedTelemetryQuantities.summarize(reference);
 		DerivedTelemetryQuantities.Quantities rawCandidateQ = DerivedTelemetryQuantities.summarize(candidateRaw);
 		String datasetClass = classifyDataset(configDir, dataset, candidateLoad, reference, pluginResult);
-		String pluginFailureReason = pluginPipelineFailureReason(dataset, pluginResult);
-		if (pluginFailureReason != null) {
-			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_PIPELINE_UNHEALTHY", ScoreSeverity.CRITICAL, 0.0));
-			Map<FlightPhaseWindow, PhaseTwoScoreResult> excludedScores = dataQualityExcludedScores(pluginFailureReason);
-			return new PhaseTwoDatasetResult(
-					dataset.getName(),
-					dataset.isAirbrakeEnabled(),
-					pluginResult,
-					excludedScores,
+		if (candidateLoad.getFallbackReason() != null) {
+			return excludedDatasetResult(
+					dataset,
 					flags,
 					referenceQ,
 					rawCandidateQ,
@@ -226,20 +240,23 @@ public final class PhaseTwoBatchRunner {
 					candidateRaw.getParserDiagnostics(),
 					datasetClass,
 					truthLoad.getTruthSource(),
-					candidateLoad.getCandidateSource(),
-					candidateLoad.getOrkProvenance(),
-					candidateLoad.getRomMode(),
-					candidateLoad.getRomSurfaceSource(),
-					candidateLoad.getMaxMach(),
-					"",
-					Double.NaN,
-					Double.NaN,
-					Double.NaN,
-					Double.NaN,
-					Double.NaN,
-					Double.NaN,
-					Map.of(),
-					candidateLoad.getIntegratorDiagnostics());
+					candidateLoad,
+					candidateLoad.getFallbackReason());
+		}
+		String pluginFailureReason = pluginPipelineFailureReason(dataset, pluginResult);
+		if (pluginFailureReason != null) {
+			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_PIPELINE_UNHEALTHY", ScoreSeverity.CRITICAL, 0.0));
+			return excludedDatasetResult(
+					dataset,
+					flags,
+					referenceQ,
+					rawCandidateQ,
+					reference.getParserDiagnostics(),
+					candidateRaw.getParserDiagnostics(),
+					datasetClass,
+					truthLoad.getTruthSource(),
+					candidateLoad,
+					pluginFailureReason);
 		}
 		if (isAutoDisabledPlugin(pluginResult)) {
 			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_AUTO_DISABLED", ScoreSeverity.WARNING, 0.0));
@@ -264,12 +281,8 @@ public final class PhaseTwoBatchRunner {
 		double alignedApogeeTimeErrorSec = fusedApogeeTimeErrorSec(alignedApogeeTimeDeltaSec, integratorDiagnostics);
 
 		if (qualityFailureReason != null) {
-			Map<FlightPhaseWindow, PhaseTwoScoreResult> excludedScores = dataQualityExcludedScores(qualityFailureReason);
-			return new PhaseTwoDatasetResult(
-					dataset.getName(),
-					dataset.isAirbrakeEnabled(),
-					pluginResult,
-					excludedScores,
+			return excludedDatasetResult(
+					dataset,
 					flags,
 					referenceQ,
 					candidateQ,
@@ -277,19 +290,14 @@ public final class PhaseTwoBatchRunner {
 					candidate.getParserDiagnostics(),
 					datasetClass,
 					truthLoad.getTruthSource(),
-					candidateLoad.getCandidateSource(),
-					candidateLoad.getOrkProvenance(),
-					candidateLoad.getRomMode(),
-					candidateLoad.getRomSurfaceSource(),
-					candidateLoad.getMaxMach(),
+					candidateLoad,
+					qualityFailureReason,
 					alignment.getChannel(),
 					alignment.getLagSec(),
 					alignment.getQuality(),
 					referenceAlignedApogeeTimeSec,
 					candidateAlignedApogeeTimeSec,
-					alignedApogeeTimeDeltaSec,
 					alignedApogeeTimeErrorSec,
-					Map.of(),
 					integratorDiagnostics);
 		}
 
@@ -517,14 +525,17 @@ public final class PhaseTwoBatchRunner {
 		if (dataset.getTruthCsv() != null && !dataset.getTruthCsv().isBlank()) {
 			truthPath = resolvePath(configDir, dataset.getTruthCsv());
 			truthSeries = TelemetryParsers.parse(truthPath);
+		} else if (dataset.getReferenceCsv() != null && !dataset.getReferenceCsv().isBlank()) {
+			truthPath = resolvePath(configDir, dataset.getReferenceCsv());
+			truthSeries = TelemetryParsers.parse(truthPath);
 		} else if (dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank()) {
 			Path datasetDir = inferDatasetDirectory(configDir, dataset);
 			TelemetryTruthSelector.TruthSelection truth = TelemetryTruthSelector.select(datasetDir);
 			truthPath = truth.path();
 			truthSeries = truth.series();
 		} else {
-			truthPath = resolvePath(configDir, dataset.getReferenceCsv());
-			truthSeries = TelemetryParsers.parse(truthPath);
+			throw new IllegalArgumentException("Dataset must provide truthCsv, referenceCsv, or an inferable ORK dataset: "
+					+ safeDatasetName(dataset));
 		}
 		return new TruthLoadResult(truthPath, truthSeries);
 	}
@@ -633,7 +644,6 @@ public final class PhaseTwoBatchRunner {
 
 	private static AbPluginExecutionResult fallbackPluginResult(AbPluginExecutionResult current, Exception ex) {
 		if (current != null
-				&& current.getStatus() == AbPluginExecutionResult.Status.SKIPPED
 				&& current.getMessage() != null
 				&& current.getMessage().startsWith("Native airbrakes auto-disabled")) {
 			return current;
@@ -643,10 +653,14 @@ public final class PhaseTwoBatchRunner {
 				|| current.getStatus() == AbPluginExecutionResult.Status.TIMED_OUT)) {
 			return current;
 		}
+		if (current != null) {
+			return current;
+		}
 		return new AbPluginExecutionResult(
-				AbPluginExecutionResult.Status.FAILED,
-				-1,
-				"Native airbrakes run failed: " + ex.getClass().getSimpleName() + ": " + safeExceptionMessage(ex));
+				AbPluginExecutionResult.Status.SKIPPED,
+				0,
+				"ORK simulation failed before plugin evaluation: "
+						+ ex.getClass().getSimpleName() + ": " + safeExceptionMessage(ex));
 	}
 
 	private static String pluginPipelineFailureReason(PhaseTwoDatasetConfig dataset,
@@ -698,7 +712,7 @@ public final class PhaseTwoBatchRunner {
 		return Double.isFinite(value) ? Math.abs(value) : Double.NaN;
 	}
 
-	private static String safeExceptionMessage(Exception ex) {
+	private static String safeExceptionMessage(Throwable ex) {
 		if (ex == null) {
 			return "unknown";
 		}
@@ -825,17 +839,7 @@ public final class PhaseTwoBatchRunner {
 		if (path.isAbsolute()) {
 			return path;
 		}
-
 		Path anchor = baseDir == null ? Path.of(".") : baseDir.toAbsolutePath().normalize();
-		Path cursor = anchor;
-		while (cursor != null) {
-			Path candidate = cursor.resolve(path).normalize();
-			if (Files.exists(candidate)) {
-				return candidate;
-			}
-			cursor = cursor.getParent();
-		}
-
 		return anchor.resolve(path).normalize();
 	}
 
@@ -856,6 +860,341 @@ public final class PhaseTwoBatchRunner {
 		Path config = Path.of(args[0]);
 		Path output = Path.of(args[1]);
 		runFromConfig(config, output);
+	}
+
+	private static PhaseTwoDatasetResult excludedDatasetResult(PhaseTwoDatasetConfig dataset,
+															   List<TuningFlag> flags,
+															   DerivedTelemetryQuantities.Quantities referenceQ,
+															   DerivedTelemetryQuantities.Quantities candidateQ,
+															   TelemetryParserDiagnostics referenceDiagnostics,
+															   TelemetryParserDiagnostics candidateDiagnostics,
+															   String datasetClass,
+															   String truthSource,
+															   CandidateLoadResult candidateLoad,
+															   String reason) {
+		return excludedDatasetResult(
+				dataset,
+				flags,
+				referenceQ,
+				candidateQ,
+				referenceDiagnostics,
+				candidateDiagnostics,
+				datasetClass,
+				truthSource,
+				candidateLoad,
+				reason,
+				"",
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				candidateLoad == null ? VerticalIntegratorDiagnostics.EMPTY : candidateLoad.getIntegratorDiagnostics());
+	}
+
+	private static PhaseTwoDatasetResult excludedDatasetResult(PhaseTwoDatasetConfig dataset,
+															   List<TuningFlag> flags,
+															   DerivedTelemetryQuantities.Quantities referenceQ,
+															   DerivedTelemetryQuantities.Quantities candidateQ,
+															   TelemetryParserDiagnostics referenceDiagnostics,
+															   TelemetryParserDiagnostics candidateDiagnostics,
+															   String datasetClass,
+															   String truthSource,
+															   CandidateLoadResult candidateLoad,
+															   String reason,
+															   String alignmentChannel,
+															   double alignmentLagSec,
+															   double alignmentQuality,
+															   double referenceAlignedApogeeTimeSec,
+															   double candidateAlignedApogeeTimeSec,
+															   double alignedApogeeTimeErrorSec,
+															   VerticalIntegratorDiagnostics integratorDiagnostics) {
+		CandidateLoadResult safeCandidateLoad = candidateLoad == null
+				? new CandidateLoadResult(
+				null,
+				null,
+				VerticalIntegratorDiagnostics.EMPTY,
+				new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0, "No candidate loaded"),
+				null,
+				"",
+				"",
+				"",
+				"",
+				Double.NaN)
+				: candidateLoad;
+		return new PhaseTwoDatasetResult(
+				dataset.getName(),
+				dataset.isAirbrakeEnabled(),
+				safeCandidateLoad.getPluginResult(),
+				dataQualityExcludedScores(reason),
+				flags,
+				referenceQ,
+				candidateQ,
+				referenceDiagnostics,
+				candidateDiagnostics,
+				datasetClass,
+				truthSource,
+				safeCandidateLoad.getCandidateSource(),
+				safeCandidateLoad.getOrkProvenance(),
+				safeCandidateLoad.getRomMode(),
+				safeCandidateLoad.getRomSurfaceSource(),
+				safeCandidateLoad.getMaxMach(),
+				alignmentChannel,
+				alignmentLagSec,
+				alignmentQuality,
+				referenceAlignedApogeeTimeSec,
+				candidateAlignedApogeeTimeSec,
+				Double.NaN,
+				alignedApogeeTimeErrorSec,
+				Map.of(),
+				integratorDiagnostics);
+	}
+
+	private static PhaseTwoDatasetResult preflightFailedDatasetResult(PhaseTwoDatasetConfig dataset,
+																	  DatasetPreflight datasetAudit) {
+		DerivedTelemetryQuantities.Quantities nanQuantities = new DerivedTelemetryQuantities.Quantities(
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN,
+				Double.NaN);
+		List<TuningFlag> flags = new ArrayList<>();
+		flags.add(new TuningFlag("dataset-wiring", "DATA_QUALITY:CONFIG_PRECHECK_FAILED", ScoreSeverity.CRITICAL, 0.0));
+		if (datasetAudit.hasWarnings()) {
+			flags.add(new TuningFlag("dataset-wiring", "DATA_QUALITY:CONFIG_PRECHECK_WARNING", ScoreSeverity.WARNING, 0.0));
+		}
+		CandidateLoadResult candidateLoad = new CandidateLoadResult(
+				null,
+				null,
+				VerticalIntegratorDiagnostics.EMPTY,
+				new AbPluginExecutionResult(
+						AbPluginExecutionResult.Status.SKIPPED,
+						0,
+						"Dataset preflight failed: " + datasetAudit.getErrorSummary()),
+				null,
+				"CONFIG_PRECHECK",
+				safePathAudit(datasetAudit, "orkPath"),
+				"",
+				"",
+				Double.NaN);
+		return excludedDatasetResult(
+				dataset,
+				flags,
+				nanQuantities,
+				nanQuantities,
+				TelemetryParserDiagnostics.EMPTY,
+				TelemetryParserDiagnostics.EMPTY,
+				"BROKEN",
+				datasetAudit.primaryTruthSource(),
+				candidateLoad,
+				"config-precheck-failed: " + datasetAudit.getErrorSummary());
+	}
+
+	private static PreflightAudit preflightDatasets(List<PhaseTwoDatasetConfig> datasets, Path configDir) {
+		Map<String, DatasetPreflight> auditsByKey = new LinkedHashMap<>();
+		Map<String, List<DatasetPreflight>> auditsByOrkPath = new HashMap<>();
+		for (PhaseTwoDatasetConfig dataset : datasets) {
+			DatasetPreflight audit = preflightDataset(configDir, dataset);
+			auditsByKey.put(datasetKey(dataset), audit);
+			PathAudit orkAudit = audit.getPathAudit("orkPath");
+			if (orkAudit != null && orkAudit.exists()) {
+				auditsByOrkPath.computeIfAbsent(
+						orkAudit.getResolvedPath().toString().toLowerCase(),
+						ignored -> new ArrayList<>()).add(audit);
+			}
+		}
+
+		List<String> globalWarnings = new ArrayList<>();
+		for (List<DatasetPreflight> shared : auditsByOrkPath.values()) {
+			if (shared.size() < 2) {
+				continue;
+			}
+			String datasetsUsingOrk = shared.stream()
+					.map(DatasetPreflight::getDatasetName)
+					.sorted()
+					.reduce((left, right) -> left + ", " + right)
+					.orElse("");
+			String sharedPath = shared.get(0).getPathAudit("orkPath").getResolvedPath().toString();
+			globalWarnings.add("shared-ork-path=" + sharedPath + " used by " + datasetsUsingOrk);
+			for (DatasetPreflight audit : shared) {
+				audit.addWarning("orkPath reused across datasets: " + datasetsUsingOrk);
+			}
+		}
+
+		return new PreflightAudit(new ArrayList<>(auditsByKey.values()), globalWarnings);
+	}
+
+	private static DatasetPreflight preflightDataset(Path configDir, PhaseTwoDatasetConfig dataset) {
+		DatasetPreflight audit = new DatasetPreflight(dataset);
+		boolean hasTruth = hasValue(dataset.getTruthCsv());
+		boolean hasReference = hasValue(dataset.getReferenceCsv());
+		boolean hasCandidate = hasValue(dataset.getCandidateCsv());
+		boolean hasOrk = hasValue(dataset.getOrkPath());
+		PhaseTwoDatasetConfig.PluginConfig plugin = dataset.getPlugin();
+		boolean pluginEnabled = plugin != null && plugin.isEnabled();
+
+		if (!hasTruth && !hasReference && !hasOrk) {
+			audit.addError("dataset must declare truthCsv, referenceCsv, or orkPath");
+		}
+		if (!hasCandidate && !hasOrk) {
+			audit.addError("dataset must declare candidateCsv or orkPath");
+		}
+
+		validateRequiredPath(configDir, audit, "truthCsv", dataset.getTruthCsv());
+		validateRequiredPath(configDir, audit, "referenceCsv", dataset.getReferenceCsv());
+		validateRequiredPath(configDir, audit, "candidateCsv", dataset.getCandidateCsv());
+		validateRequiredPath(configDir, audit, "orkPath", dataset.getOrkPath());
+		validateOptionalPath(configDir, audit, "plugin.argumentsFile",
+				plugin == null ? null : plugin.getArgumentsFile());
+
+		if (hasOrk && hasCandidate) {
+			audit.addWarning("candidateCsv is only a fallback when orkPath simulation fails");
+		}
+		if (hasOrk && !hasTruth && !hasReference) {
+			audit.addWarning("truth source will be inferred from dataset folder because no truthCsv/referenceCsv is declared");
+		}
+		if (dataset.isAirbrakeEnabled() && !pluginEnabled) {
+			audit.addWarning("airbrakeEnabled=true but plugin.enabled=false; native airbrakes will be disabled");
+		}
+		if (!dataset.isAirbrakeEnabled() && pluginEnabled) {
+			audit.addWarning("plugin.enabled=true but airbrakeEnabled=false; plugin settings are inert");
+		}
+
+		return audit;
+	}
+
+	private static void validateRequiredPath(Path configDir,
+											 DatasetPreflight audit,
+											 String fieldName,
+											 String rawValue) {
+		if (!hasValue(rawValue)) {
+			return;
+		}
+		Path declared = resolvePath(configDir, rawValue);
+		if (Files.exists(declared)) {
+			audit.recordPath(fieldName, PathAudit.existing(declared));
+			return;
+		}
+		Path legacy = resolvePathLegacy(configDir, rawValue);
+		if (Files.exists(legacy)) {
+			audit.recordPath(fieldName, PathAudit.legacyFallback(declared, legacy));
+			audit.addError(fieldName + " does not exist at declared path; update config to " + relativeDisplay(configDir, legacy));
+			return;
+		}
+		audit.recordPath(fieldName, PathAudit.missing(declared));
+		audit.addError(fieldName + " missing: " + relativeDisplay(configDir, declared));
+	}
+
+	private static void validateOptionalPath(Path configDir,
+											 DatasetPreflight audit,
+											 String fieldName,
+											 String rawValue) {
+		if (!hasValue(rawValue)) {
+			return;
+		}
+		Path declared = resolvePath(configDir, rawValue);
+		if (Files.exists(declared)) {
+			audit.recordPath(fieldName, PathAudit.existing(declared));
+			return;
+		}
+		Path legacy = resolvePathLegacy(configDir, rawValue);
+		if (Files.exists(legacy)) {
+			audit.recordPath(fieldName, PathAudit.legacyFallback(declared, legacy));
+			audit.addWarning(fieldName + " does not exist at declared path; update config to " + relativeDisplay(configDir, legacy));
+			return;
+		}
+		audit.recordPath(fieldName, PathAudit.missing(declared));
+		audit.addWarning(fieldName + " missing: " + relativeDisplay(configDir, declared));
+	}
+
+	private static void writeWiringAudit(Path auditPath, PreflightAudit preflightAudit) throws IOException {
+		StringBuilder csv = new StringBuilder();
+		csv.append("datasetName,auditStatus,errorCount,warningCount,errors,warnings,truthCsv,referenceCsv,candidateCsv,orkPath,pluginArgumentsFile")
+				.append(System.lineSeparator());
+		for (DatasetPreflight dataset : preflightAudit.getDatasetAudits()) {
+			csv.append(csv(dataset.getDatasetName())).append(',')
+					.append(csv(dataset.getAuditStatus())).append(',')
+					.append(dataset.getErrors().size()).append(',')
+					.append(dataset.getWarnings().size()).append(',')
+					.append(csv(String.join(" | ", dataset.getErrors()))).append(',')
+					.append(csv(String.join(" | ", dataset.getWarnings()))).append(',')
+					.append(csv(describePathAudit(dataset, "truthCsv"))).append(',')
+					.append(csv(describePathAudit(dataset, "referenceCsv"))).append(',')
+					.append(csv(describePathAudit(dataset, "candidateCsv"))).append(',')
+					.append(csv(describePathAudit(dataset, "orkPath"))).append(',')
+					.append(csv(describePathAudit(dataset, "plugin.argumentsFile"))).append(System.lineSeparator());
+		}
+		Files.writeString(auditPath, csv.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static String describePathAudit(DatasetPreflight dataset, String fieldName) {
+		PathAudit audit = dataset.getPathAudit(fieldName);
+		if (audit == null) {
+			return "";
+		}
+		StringBuilder description = new StringBuilder(audit.getStatus());
+		if (audit.getResolvedPath() != null) {
+			description.append(':').append(audit.getResolvedPath());
+		}
+		if (audit.getFallbackPath() != null) {
+			description.append(" (fallback=").append(audit.getFallbackPath()).append(')');
+		}
+		return description.toString();
+	}
+
+	private static String safePathAudit(DatasetPreflight datasetAudit, String fieldName) {
+		PathAudit audit = datasetAudit.getPathAudit(fieldName);
+		if (audit == null || audit.getResolvedPath() == null) {
+			return "";
+		}
+		return audit.getResolvedPath().toAbsolutePath().normalize().toString();
+	}
+
+	private static String csv(String value) {
+		if (value == null) {
+			return "";
+		}
+		return '"' + value.replace("\"", "\"\"") + '"';
+	}
+
+	private static boolean hasValue(String value) {
+		return value != null && !value.isBlank();
+	}
+
+	private static String datasetKey(PhaseTwoDatasetConfig dataset) {
+		return safeDatasetName(dataset).trim().toLowerCase();
+	}
+
+	private static String relativeDisplay(Path configDir, Path path) {
+		if (path == null) {
+			return "";
+		}
+		Path normalizedBase = configDir == null ? Path.of(".").toAbsolutePath().normalize() : configDir.toAbsolutePath().normalize();
+		Path normalizedPath = path.toAbsolutePath().normalize();
+		try {
+			return normalizedBase.relativize(normalizedPath).toString().replace('\\', '/');
+		} catch (IllegalArgumentException ignored) {
+			return normalizedPath.toString().replace('\\', '/');
+		}
+	}
+
+	private static Path resolvePathLegacy(Path baseDir, String value) {
+		String normalized = normalizeWindowsDrivePath(value);
+		Path path = Path.of(normalized);
+		if (path.isAbsolute()) {
+			return path;
+		}
+
+		Path anchor = baseDir == null ? Path.of(".") : baseDir.toAbsolutePath().normalize();
+		Path cursor = anchor;
+		while (cursor != null) {
+			Path candidate = cursor.resolve(path).normalize();
+			if (Files.exists(candidate)) {
+				return candidate;
+			}
+			cursor = cursor.getParent();
+		}
+		return anchor.resolve(path).normalize();
 	}
 
 	private static final class DeduplicationResult {
@@ -983,6 +1322,173 @@ public final class PhaseTwoBatchRunner {
 
 		private double getMaxMach() {
 			return maxMach;
+		}
+	}
+
+	private static final class PreflightAudit {
+		private final List<DatasetPreflight> datasetAudits;
+		private final List<String> globalWarnings;
+
+		private PreflightAudit(List<DatasetPreflight> datasetAudits, List<String> globalWarnings) {
+			this.datasetAudits = datasetAudits;
+			this.globalWarnings = globalWarnings;
+		}
+
+		private DatasetPreflight getDatasetAudit(PhaseTwoDatasetConfig dataset) {
+			String key = datasetKey(dataset);
+			for (DatasetPreflight audit : datasetAudits) {
+				if (audit.getDatasetKey().equals(key)) {
+					return audit;
+				}
+			}
+			return new DatasetPreflight(dataset);
+		}
+
+		private List<DatasetPreflight> getDatasetAudits() {
+			return datasetAudits;
+		}
+
+		private List<String> getGlobalWarnings() {
+			return globalWarnings;
+		}
+
+		private int getDatasetErrorCount() {
+			int count = 0;
+			for (DatasetPreflight audit : datasetAudits) {
+				if (audit.hasErrors()) {
+					count++;
+				}
+			}
+			return count;
+		}
+
+		private int getDatasetWarningCount() {
+			int count = 0;
+			for (DatasetPreflight audit : datasetAudits) {
+				if (audit.hasWarnings()) {
+					count++;
+				}
+			}
+			return count;
+		}
+	}
+
+	private static final class DatasetPreflight {
+		private final String datasetName;
+		private final String datasetKey;
+		private final List<String> errors = new ArrayList<>();
+		private final List<String> warnings = new ArrayList<>();
+		private final Map<String, PathAudit> pathAudits = new LinkedHashMap<>();
+
+		private DatasetPreflight(PhaseTwoDatasetConfig dataset) {
+			this.datasetName = safeDatasetName(dataset);
+			this.datasetKey = datasetKey(dataset);
+		}
+
+		private String getDatasetName() {
+			return datasetName;
+		}
+
+		private String getDatasetKey() {
+			return datasetKey;
+		}
+
+		private void addError(String error) {
+			errors.add(error);
+		}
+
+		private void addWarning(String warning) {
+			warnings.add(warning);
+		}
+
+		private void recordPath(String fieldName, PathAudit audit) {
+			pathAudits.put(fieldName, audit);
+		}
+
+		private PathAudit getPathAudit(String fieldName) {
+			return pathAudits.get(fieldName);
+		}
+
+		private boolean hasErrors() {
+			return !errors.isEmpty();
+		}
+
+		private boolean hasWarnings() {
+			return !warnings.isEmpty();
+		}
+
+		private List<String> getErrors() {
+			return errors;
+		}
+
+		private List<String> getWarnings() {
+			return warnings;
+		}
+
+		private String getAuditStatus() {
+			if (hasErrors()) {
+				return "ERROR";
+			}
+			if (hasWarnings()) {
+				return "WARN";
+			}
+			return "OK";
+		}
+
+		private String getErrorSummary() {
+			return String.join("; ", errors);
+		}
+
+		private String primaryTruthSource() {
+			PathAudit truthAudit = getPathAudit("truthCsv");
+			if (truthAudit != null && truthAudit.getResolvedPath() != null) {
+				return truthAudit.getResolvedPath().toAbsolutePath().normalize().toString();
+			}
+			PathAudit referenceAudit = getPathAudit("referenceCsv");
+			if (referenceAudit != null && referenceAudit.getResolvedPath() != null) {
+				return referenceAudit.getResolvedPath().toAbsolutePath().normalize().toString();
+			}
+			return "";
+		}
+	}
+
+	private static final class PathAudit {
+		private final String status;
+		private final Path resolvedPath;
+		private final Path fallbackPath;
+
+		private PathAudit(String status, Path resolvedPath, Path fallbackPath) {
+			this.status = status;
+			this.resolvedPath = resolvedPath;
+			this.fallbackPath = fallbackPath;
+		}
+
+		private static PathAudit existing(Path resolvedPath) {
+			return new PathAudit("OK", resolvedPath, null);
+		}
+
+		private static PathAudit legacyFallback(Path resolvedPath, Path fallbackPath) {
+			return new PathAudit("LEGACY_FALLBACK_ONLY", resolvedPath, fallbackPath);
+		}
+
+		private static PathAudit missing(Path resolvedPath) {
+			return new PathAudit("MISSING", resolvedPath, null);
+		}
+
+		private String getStatus() {
+			return status;
+		}
+
+		private Path getResolvedPath() {
+			return resolvedPath;
+		}
+
+		private Path getFallbackPath() {
+			return fallbackPath;
+		}
+
+		private boolean exists() {
+			return resolvedPath != null && Files.exists(resolvedPath);
 		}
 	}
 }

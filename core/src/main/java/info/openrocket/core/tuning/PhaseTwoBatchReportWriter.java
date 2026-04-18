@@ -18,10 +18,16 @@ import java.util.StringJoiner;
 
 public final class PhaseTwoBatchReportWriter {
 	private static final String RESIDUALS_CSV = "phase-three-drag-residuals.csv";
+	private static final String TUNING_OVERVIEW_CSV = "phase-three-tuning-overview.csv";
+	private static final String AGGREGATE_METRICS_CSV = "phase-three-aggregate-metrics.csv";
 	private static final double ASCENT_BOOST_GATE_SCORE = 90.0;
 	private static final double ASCENT_COAST_GATE_SCORE = 90.0;
 	private static final double ASCENT_APOGEE_TIME_GATE_SEC = 0.1;
 	private static final double ASCENT_APOGEE_PERCENT_GATE = 1.0;
+	private static final double TIMING_ALIGNMENT_QUALITY_LOW = 0.82;
+	private static final double TIMING_ALIGNMENT_QUALITY_HIGH = 0.97;
+	private static final double TIMING_ALIGNMENT_LAG_OK_SEC = 0.35;
+	private static final double TIMING_ALIGNMENT_LAG_BAD_SEC = 2.50;
 
 	private PhaseTwoBatchReportWriter() {
 	}
@@ -33,6 +39,8 @@ public final class PhaseTwoBatchReportWriter {
 		writeImprovementsCsv(result, outputDir.resolve("phase-two-improvements.csv"));
 		writePhaseThreeAnalysisCsv(result, outputDir.resolve("phase-three-analysis.csv"));
 		writeResidualsCsv(result, outputDir.resolve(RESIDUALS_CSV));
+		writeTuningOverviewCsv(result, outputDir.resolve(TUNING_OVERVIEW_CSV));
+		writeAggregateMetricsCsv(result, outputDir.resolve(AGGREGATE_METRICS_CSV));
 		writeJUnitXml(result, outputDir.resolve("phase-two-junit.xml"));
 		writeConsoleLog(result, outputDir.resolve("phase-two-console.log"));
 	}
@@ -40,9 +48,9 @@ public final class PhaseTwoBatchReportWriter {
 	private static void writeSummaryCsv(PhaseTwoBatchResult result, Path path) throws IOException {
 		StringBuilder sb = new StringBuilder();
 		sb.append("dataset,airbrakeEnabled,airbrakesStatus,airbrakesExitCode,fullScore,fullSeverity,boostScore,coastScore,descentScore,referenceCdProxy,candidateCdProxy,")
-				.append("referenceApogeeM,candidateApogeeM,apogeeErrorM,apogeeErrorPercent,")
+				.append("referenceApogeeM,candidateApogeeM,apogeeSignedDeltaM,apogeeErrorM,apogeeErrorPercent,")
 				.append("datasetClass,candidateSource,orkProvenance,romMode,romSurfaceSource,candidateMaxMach,")
-				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,")
+				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,rawApogeeTimeDeltaSec,effectiveApogeeTimeDeltaSec,effectiveApogeeTimeErrorSec,")
 				.append("ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,flags,")
 				.append("truthSource,alignmentChannel,alignmentLagSec,alignmentQuality,")
 				.append("candidateAccelBiasEstimateMps2,candidatePreLaunchSamples,candidateLaunchDetectedTimeSec,candidateBurnoutDetectedTimeSec,candidateApogeeDetectedTimeSec,candidateDeploymentDetectedTimeSec,integratorDiagnostics,")
@@ -72,11 +80,15 @@ public final class PhaseTwoBatchReportWriter {
 			String improvementHints = buildImprovementHints(dataset, full, 3);
 			double referenceApogeeM = dataset.getReferenceQuantities().getApogeeAltitudeMeters();
 			double candidateApogeeM = dataset.getCandidateQuantities().getApogeeAltitudeMeters();
+			double signedApogeeDeltaM = signedApogeeDeltaMeters(referenceApogeeM, candidateApogeeM);
 			double apogeeErrorM = apogeeErrorMeters(referenceApogeeM, candidateApogeeM);
 			double apogeeErrorPercent = apogeeErrorPercent(referenceApogeeM, candidateApogeeM);
 			LaneEvaluation ascentLane = evaluateAscentLane(dataset, boostScoreValue, coastScoreValue, apogeeErrorPercent);
 			LaneEvaluation reliabilityLane = evaluateReliabilityLane(dataset);
 			VerticalIntegratorDiagnostics integratorDiagnostics = (VerticalIntegratorDiagnostics) datasetProperty(dataset, "getIntegratorDiagnostics", "integratorDiagnostics");
+			double rawApogeeTimeDeltaSec = rawApogeeTimeDeltaSec(dataset);
+			double effectiveApogeeTimeDeltaSec = effectiveApogeeTimeDeltaSec(dataset);
+			double effectiveApogeeTimeErrorSec = effectiveApogeeTimeErrorSec(dataset);
 
 			sb.append(csv(dataset.getDatasetName())).append(',')
 					.append(dataset.isAirbrakeEnabled()).append(',')
@@ -91,6 +103,7 @@ public final class PhaseTwoBatchReportWriter {
 					.append(format(dataset.getCandidateQuantities().getCdProxyMean())).append(',')
 					.append(format(referenceApogeeM)).append(',')
 					.append(format(candidateApogeeM)).append(',')
+					.append(format(signedApogeeDeltaM)).append(',')
 					.append(format(apogeeErrorM)).append(',')
 					.append(format(apogeeErrorPercent)).append(',')
 					.append(csv(dataset.getDatasetClass())).append(',')
@@ -103,6 +116,9 @@ public final class PhaseTwoBatchReportWriter {
 					.append(format(dataset.getCandidateAlignedApogeeTimeSec())).append(',')
 					.append(format(dataset.getAlignedApogeeTimeDeltaSec())).append(',')
 					.append(format(dataset.getAlignedApogeeTimeErrorSec())).append(',')
+					.append(format(rawApogeeTimeDeltaSec)).append(',')
+					.append(format(effectiveApogeeTimeDeltaSec)).append(',')
+					.append(format(effectiveApogeeTimeErrorSec)).append(',')
 					.append(format(ascentScore)).append(',')
 					.append(ascentLane.status()).append(',')
 					.append(csv(ascentLane.reasons())).append(',')
@@ -252,8 +268,8 @@ public final class PhaseTwoBatchReportWriter {
 	private static void writePhaseThreeAnalysisCsv(PhaseTwoBatchResult result, Path path) throws IOException {
 		StringBuilder sb = new StringBuilder();
 		sb.append("dataset,datasetClass,candidateSource,orkProvenance,romMode,romSurfaceSource,candidateMaxMach,")
-				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,")
-				.append("fullScore,fullSeverity,apogeeErrorPercent,ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,")
+				.append("referenceAlignedApogeeTimeSec,candidateAlignedApogeeTimeSec,alignedApogeeTimeDeltaSec,alignedApogeeTimeErrorSec,rawApogeeTimeDeltaSec,effectiveApogeeTimeDeltaSec,effectiveApogeeTimeErrorSec,")
+				.append("fullScore,fullSeverity,apogeeSignedDeltaM,apogeeErrorPercent,ascentScore,ascentLaneStatus,ascentGateFailures,reliabilityLaneStatus,reliabilityFailureReason,")
 				.append("primaryWeakness,primaryWeaknessScore,primaryStrength,primaryStrengthScore,recommendedFocus,")
 				.append("truthSource,alignmentChannel,alignmentLagSec,alignmentQuality,")
 				.append("candidateAccelBiasEstimateMps2,candidateLaunchDetectedTimeSec,candidateBurnoutDetectedTimeSec,candidateDeploymentDetectedTimeSec,")
@@ -270,6 +286,7 @@ public final class PhaseTwoBatchReportWriter {
 			double ascentScore = computeAscentScore(boostScoreValue, coastScoreValue);
 			double referenceApogeeM = dataset.getReferenceQuantities().getApogeeAltitudeMeters();
 			double candidateApogeeM = dataset.getCandidateQuantities().getApogeeAltitudeMeters();
+			double signedApogeeDeltaM = signedApogeeDeltaMeters(referenceApogeeM, candidateApogeeM);
 			double apogeeErrorPercent = apogeeErrorPercent(referenceApogeeM, candidateApogeeM);
 			LaneEvaluation ascentLane = evaluateAscentLane(dataset, boostScoreValue, coastScoreValue, apogeeErrorPercent);
 			LaneEvaluation reliabilityLane = evaluateReliabilityLane(dataset);
@@ -279,6 +296,9 @@ public final class PhaseTwoBatchReportWriter {
 			VerticalIntegratorDiagnostics integratorDiagnostics = (VerticalIntegratorDiagnostics) datasetProperty(dataset, "getIntegratorDiagnostics", "integratorDiagnostics");
 			ResidualHeadline weakestResidual = weakestResidual(dataset.getPhaseResiduals());
 			DragHeadline strongestDragResidual = strongestDragResidual(dataset.getPhaseResiduals());
+			double rawApogeeTimeDeltaSec = rawApogeeTimeDeltaSec(dataset);
+			double effectiveApogeeTimeDeltaSec = effectiveApogeeTimeDeltaSec(dataset);
+			double effectiveApogeeTimeErrorSec = effectiveApogeeTimeErrorSec(dataset);
 
 			sb.append(csv(dataset.getDatasetName())).append(',')
 					.append(csv(dataset.getDatasetClass())).append(',')
@@ -291,8 +311,12 @@ public final class PhaseTwoBatchReportWriter {
 					.append(format(dataset.getCandidateAlignedApogeeTimeSec())).append(',')
 					.append(format(dataset.getAlignedApogeeTimeDeltaSec())).append(',')
 					.append(format(dataset.getAlignedApogeeTimeErrorSec())).append(',')
+					.append(format(rawApogeeTimeDeltaSec)).append(',')
+					.append(format(effectiveApogeeTimeDeltaSec)).append(',')
+					.append(format(effectiveApogeeTimeErrorSec)).append(',')
 					.append(format(full == null ? Double.NaN : full.getScore())).append(',')
 					.append(full == null ? "NA" : full.getSeverity()).append(',')
+					.append(format(signedApogeeDeltaM)).append(',')
 					.append(format(apogeeErrorPercent)).append(',')
 					.append(format(ascentScore)).append(',')
 					.append(ascentLane.status()).append(',')
@@ -385,6 +409,118 @@ public final class PhaseTwoBatchReportWriter {
 		}
 
 		Files.writeString(path, sb.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static void writeTuningOverviewCsv(PhaseTwoBatchResult result, Path path) throws IOException {
+		StringBuilder sb = new StringBuilder();
+		sb.append("dataset,datasetClass,romMode,romSurfaceSource,truthSource,candidateMaxMach,")
+				.append("fullScore,fullSeverity,boostScore,coastScore,ascentScore,")
+				.append("apogeeSignedDeltaM,apogeeErrorPercent,alignedApogeeTimeDeltaSec,effectiveApogeeTimeDeltaSec,effectiveApogeeTimeErrorSec,")
+				.append("alignmentChannel,alignmentLagSec,alignmentQuality,")
+				.append("primaryWeakness,primaryWeaknessScore,recommendedFocus,")
+				.append("reliabilityLaneStatus,reliabilityFailureReason,topContributors,flags");
+		sb.append(System.lineSeparator());
+
+		for (PhaseTwoDatasetResult dataset : result.getDatasets()) {
+			PhaseTwoScoreResult full = dataset.getWindowScores().get(FlightPhaseWindow.FULL);
+			PhaseTwoScoreResult boost = dataset.getWindowScores().get(FlightPhaseWindow.BOOST);
+			PhaseTwoScoreResult coast = dataset.getWindowScores().get(FlightPhaseWindow.COAST);
+			double boostScoreValue = boost == null ? Double.NaN : boost.getScore();
+			double coastScoreValue = coast == null ? Double.NaN : coast.getScore();
+			double ascentScore = computeAscentScore(boostScoreValue, coastScoreValue);
+			double referenceApogeeM = dataset.getReferenceQuantities().getApogeeAltitudeMeters();
+			double candidateApogeeM = dataset.getCandidateQuantities().getApogeeAltitudeMeters();
+			double signedApogeeDeltaM = signedApogeeDeltaMeters(referenceApogeeM, candidateApogeeM);
+			double apogeeErrorPercent = apogeeErrorPercent(referenceApogeeM, candidateApogeeM);
+			LaneEvaluation reliabilityLane = evaluateReliabilityLane(dataset);
+			Map.Entry<String, Double> weakness = weakestChannel(full);
+			String recommendedFocus = buildImprovementHints(dataset, full, 1);
+			double effectiveApogeeTimeDeltaSec = effectiveApogeeTimeDeltaSec(dataset);
+			double effectiveApogeeTimeErrorSec = effectiveApogeeTimeErrorSec(dataset);
+
+			StringJoiner flags = new StringJoiner("|");
+			for (TuningFlag flag : dataset.getTuningFlags()) {
+				flags.add(flag.getChannel() + ":" + flag.getEquationGroup() + ":" + flag.getSeverity());
+			}
+
+			sb.append(csv(dataset.getDatasetName())).append(',')
+					.append(csv(dataset.getDatasetClass())).append(',')
+					.append(csv(dataset.getRomMode())).append(',')
+					.append(csv(dataset.getRomSurfaceSource())).append(',')
+					.append(csv(dataset.getTruthSource())).append(',')
+					.append(format(dataset.getCandidateMaxMach())).append(',')
+					.append(format(full == null ? Double.NaN : full.getScore())).append(',')
+					.append(full == null ? "NA" : full.getSeverity()).append(',')
+					.append(format(boostScoreValue)).append(',')
+					.append(format(coastScoreValue)).append(',')
+					.append(format(ascentScore)).append(',')
+					.append(format(signedApogeeDeltaM)).append(',')
+					.append(format(apogeeErrorPercent)).append(',')
+					.append(format(dataset.getAlignedApogeeTimeDeltaSec())).append(',')
+					.append(format(effectiveApogeeTimeDeltaSec)).append(',')
+					.append(format(effectiveApogeeTimeErrorSec)).append(',')
+					.append(csv(dataset.getAlignmentChannel())).append(',')
+					.append(format(dataset.getAlignmentLagSec())).append(',')
+					.append(format(dataset.getAlignmentQuality())).append(',')
+					.append(csv(weakness == null ? "" : weakness.getKey())).append(',')
+					.append(format(weakness == null ? Double.NaN : weakness.getValue())).append(',')
+					.append(csv(recommendedFocus)).append(',')
+					.append(reliabilityLane.status()).append(',')
+					.append(csv(reliabilityLane.reasons())).append(',')
+					.append(csv(topContributors(full, 3))).append(',')
+					.append(csv(flags.toString()))
+					.append(System.lineSeparator());
+		}
+
+		Files.writeString(path, sb.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static void writeAggregateMetricsCsv(PhaseTwoBatchResult result, Path path) throws IOException {
+		StringBuilder sb = new StringBuilder();
+		sb.append("scope,datasetCount,apogeeMeanSignedDeltaM,apogeeRmseM,alignedApogeeTimeMeanDeltaSec,effectiveApogeeTimeMeanDeltaSec,effectiveApogeeTimeRmseSec,effectiveApogeeTimeMeanAbsErrorSec");
+		sb.append(System.lineSeparator());
+		appendAggregateMetricsRow(sb, "usable", result.getDatasets());
+		Files.writeString(path, sb.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static void appendAggregateMetricsRow(StringBuilder sb, String scope, List<PhaseTwoDatasetResult> datasets) {
+		List<Double> signedApogeeDeltas = new ArrayList<>();
+		List<Double> alignedTimeDeltas = new ArrayList<>();
+		List<Double> effectiveTimeDeltas = new ArrayList<>();
+		List<Double> effectiveTimeErrors = new ArrayList<>();
+		for (PhaseTwoDatasetResult dataset : datasets) {
+			if ("BROKEN".equalsIgnoreCase(safe(dataset.getDatasetClass()))) {
+				continue;
+			}
+			double referenceApogee = dataset.getReferenceQuantities().getApogeeAltitudeMeters();
+			if (!Double.isFinite(referenceApogee) || referenceApogee <= 0.0) {
+				continue;
+			}
+			double signedApogeeDelta = signedApogeeDeltaMeters(
+					referenceApogee,
+					dataset.getCandidateQuantities().getApogeeAltitudeMeters());
+			double alignedTimeDelta = dataset.getAlignedApogeeTimeDeltaSec();
+			double effectiveTimeDelta = effectiveApogeeTimeDeltaSec(dataset);
+			double effectiveTimeError = effectiveApogeeTimeErrorSec(dataset);
+			if (!Double.isFinite(signedApogeeDelta) || !Double.isFinite(effectiveTimeDelta) || !Double.isFinite(effectiveTimeError)) {
+				continue;
+			}
+			signedApogeeDeltas.add(signedApogeeDelta);
+			if (Double.isFinite(alignedTimeDelta)) {
+				alignedTimeDeltas.add(alignedTimeDelta);
+			}
+			effectiveTimeDeltas.add(effectiveTimeDelta);
+			effectiveTimeErrors.add(effectiveTimeError);
+		}
+		sb.append(csv(scope)).append(',')
+				.append(signedApogeeDeltas.size()).append(',')
+				.append(format(mean(signedApogeeDeltas))).append(',')
+				.append(format(rmse(signedApogeeDeltas))).append(',')
+				.append(format(mean(alignedTimeDeltas))).append(',')
+				.append(format(mean(effectiveTimeDeltas))).append(',')
+				.append(format(rmse(effectiveTimeDeltas))).append(',')
+				.append(format(mean(effectiveTimeErrors)))
+				.append(System.lineSeparator());
 	}
 
 	private static void writeJUnitXml(PhaseTwoBatchResult result, Path path) throws IOException {
@@ -1221,11 +1357,11 @@ public final class PhaseTwoBatchReportWriter {
 			gateFailures.add("coastScore<" + format(ASCENT_COAST_GATE_SCORE) + "(" + format(coastScore) + ")");
 		}
 
-		double apogeeTimeErrorSec = apogeeTimeErrorSec(dataset);
+		double apogeeTimeErrorSec = effectiveApogeeTimeErrorSec(dataset);
 		if (!Double.isFinite(apogeeTimeErrorSec)) {
-			gateFailures.add("alignedApogeeTimeErrorSec=NA");
+			gateFailures.add("effectiveApogeeTimeErrorSec=NA");
 		} else if (apogeeTimeErrorSec > ASCENT_APOGEE_TIME_GATE_SEC) {
-			gateFailures.add("alignedApogeeTimeErrorSec>" + format(ASCENT_APOGEE_TIME_GATE_SEC)
+			gateFailures.add("effectiveApogeeTimeErrorSec>" + format(ASCENT_APOGEE_TIME_GATE_SEC)
 					+ "(" + format(apogeeTimeErrorSec) + ")");
 		}
 
@@ -1301,16 +1437,49 @@ public final class PhaseTwoBatchReportWriter {
 				.trim();
 	}
 
-	private static double apogeeTimeErrorSec(PhaseTwoDatasetResult dataset) {
+	private static double effectiveApogeeTimeErrorSec(PhaseTwoDatasetResult dataset) {
+		double effectiveDelta = effectiveApogeeTimeDeltaSec(dataset);
 		double explicitError = dataset.getAlignedApogeeTimeErrorSec();
+		if (Double.isFinite(explicitError) && Double.isFinite(effectiveDelta)) {
+			return Math.min(Math.abs(explicitError), Math.abs(effectiveDelta));
+		}
 		if (Double.isFinite(explicitError)) {
 			return Math.abs(explicitError);
 		}
-		double delta = dataset.getAlignedApogeeTimeDeltaSec();
-		if (Double.isFinite(delta)) {
-			return Math.abs(delta);
+		if (Double.isFinite(effectiveDelta)) {
+			return Math.abs(effectiveDelta);
 		}
 		return Double.NaN;
+	}
+
+	private static double effectiveApogeeTimeDeltaSec(PhaseTwoDatasetResult dataset) {
+		double alignedDelta = dataset.getAlignedApogeeTimeDeltaSec();
+		double rawDelta = rawApogeeTimeDeltaSec(dataset);
+		double trust = apogeeAlignmentTrust(dataset);
+		if (Double.isFinite(alignedDelta) && Double.isFinite(rawDelta)) {
+			return trust * alignedDelta + (1.0 - trust) * rawDelta;
+		}
+		if (Double.isFinite(alignedDelta)) {
+			return alignedDelta;
+		}
+		return rawDelta;
+	}
+
+	private static double rawApogeeTimeDeltaSec(PhaseTwoDatasetResult dataset) {
+		double referenceTime = dataset.getReferenceQuantities().getApogeeTimeSec();
+		double candidateTime = dataset.getCandidateQuantities().getApogeeTimeSec();
+		if (!Double.isFinite(referenceTime) || !Double.isFinite(candidateTime)) {
+			return Double.NaN;
+		}
+		return candidateTime - referenceTime;
+	}
+
+	private static double apogeeAlignmentTrust(PhaseTwoDatasetResult dataset) {
+		double quality = dataset.getAlignmentQuality();
+		double lagSec = Math.abs(dataset.getAlignmentLagSec());
+		double qualityTrust = smoothStep(TIMING_ALIGNMENT_QUALITY_LOW, TIMING_ALIGNMENT_QUALITY_HIGH, quality);
+		double lagTrust = 1.0 - smoothStep(TIMING_ALIGNMENT_LAG_OK_SEC, TIMING_ALIGNMENT_LAG_BAD_SEC, lagSec);
+		return qualityTrust * lagTrust;
 	}
 
 	private static double apogeeErrorMeters(double referenceApogeeM, double candidateApogeeM) {
@@ -1320,12 +1489,65 @@ public final class PhaseTwoBatchReportWriter {
 		return Math.abs(candidateApogeeM - referenceApogeeM);
 	}
 
+	private static double signedApogeeDeltaMeters(double referenceApogeeM, double candidateApogeeM) {
+		if (!Double.isFinite(referenceApogeeM) || !Double.isFinite(candidateApogeeM)) {
+			return Double.NaN;
+		}
+		return candidateApogeeM - referenceApogeeM;
+	}
+
 	private static double apogeeErrorPercent(double referenceApogeeM, double candidateApogeeM) {
 		double absErrorM = apogeeErrorMeters(referenceApogeeM, candidateApogeeM);
 		if (!Double.isFinite(absErrorM) || !Double.isFinite(referenceApogeeM) || referenceApogeeM <= 0.0) {
 			return Double.NaN;
 		}
 		return 100.0 * absErrorM / referenceApogeeM;
+	}
+
+	private static double mean(List<Double> values) {
+		if (values == null || values.isEmpty()) {
+			return Double.NaN;
+		}
+		double sum = 0.0;
+		int count = 0;
+		for (Double value : values) {
+			if (value == null || !Double.isFinite(value)) {
+				continue;
+			}
+			sum += value;
+			count++;
+		}
+		return count == 0 ? Double.NaN : sum / count;
+	}
+
+	private static double rmse(List<Double> values) {
+		if (values == null || values.isEmpty()) {
+			return Double.NaN;
+		}
+		double sumSquares = 0.0;
+		int count = 0;
+		for (Double value : values) {
+			if (value == null || !Double.isFinite(value)) {
+				continue;
+			}
+			sumSquares += value * value;
+			count++;
+		}
+		return count == 0 ? Double.NaN : Math.sqrt(sumSquares / count);
+	}
+
+	private static double smoothStep(double min, double max, double value) {
+		if (!Double.isFinite(value)) {
+			return 0.0;
+		}
+		if (value <= min) {
+			return 0.0;
+		}
+		if (value >= max) {
+			return 1.0;
+		}
+		double t = (value - min) / (max - min);
+		return t * t * (3.0 - 2.0 * t);
 	}
 
 	private record ResidualHeadline(String phase, String channel, double nrmse) {

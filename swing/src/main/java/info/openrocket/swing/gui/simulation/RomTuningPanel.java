@@ -31,12 +31,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 class RomTuningPanel extends SimulationScrollablePanel {
 	private static final long serialVersionUID = -463962520799963637L;
 
+	private static final String TUNING_OVERVIEW = "phase-three-tuning-overview.csv";
 	private static final String SUMMARY = "phase-two-summary.csv";
 	private static final String QUANTITIES = "phase-two-quantities.csv";
 	private static final String IMPROVEMENTS = "phase-two-improvements.csv";
@@ -60,8 +63,9 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private final JLabel statusLabel = new JLabel("Ready");
 	private final JTextField referenceField = new JTextField();
 	private final JTextField reportsField = new JTextField();
-	private final JButton runButton = new JButton("Run Phase Three");
+	private final JButton runButton = new JButton("Run Test");
 	private final JButton refreshButton = new JButton("Refresh");
+	private final JButton exportCurrentViewButton = new JButton("Export Current View CSV");
 	private final JButton openFolderButton = new JButton("Open Reports Folder");
 	private final JTabbedPane resultsTabs = new JTabbedPane();
 	private final JTextArea executionLogArea = new JTextArea();
@@ -82,11 +86,12 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		add(buildCurrentSimulationPanel(), "growx");
 		add(buildRunnerPanel(), "growx");
 
-		addOrReplaceTab("Summary", buildCsvPanel(getReportsPath().resolve(SUMMARY)));
-		addOrReplaceTab("Quantities", buildCsvPanel(getReportsPath().resolve(QUANTITIES)));
-		addOrReplaceTab("Improvements", buildCsvPanel(getReportsPath().resolve(IMPROVEMENTS)));
-		addOrReplaceTab("Analysis", buildCsvPanel(getReportsPath().resolve(ANALYSIS)));
-		addOrReplaceTab("Residuals", buildCsvPanel(getReportsPath().resolve(RESIDUALS)));
+		addOrReplaceTab("Tuning Overview", buildCsvPanel("Tuning Overview", getReportsPath().resolve(TUNING_OVERVIEW)));
+		addOrReplaceTab("Summary", buildCsvPanel("Summary", getReportsPath().resolve(SUMMARY)));
+		addOrReplaceTab("Quantities", buildCsvPanel("Quantities", getReportsPath().resolve(QUANTITIES)));
+		addOrReplaceTab("Improvements", buildCsvPanel("Improvements", getReportsPath().resolve(IMPROVEMENTS)));
+		addOrReplaceTab("Analysis", buildCsvPanel("Analysis", getReportsPath().resolve(ANALYSIS)));
+		addOrReplaceTab("Residuals", buildCsvPanel("Residuals", getReportsPath().resolve(RESIDUALS)));
 		addOrReplaceTab("Logs", buildLogsPanel());
 		add(resultsTabs, "grow, push");
 
@@ -156,6 +161,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		JPanel buttons = new JPanel(new MigLayout("insets 0, gapx 6", "[][][]", ""));
 		buttons.add(runButton);
 		buttons.add(refreshButton);
+		buttons.add(exportCurrentViewButton);
 		buttons.add(openFolderButton);
 
 		outer.add(form, BorderLayout.CENTER);
@@ -166,6 +172,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private void wireEvents() {
 		runButton.addActionListener(e -> runPhaseThree());
 		refreshButton.addActionListener(e -> refreshResults());
+		exportCurrentViewButton.addActionListener(e -> exportCurrentView());
 		openFolderButton.addActionListener(e -> openReportsFolder());
 	}
 
@@ -216,6 +223,10 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	}
 
 	private void runPhaseThree() {
+		if (runWorker != null) {
+			statusLabel.setText("A test run is already in progress.");
+			return;
+		}
 		Path referenceCsv = getReferencePath();
 		Path reportsDir = getReportsPath();
 		if (!Files.exists(referenceCsv)) {
@@ -225,7 +236,8 @@ class RomTuningPanel extends SimulationScrollablePanel {
 
 		executionLogArea.setText("");
 		setControlsEnabled(false);
-		statusLabel.setText("Running Phase Three comparison...");
+		publishLine("Starting a fresh OpenRocket simulation rerun for the current ROM settings.");
+		statusLabel.setText("Running fresh Phase Three comparison...");
 		runWorker = new SwingWorker<>() {
 			@Override
 			protected PhaseTwoBatchResult doInBackground() throws Exception {
@@ -271,11 +283,12 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private void refreshResults() {
 		refreshCurrentSimulationState();
 		Path reportsDir = getReportsPath();
-		addOrReplaceTab("Summary", buildCsvPanel(reportsDir.resolve(SUMMARY)));
-		addOrReplaceTab("Quantities", buildCsvPanel(reportsDir.resolve(QUANTITIES)));
-		addOrReplaceTab("Improvements", buildCsvPanel(reportsDir.resolve(IMPROVEMENTS)));
-		addOrReplaceTab("Analysis", buildCsvPanel(reportsDir.resolve(ANALYSIS)));
-		addOrReplaceTab("Residuals", buildCsvPanel(reportsDir.resolve(RESIDUALS)));
+		addOrReplaceTab("Tuning Overview", buildCsvPanel("Tuning Overview", reportsDir.resolve(TUNING_OVERVIEW)));
+		addOrReplaceTab("Summary", buildCsvPanel("Summary", reportsDir.resolve(SUMMARY)));
+		addOrReplaceTab("Quantities", buildCsvPanel("Quantities", reportsDir.resolve(QUANTITIES)));
+		addOrReplaceTab("Improvements", buildCsvPanel("Improvements", reportsDir.resolve(IMPROVEMENTS)));
+		addOrReplaceTab("Analysis", buildCsvPanel("Analysis", reportsDir.resolve(ANALYSIS)));
+		addOrReplaceTab("Residuals", buildCsvPanel("Residuals", reportsDir.resolve(RESIDUALS)));
 		addOrReplaceTab("Logs", buildLogsPanel());
 		refreshOverview(reportsDir.resolve(ANALYSIS));
 		statusLabel.setText("Loaded reports from " + reportsDir);
@@ -326,8 +339,10 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		return value == null || value.isBlank() ? "-" : value;
 	}
 
-	private JPanel buildCsvPanel(Path csvPath) {
+	private JPanel buildCsvPanel(String tabTitle, Path csvPath) {
 		JPanel panel = new JPanel(new BorderLayout());
+		panel.putClientProperty("tabTitle", tabTitle);
+		panel.putClientProperty("sourcePath", csvPath);
 		if (!Files.exists(csvPath)) {
 			panel.add(new JLabel("File not found: " + csvPath), BorderLayout.NORTH);
 			return panel;
@@ -344,11 +359,16 @@ class RomTuningPanel extends SimulationScrollablePanel {
 
 		try {
 			CsvTable csv = readCsv(csvPath);
-			for (String header : csv.headers()) {
+			List<String> visibleHeaders = selectHeaders(tabTitle, csv.headers());
+			for (String header : visibleHeaders) {
 				model.addColumn(header);
 			}
 			for (List<String> row : csv.rows()) {
-				model.addRow(row.toArray());
+				Object[] filteredRow = new Object[visibleHeaders.size()];
+				for (int i = 0; i < visibleHeaders.size(); i++) {
+					filteredRow[i] = csvValue(csv, row, visibleHeaders.get(i));
+				}
+				model.addRow(filteredRow);
 			}
 		} catch (IOException ex) {
 			panel.add(new JLabel("Failed to load " + csvPath.getFileName() + ": " + ex.getMessage()), BorderLayout.NORTH);
@@ -358,6 +378,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		JTable table = new JTable(model);
 		table.setAutoCreateRowSorter(true);
 		table.setFillsViewportHeight(true);
+		panel.putClientProperty("tableModel", model);
 		panel.add(new JScrollPane(table), BorderLayout.CENTER);
 		return panel;
 	}
@@ -421,6 +442,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private void setControlsEnabled(boolean enabled) {
 		runButton.setEnabled(enabled);
 		refreshButton.setEnabled(enabled);
+		exportCurrentViewButton.setEnabled(enabled);
 		openFolderButton.setEnabled(enabled);
 		referenceField.setEnabled(enabled);
 		reportsField.setEnabled(enabled);
@@ -507,6 +529,127 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private static String csvValue(CsvTable table, List<String> row, String header) {
 		int index = table.headers().indexOf(header);
 		return valueAt(row, index);
+	}
+
+	private void exportCurrentView() {
+		java.awt.Component selected = resultsTabs.getSelectedComponent();
+		if (!(selected instanceof JPanel panel)) {
+			statusLabel.setText("No table view is selected for export.");
+			return;
+		}
+		Object modelObject = panel.getClientProperty("tableModel");
+		if (!(modelObject instanceof DefaultTableModel model)) {
+			statusLabel.setText("The selected tab does not contain exportable table data.");
+			return;
+		}
+
+		String tabTitle = String.valueOf(panel.getClientProperty("tabTitle"));
+		String defaultName = sanitizeFilePart(tabTitle.isBlank() ? "rom-results" : tabTitle) + ".csv";
+
+		JFileChooser chooser = new JFileChooser(getReportsPath().toFile());
+		chooser.setDialogTitle("Export current ROM results view");
+		chooser.setSelectedFile(getReportsPath().resolve(defaultName).toFile());
+		if (chooser.showSaveDialog(SwingUtilities.getWindowAncestor(this)) != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+
+		Path target = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+		try {
+			writeModelCsv(model, target);
+			statusLabel.setText("Exported current view to " + target.getFileName());
+		} catch (IOException ex) {
+			statusLabel.setText("Failed to export current view: " + ex.getMessage());
+		}
+	}
+
+	private static void writeModelCsv(DefaultTableModel model, Path target) throws IOException {
+		StringBuilder out = new StringBuilder();
+		for (int column = 0; column < model.getColumnCount(); column++) {
+			if (column > 0) {
+				out.append(',');
+			}
+			out.append(escapeCsv(String.valueOf(model.getColumnName(column))));
+		}
+		out.append(System.lineSeparator());
+		for (int row = 0; row < model.getRowCount(); row++) {
+			for (int column = 0; column < model.getColumnCount(); column++) {
+				if (column > 0) {
+					out.append(',');
+				}
+				Object value = model.getValueAt(row, column);
+				out.append(escapeCsv(value == null ? "" : String.valueOf(value)));
+			}
+			out.append(System.lineSeparator());
+		}
+		Files.writeString(target, out.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static String escapeCsv(String value) {
+		if (value == null) {
+			return "";
+		}
+		boolean needsQuotes = value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r");
+		String escaped = value.replace("\"", "\"\"");
+		return needsQuotes ? "\"" + escaped + "\"" : escaped;
+	}
+
+	private static String sanitizeFilePart(String value) {
+		if (value == null || value.isBlank()) {
+			return "rom-results";
+		}
+		String cleaned = value.replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("-{2,}", "-");
+		return cleaned.isBlank() ? "rom-results" : cleaned;
+	}
+
+	private static List<String> selectHeaders(String tabTitle, List<String> headers) {
+		List<String> preferred = switch (tabTitle) {
+			case "Tuning Overview" -> List.of(
+					"dataset", "datasetClass", "romMode", "romSurfaceSource", "truthSource",
+					"candidateMaxMach", "fullScore", "fullSeverity", "boostScore", "coastScore",
+					"ascentScore", "apogeeErrorPercent", "alignedApogeeTimeDeltaSec",
+					"alignmentChannel", "alignmentLagSec", "alignmentQuality",
+					"primaryWeakness", "primaryWeaknessScore", "recommendedFocus",
+					"reliabilityLaneStatus", "reliabilityFailureReason", "topContributors", "flags");
+			case "Summary" -> List.of(
+					"dataset", "fullScore", "fullSeverity", "boostScore", "coastScore", "descentScore",
+					"apogeeErrorPercent", "alignedApogeeTimeDeltaSec", "ascentScore", "ascentLaneStatus",
+					"reliabilityLaneStatus", "candidateMaxMach", "alignmentChannel", "alignmentLagSec",
+					"alignmentQuality", "topContributors", "romImprovementHints", "failureReason");
+			case "Quantities" -> List.of(
+					"dataset", "source", "velocityAbsPeak", "accelAbsPeak", "cdProxyMean",
+					"launchTimeSec", "burnoutTimeSec", "apogeeAltitudeM", "apogeeTimeSec",
+					"alignedApogeeTimeSec", "maxMach", "rowsAccepted", "droppedSamples");
+			case "Improvements" -> List.of(
+					"dataset", "window", "rowType", "channel", "channelScore", "severity",
+					"equationGroup", "recommendation");
+			case "Analysis" -> List.of(
+					"dataset", "datasetClass", "romMode", "romSurfaceSource", "candidateMaxMach",
+					"fullScore", "fullSeverity", "apogeeErrorPercent", "ascentScore", "ascentLaneStatus",
+					"reliabilityLaneStatus", "primaryWeakness", "primaryWeaknessScore",
+					"primaryStrength", "primaryStrengthScore", "recommendedFocus",
+					"weakestResidualPhase", "weakestResidualChannel", "weakestResidualNrmse",
+					"primaryDragResidualPhase", "primaryDragDeltaPercent");
+			case "Residuals" -> List.of(
+					"dataset", "phase", "residualType", "channel", "nrmse", "rmse", "mae",
+					"percentDelta", "residualSummary");
+			default -> headers;
+		};
+
+		Set<String> remaining = new LinkedHashSet<>(headers);
+		List<String> selected = new ArrayList<>();
+		for (String header : preferred) {
+			if (remaining.remove(header)) {
+				selected.add(header);
+			}
+		}
+		if (selected.isEmpty()) {
+			return headers;
+		}
+		if ("Logs".equals(tabTitle)) {
+			return headers;
+		}
+		selected.addAll(remaining.stream().filter(header -> header.endsWith("Status")).toList());
+		return selected;
 	}
 
 	private record CsvTable(List<String> headers, List<List<String>> rows) {

@@ -104,7 +104,7 @@ public final class PhaseThreeSingleSimulationRunner {
 				candidate.getParserDiagnostics(),
 				datasetClass,
 				normalizedReference.toString(),
-				"CURRENT_SIMULATION",
+				"CURRENT_SIMULATION_RERUN",
 				provenance(document),
 				candidateTelemetry.getRomMode(),
 				candidateTelemetry.getRomSurfaceSource(),

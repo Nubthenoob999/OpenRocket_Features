@@ -143,10 +143,13 @@ install4j {
     verbose = true
 }
 
-def runExternalCommand = { List<String> command, boolean inheritIo = false ->
+def runExternalCommand = { List<String> command, boolean inheritIo = false, Map<String, String> extraEnv = [:] ->
     def normalizedCommand = command.collect { it.toString() }
     def processBuilder = new ProcessBuilder(normalizedCommand)
     processBuilder.directory(rootDir)
+    if (extraEnv != null && !extraEnv.isEmpty()) {
+        processBuilder.environment().putAll(extraEnv)
+    }
     if (inheritIo) {
         processBuilder.inheritIO()
     }
@@ -197,8 +200,8 @@ def collectJpackageModules = { File jarFile ->
     return allModules.isEmpty() ? 'java.base' : allModules.join(',')
 }
 
-def runJpackage = { List<String> arguments ->
-    def result = runExternalCommand(([toolExecutable('jpackage')] + arguments) as List<String>)
+def runJpackage = { List<String> arguments, Map<String, String> extraEnv = [:] ->
+    def result = runExternalCommand(([toolExecutable('jpackage')] + arguments) as List<String>, false, extraEnv)
     if (result.exitValue != 0) {
         def details = [result.stdout, result.stderr]
                 .findAll { it != null && !it.trim().isEmpty() }
@@ -488,8 +491,14 @@ tasks.register('jpackageInstaller') {
         delete(outputDir)
         outputDir.mkdirs()
 
+        Map<String, String> jpackageEnv = [:]
         if (isWindows && installerType in ['exe', 'msi']) {
-            def wixResult = runExternalCommand(['where.exe', 'candle.exe'])
+            def wixDir = rootProject.file('tools/wix3')
+            if (wixDir.isDirectory()) {
+                def currentPath = System.getenv('PATH') ?: ''
+                jpackageEnv['PATH'] = wixDir.absolutePath + File.pathSeparator + currentPath
+            }
+            def wixResult = runExternalCommand(['where.exe', 'candle.exe'], false, jpackageEnv)
             if (wixResult.exitValue != 0) {
                 throw new GradleException("WiX Toolset was not found on PATH. Install WiX 3.x before running jpackageInstaller, or use jpackageAppImage instead.")
             }
@@ -519,7 +528,7 @@ tasks.register('jpackageInstaller') {
             ])
         }
 
-        runJpackage(arguments)
+        runJpackage(arguments, jpackageEnv)
         println "Created jpackage installer artifacts in '${outputDir.absolutePath}'."
     }
 }

@@ -37,6 +37,16 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private static final double FOUR_D_DRAG_TRANSONIC_FADE_START = 0.45;
 	private static final double FOUR_D_DRAG_TRANSONIC_FADE_END = 0.55;
 	private static final double FOUR_D_DRAG_MIN_TRUST = 0.25;
+	private static final double COAST_ROM_BLEND_MACH_START = 0.12;
+	private static final double COAST_ROM_BLEND_MACH_END = 0.32;
+	private static final double COAST_ROM_BLEND_RE_START = 2.5e5;
+	private static final double COAST_ROM_BLEND_RE_END = 9.0e5;
+	private static final double COAST_ROM_BLEND_FLOOR = 0.22;
+	private static final double COAST_APOGEE_DRAG_MACH_START = 0.12;
+	private static final double COAST_APOGEE_DRAG_MACH_END = 0.48;
+	private static final double COAST_APOGEE_DRAG_RE_START = 2.5e5;
+	private static final double COAST_APOGEE_DRAG_RE_END = 1.1e6;
+	private static final double COAST_APOGEE_DRAG_GAIN_MAX = 0.06;
 
 	private final BarrowmanCalculator barrowman;
 	private DragSurfaceInterpolator interpolator;
@@ -409,14 +419,18 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 					queryValues.queryAlphaDeg());
 		}
 		double oldCd = forces.getCD();
+		double coastPhaseWeight = 1.0 - plumeDecayState;
 		double cdBlended = cdPlumeOff + plumeDecayState * (cdPlumeOn - cdPlumeOff);
-		double blendWeight = computeRomBlendWeight(mach, reL);
+		double boostBlendWeight = computeRomBlendWeight(mach, reL);
+		double coastBlendWeight = computeCoastRomBlendWeight(mach, reL);
+		double blendWeight = blendTowardCoastTrust(boostBlendWeight, coastBlendWeight, coastPhaseWeight);
 		if (coefficientMode == RomCoefficientMode.HYBRID_4D) {
 			blendWeight *= computeFourDDragTrust(mach);
 		}
-		double effectiveCd = blendWeight * cdBlended + (1.0 - blendWeight) * oldCd;
+		double calibratedCd = cdBlended * computeCoastApogeeDragGain(mach, reL, coastPhaseWeight);
+		double effectiveCd = blendWeight * calibratedCd + (1.0 - blendWeight) * oldCd;
 		if (!Double.isFinite(effectiveCd) || effectiveCd <= 0.0) {
-			effectiveCd = cdBlended;
+			effectiveCd = calibratedCd;
 		}
 		forces.setCD(effectiveCd);
 		// Preserve Barrowman stability coefficients in production simulation. The current 4D
@@ -512,7 +526,29 @@ public class RomAerodynamicCalculator extends AbstractAerodynamicCalculator {
 	private static double computeRomBlendWeight(double mach, double reL) {
 		double machWeight = smoothStep(BLEND_MACH_FULL_BARROWMAN, BLEND_MACH_FULL_ROM, mach);
 		double reWeight = smoothStep(BLEND_RE_FULL_BARROWMAN, BLEND_RE_FULL_ROM, reL);
-		return Math.max(machWeight, reWeight);
+		// Require both Mach and Reynolds to be inside the trusted ROM band. The previous
+		// max() blend let high-Reynolds subsonic boost switch almost completely to the ROM,
+		// which over-amplified drag in the low-Mach regime where Barrowman is more stable.
+		return machWeight * reWeight;
+	}
+
+	private static double computeCoastRomBlendWeight(double mach, double reL) {
+		double machWeight = smoothStep(COAST_ROM_BLEND_MACH_START, COAST_ROM_BLEND_MACH_END, mach);
+		double reWeight = smoothStep(COAST_ROM_BLEND_RE_START, COAST_ROM_BLEND_RE_END, reL);
+		double coastTrust = machWeight * (COAST_ROM_BLEND_FLOOR + (1.0 - COAST_ROM_BLEND_FLOOR) * reWeight);
+		return Math.max(computeRomBlendWeight(mach, reL), coastTrust);
+	}
+
+	private static double blendTowardCoastTrust(double boostTrust, double coastTrust, double coastPhaseWeight) {
+		double coastWeight = sanitizePlumeState(coastPhaseWeight);
+		return boostTrust + coastWeight * (coastTrust - boostTrust);
+	}
+
+	private static double computeCoastApogeeDragGain(double mach, double reL, double coastPhaseWeight) {
+		double machWeight = smoothStep(COAST_APOGEE_DRAG_MACH_START, COAST_APOGEE_DRAG_MACH_END, mach);
+		double reWeight = smoothStep(COAST_APOGEE_DRAG_RE_START, COAST_APOGEE_DRAG_RE_END, reL);
+		double gainWeight = sanitizePlumeState(coastPhaseWeight) * machWeight * reWeight;
+		return 1.0 + COAST_APOGEE_DRAG_GAIN_MAX * gainWeight;
 	}
 
 	private static double computeFourDBetaDragWeight(double mach) {

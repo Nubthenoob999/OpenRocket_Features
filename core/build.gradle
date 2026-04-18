@@ -49,6 +49,32 @@ configurations {
     }
 }
 
+sourceSets {
+    phaseTwoTool {
+        java {
+            srcDir 'src/test/java'
+            include 'info/openrocket/core/tuning/**'
+            exclude '**/*Test.java'
+        }
+        resources {
+            srcDir 'src/test/java'
+            include 'info/openrocket/core/tuning/**/*.json'
+            include 'info/openrocket/core/tuning/**/*.md'
+            include 'info/openrocket/core/tuning/**/*.py'
+        }
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations.named('phaseTwoToolImplementation') {
+    extendsFrom(configurations.testImplementation)
+}
+
+configurations.named('phaseTwoToolRuntimeOnly') {
+    extendsFrom(configurations.testRuntimeOnly)
+}
+
 // Some older libraries are not modularized, so we need to add module-info.java files for them.
 extraJavaModuleInfo {
     failOnMissingModuleInfo = false
@@ -339,8 +365,8 @@ tasks.named('sourcesJar') {
 }
 
 tasks.register('phaseTwoGenerateReports', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
+    dependsOn sourceSets.phaseTwoTool.classesTaskName
+    classpath = sourceSets.phaseTwoTool.runtimeClasspath
     mainClass.set('info.openrocket.core.tuning.PhaseTwoBatchRunner')
     def configPath = project.hasProperty('phaseTwoConfig') ?
         project.property('phaseTwoConfig').toString() :
@@ -356,8 +382,8 @@ tasks.register('phaseTwoGenerateReports', JavaExec) {
 
 tasks.register('phaseTwoGui', JavaExec) {
     dependsOn phaseTwoGenerateReports
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
+    dependsOn sourceSets.phaseTwoTool.classesTaskName
+    classpath = sourceSets.phaseTwoTool.runtimeClasspath
     mainClass.set('info.openrocket.core.tuning.PhaseTwoTestGuiLauncher')
     jvmArgs('-Djava.awt.headless=false')
     if (project.hasProperty('reportsDir')) {
@@ -368,6 +394,223 @@ tasks.register('phaseTwoGui', JavaExec) {
     standardInput = System.in
     description = 'Launches the Phase III Swing test GUI for report inspection.'
     group = 'verification'
+}
+
+def phaseTwoGuiAppName = 'Project Imperia Phase Three Test App'
+def phaseTwoGuiMainClass = 'info.openrocket.core.tuning.PhaseTwoTestGuiLauncher'
+def phaseTwoGuiJpackageRoot = layout.buildDirectory.dir('phase-two-gui-package')
+def phaseTwoGuiInputDir = phaseTwoGuiJpackageRoot.map { it.dir('input') }
+def phaseTwoGuiMetadataDir = phaseTwoGuiJpackageRoot.map { it.dir('metadata') }
+def phaseTwoGuiAppImageDir = phaseTwoGuiJpackageRoot.map { it.dir('app-image') }
+def phaseTwoGuiInstallerDir = phaseTwoGuiJpackageRoot.map { it.dir('installer') }
+def phaseTwoGuiRuntimeImageDir = phaseTwoGuiJpackageRoot.map { it.dir('runtime') }
+def phaseTwoGuiModulesFile = phaseTwoGuiMetadataDir.map { it.file('modules.txt') }
+def phaseTwoGuiVersion = {
+    def numericSegments = version.toString().findAll(/\d+/)
+    if (numericSegments.isEmpty()) {
+        return '1.0.0'
+    }
+    def normalizedSegments = numericSegments.take(4)
+    while (normalizedSegments.size() < 3) {
+        normalizedSegments << '0'
+    }
+    return normalizedSegments.join('.')
+}.call()
+def phaseTwoGuiCurrentOs = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+def phaseTwoGuiIsWindows = phaseTwoGuiCurrentOs.contains('windows')
+def phaseTwoGuiIconPath = rootProject.file(
+        phaseTwoGuiIsWindows
+                ? 'swing/src/main/resources/pix/icon/icon-windows.ico'
+                : 'swing/src/main/resources/pix/icon/icon-256.png'
+).absolutePath
+def phaseTwoGuiToolExecutable = { String toolName ->
+    def executableName = phaseTwoGuiIsWindows ? "${toolName}.exe" : toolName
+    return new File(System.getProperty('java.home'), "bin/${executableName}").absolutePath
+}
+def phaseTwoGuiRunExternalCommand = { List<String> command, Map<String, String> extraEnv = [:] ->
+    def processBuilder = new ProcessBuilder(command.collect { it.toString() })
+    processBuilder.directory(rootDir)
+    if (extraEnv != null && !extraEnv.isEmpty()) {
+        processBuilder.environment().putAll(extraEnv)
+    }
+    def process = processBuilder.start()
+    def stdout = process.inputStream.getText('UTF-8')
+    def stderr = process.errorStream.getText('UTF-8')
+    def exitValue = process.waitFor()
+    return [exitValue: exitValue, stdout: stdout, stderr: stderr]
+}
+def phaseTwoGuiRunJpackage = { List<String> arguments ->
+    Map<String, String> extraEnv = [:]
+    if (phaseTwoGuiIsWindows) {
+        def wixDir = rootProject.file('tools/wix3')
+        if (wixDir.isDirectory()) {
+            def currentPath = System.getenv('PATH') ?: ''
+            extraEnv['PATH'] = wixDir.absolutePath + File.pathSeparator + currentPath
+        }
+    }
+
+    def result = phaseTwoGuiRunExternalCommand(([phaseTwoGuiToolExecutable('jpackage')] + arguments) as List<String>, extraEnv)
+    if (result.exitValue != 0) {
+        def details = [result.stdout, result.stderr]
+                .findAll { it != null && !it.trim().isEmpty() }
+                .join(System.lineSeparator())
+        throw new GradleException("Phase Three test app packaging failed with exit code ${result.exitValue}.${details ? System.lineSeparator() + details : ''}")
+    }
+}
+
+tasks.register('phaseTwoGuiJar', Jar) {
+    archiveBaseName = 'Project-Imperia-Phase-Three-Test-App'
+    archiveClassifier = ''
+    from sourceSets.main.output
+    from sourceSets.phaseTwoTool.output
+    manifest {
+        attributes(
+                'Main-Class': phaseTwoGuiMainClass
+        )
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.register('preparePhaseTwoGuiPackageInput', Sync) {
+    group = 'distribution'
+    description = 'Collects the Phase Three GUI JAR and dependency JARs for packaging.'
+    dependsOn tasks.named('phaseTwoGuiJar')
+
+    into(phaseTwoGuiInputDir)
+    from(tasks.named('phaseTwoGuiJar').flatMap { it.archiveFile }) {
+        rename { "${phaseTwoGuiAppName}.jar" }
+    }
+    from({
+        sourceSets.phaseTwoTool.runtimeClasspath.files.findAll { File file ->
+            file.isFile() && file.name.toLowerCase(Locale.ROOT).endsWith('.jar')
+        }
+    })
+}
+
+tasks.register('resolvePhaseTwoGuiModules') {
+    group = 'distribution'
+    description = 'Records the JDK modules bundled into the packaged Phase Three GUI runtime.'
+    outputs.file(phaseTwoGuiModulesFile)
+
+    doLast {
+        def detectedModules = 'ALL-MODULE-PATH'
+        def outputFile = phaseTwoGuiModulesFile.get().asFile
+        outputFile.parentFile.mkdirs()
+        outputFile.text = detectedModules + System.lineSeparator()
+        println "Using full local JDK runtime image for the Phase Three test app: ${detectedModules}"
+    }
+}
+
+tasks.register('phaseTwoGuiRuntimeImage') {
+    group = 'distribution'
+    description = 'Builds a bundled runtime image for the Phase Three GUI from the local JDK.'
+    dependsOn 'resolvePhaseTwoGuiModules'
+    inputs.file(phaseTwoGuiModulesFile)
+    outputs.dir(phaseTwoGuiRuntimeImageDir)
+
+    doLast {
+        def outputDir = phaseTwoGuiRuntimeImageDir.get().asFile
+        delete(outputDir)
+
+        def arguments = [
+                '--module-path', new File(System.getProperty('java.home'), 'jmods').absolutePath,
+                '--add-modules', phaseTwoGuiModulesFile.get().asFile.text.trim(),
+                '--output', outputDir.absolutePath,
+                '--strip-debug',
+                '--no-header-files',
+                '--no-man-pages'
+        ]
+
+        def result = phaseTwoGuiRunExternalCommand(([phaseTwoGuiToolExecutable('jlink')] + arguments) as List<String>)
+        if (result.exitValue != 0) {
+            def details = [result.stdout, result.stderr]
+                    .findAll { it != null && !it.trim().isEmpty() }
+                    .join(System.lineSeparator())
+            throw new GradleException("Phase Three test app runtime image creation failed with exit code ${result.exitValue}.${details ? System.lineSeparator() + details : ''}")
+        }
+
+        println "Created bundled runtime image for the Phase Three test app in '${outputDir.absolutePath}'."
+    }
+}
+
+tasks.register('phaseTwoGuiAppImage') {
+    group = 'distribution'
+    description = 'Builds a Windows app image for the Phase Three GUI, including a bundled runtime.'
+    dependsOn 'preparePhaseTwoGuiPackageInput', 'phaseTwoGuiRuntimeImage'
+    inputs.dir(phaseTwoGuiInputDir)
+    outputs.dir(phaseTwoGuiAppImageDir)
+
+    doLast {
+        def outputDir = phaseTwoGuiAppImageDir.get().asFile
+        def inputDir = phaseTwoGuiInputDir.get().asFile
+        def runtimeImageDir = phaseTwoGuiRuntimeImageDir.get().asFile
+
+        delete(outputDir)
+        outputDir.mkdirs()
+
+        def arguments = [
+                '--type', 'app-image',
+                '--dest', outputDir.absolutePath,
+                '--input', inputDir.absolutePath,
+                '--name', phaseTwoGuiAppName,
+                '--main-jar', "${phaseTwoGuiAppName}.jar",
+                '--main-class', phaseTwoGuiMainClass,
+                '--app-version', phaseTwoGuiVersion,
+                '--vendor', 'Project Imperia',
+                '--description', 'Phase Three test GUI for report inspection and reruns',
+                '--icon', phaseTwoGuiIconPath,
+                '--runtime-image', runtimeImageDir.absolutePath,
+                '--java-options', '-Djava.awt.headless=false',
+                '--java-options', '-Dsun.java2d.noddraw=true',
+                '--java-options', '-Dsun.java2d.d3d=false',
+                '--verbose'
+        ]
+
+        phaseTwoGuiRunJpackage(arguments)
+        println "Created Phase Three test app image in '${outputDir.absolutePath}'."
+    }
+}
+
+tasks.register('phaseTwoGuiExe') {
+    group = 'distribution'
+    description = 'Builds a Windows .exe installer for the Phase Three GUI.'
+    dependsOn 'phaseTwoGuiAppImage'
+    inputs.dir(phaseTwoGuiAppImageDir)
+    outputs.dir(phaseTwoGuiInstallerDir)
+
+    doLast {
+        if (!phaseTwoGuiIsWindows) {
+            throw new GradleException('phaseTwoGuiExe currently supports Windows packaging only.')
+        }
+
+        def outputDir = phaseTwoGuiInstallerDir.get().asFile
+        def appImagePath = new File(phaseTwoGuiAppImageDir.get().asFile, phaseTwoGuiAppName)
+        if (!appImagePath.exists()) {
+            throw new GradleException("Expected Phase Three test app image at '${appImagePath.absolutePath}', but it was not found.")
+        }
+
+        delete(outputDir)
+        outputDir.mkdirs()
+
+        def arguments = [
+                '--type', 'exe',
+                '--dest', outputDir.absolutePath,
+                '--name', phaseTwoGuiAppName,
+                '--app-image', appImagePath.absolutePath,
+                '--app-version', phaseTwoGuiVersion,
+                '--vendor', 'Project Imperia',
+                '--description', 'Phase Three test GUI for report inspection and reruns',
+                '--icon', phaseTwoGuiIconPath,
+                '--win-dir-chooser',
+                '--win-menu',
+                '--win-menu-group', 'Project Imperia',
+                '--win-shortcut',
+                '--verbose'
+        ]
+
+        phaseTwoGuiRunJpackage(arguments)
+        println "Created Phase Three test app installer in '${outputDir.absolutePath}'."
+    }
 }
 
 // ─── External component database (submodule) ─────────────────────────────────

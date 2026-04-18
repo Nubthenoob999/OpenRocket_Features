@@ -19,7 +19,7 @@ public class BaseDragModel {
 		n = Math.max(0.5, Math.min(n, 3.0)); // clamp to physical range
 		// Hoerner/Braeunig-style base drag uses a small empirical prefactor.
 		// Without this scaling, low-Re values become unrealistically large.
-		return 0.026 * Kb / Math.sqrt(Math.max(cf_body, 1e-4));
+		return 0.029 * Kb / Math.sqrt(Math.max(cf_body, 1e-4));
 	}
 
 	/**
@@ -34,7 +34,7 @@ public class BaseDragModel {
 		}
 		if (mach <= 1.0) {
 			double dm = mach - 0.6;
-			return 1.0 + 175.0 * Math.pow(dm, 6.0);
+			return 1.0 + 215.8 * Math.pow(dm, 6.0);
 		}
 		if (mach <= 2.0) {
 			double dm = mach - 1.0;

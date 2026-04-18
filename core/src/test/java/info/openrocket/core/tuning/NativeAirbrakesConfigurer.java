@@ -31,10 +31,16 @@ final class NativeAirbrakesConfigurer {
 					"Native airbrakes configuration failed: simulation options were unavailable");
 		}
 
+		PhaseTwoDatasetConfig.PluginConfig plugin = dataset.getPlugin();
 		if (!dataset.isAirbrakeEnabled()) {
 			options.setAirbrakesEnabled(false);
 			return new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0,
 					"Native airbrakes disabled for dataset");
+		}
+		if (plugin != null && !plugin.isEnabled()) {
+			options.setAirbrakesEnabled(false);
+			return new AbPluginExecutionResult(AbPluginExecutionResult.Status.SKIPPED, 0,
+					"Native airbrakes disabled because plugin.enabled=false");
 		}
 
 		options.setAirbrakesEnabled(true);
@@ -369,16 +375,7 @@ final class NativeAirbrakesConfigurer {
 		if (path.isAbsolute()) {
 			return path;
 		}
-
 		Path anchor = baseDir == null ? Path.of(".") : baseDir.toAbsolutePath().normalize();
-		Path cursor = anchor;
-		while (cursor != null) {
-			Path candidate = cursor.resolve(path).normalize();
-			if (Files.exists(candidate)) {
-				return candidate;
-			}
-			cursor = cursor.getParent();
-		}
 		return anchor.resolve(path).normalize();
 	}
 

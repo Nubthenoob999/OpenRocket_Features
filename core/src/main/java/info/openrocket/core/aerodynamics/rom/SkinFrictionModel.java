@@ -89,7 +89,7 @@ public class SkinFrictionModel {
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
 		// Flat-plate Cf correlations represent shear referenced to a two-sided plate.
 		// Body wetted area is single-sided, so apply normalization.
-		return 0.4 * cf * ff * (g.wetArea / g.referenceArea);
+		return 0.5 * cf * ff * (g.wetArea / g.referenceArea);
 	}
 
 	/**

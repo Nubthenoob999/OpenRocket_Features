@@ -1,0 +1,852 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage[T1]{fontenc}
+
+\title{OpenRocket ROM Equation Documentation}
+\author{Codex}
+\date{2026-04-17}
+
+\begin{document}
+\maketitle
+
+\section{Scope}
+This document summarizes the equations implemented in the OpenRocket reduced-order-model (ROM) code paths under:
+\begin{itemize}
+\item \texttt{core/src/main/java/info/openrocket/core/aerodynamics/RomAerodynamicCalculator.java}
+\item \texttt{core/src/main/java/info/openrocket/core/aerodynamics/rom/*.java}
+\item \texttt{core/src/main/java/info/openrocket/core/aerodynamics/rom/core/**/*.java}
+\item \texttt{core/src/main/java/info/openrocket/core/simulation/RomStageAerodynamicsHelper.java}
+\end{itemize}
+
+The intent is not to restate every line of Java, but to document every aerodynamic, interpolation, geometry, basis, weighting, and reconstruction formula that materially affects ROM behavior.
+
+\section{Notation}
+\begin{align*}
+M &= \text{Mach number} \\
+Re_L &= \text{Reynolds number based on body length } L \\
+\alpha &= \text{angle of attack} \\
+\beta &= \text{sideslip angle} \\
+d &= \text{maximum body diameter} \\
+A_{\mathrm{ref}} &= \frac{\pi d^2}{4} \\
+A_{\mathrm{base}} &= \text{base area} \\
+A_{\mathrm{exit}} &= \text{motor exit area} \\
+C_D,\ C_N,\ C_m &= \text{drag, normal-force, and pitching-moment coefficients}
+\end{align*}
+
+\section{Runtime ROM Overlay}
+\subsection{Plume-state evolution}
+Source: \texttt{RomAerodynamicCalculator}, \texttt{RomStageAerodynamicsHelper}
+
+\begin{equation*}
+s_{\mathrm{plume}}(t+\Delta t) =
+\begin{cases}
+1, & \text{if burning} \\
+s_{\mathrm{plume}}(t)\exp\!\left(-\dfrac{\Delta t}{\tau_{\mathrm{plume}}}\right), & \text{if not burning}
+\end{cases}
+\end{equation*}
+with
+\[
+\tau_{\mathrm{plume}} = 0.3\ \mathrm{s}.
+\]
+
+Why it is used: the ROM stores both plume-on and plume-off drag. This exponential state gives a smooth post-burn transition instead of an instantaneous step.
+
+\subsection{Flow-state extraction}
+\begin{equation*}
+Re_L = \frac{V L}{\nu}
+\end{equation*}
+where $V$ is speed, $L$ is aerodynamic length, and $\nu$ is kinematic viscosity.
+
+Why it is used: the ROM surfaces are parameterized by Mach, Reynolds number, and angular state, so the live simulation state must be mapped into those coordinates.
+
+\subsection{4D angle decomposition}
+When a 4D surface is available, the code decomposes total angular deflection using $\theta$:
+\begin{align*}
+\alpha_{\mathrm{query}} &= \alpha_{\deg}\,|\cos\theta| \\
+\beta_{\mathrm{query}} &= \alpha_{\deg}\,|\sin\theta|
+\end{align*}
+
+Why it is used: the 4D ROM stores drag and diagnostic stability data over separate $\alpha$ and $\beta$ axes.
+
+\subsection{Plume blend between plume-off and plume-on drag}
+\begin{equation*}
+C_{D,\mathrm{blend}} = C_{D,\mathrm{off}} + s_{\mathrm{plume}}\left(C_{D,\mathrm{on}} - C_{D,\mathrm{off}}\right)
+\end{equation*}
+
+Why it is used: this is the direct runtime interpolation between the two precomputed drag states.
+
+\subsection{Base ROM trust}
+The baseline ROM trust weight is
+\begin{align*}
+w_M &= \operatorname{smoothstep}(M_{\min}, M_{\max}, M) \\
+w_{Re} &= \operatorname{smoothstep}(Re_{\min}, Re_{\max}, Re_L) \\
+w_{\mathrm{ROM}} &= w_M\,w_{Re}
+\end{align*}
+with the cubic smoothstep
+\begin{equation*}
+\operatorname{smoothstep}(a,b,x)=
+\begin{cases}
+0, & x \le a \\
+1, & x \ge b \\
+t^2(3-2t), & t=\dfrac{x-a}{b-a}
+\end{cases}
+\end{equation*}
+
+Why it is used: the live calculator blends ROM drag with Barrowman drag, but only trusts the ROM fully inside a calibrated Mach/Reynolds band.
+
+\subsection{Coast-specific ROM trust}
+The coast-specific trust loosens the Reynolds gating:
+\begin{align*}
+w_{M,\mathrm{coast}} &= \operatorname{smoothstep}(M_{c0}, M_{c1}, M) \\
+w_{Re,\mathrm{coast}} &= \operatorname{smoothstep}(Re_{c0}, Re_{c1}, Re_L) \\
+w_{\mathrm{coast}} &= w_{M,\mathrm{coast}}\left(f_{\mathrm{floor}} + (1-f_{\mathrm{floor}})w_{Re,\mathrm{coast}}\right) \\
+w_{\mathrm{trust}} &= \max(w_{\mathrm{ROM}}, w_{\mathrm{coast}})
+\end{align*}
+
+Why it is used: the ROM was tuned to matter more during coast, where apogee is very sensitive to drag and Barrowman tends to be less representative of the tuned datasets.
+
+\subsection{Coast-phase interpolation between boost trust and coast trust}
+\begin{align*}
+w_{\mathrm{phase}} &= 1 - s_{\mathrm{plume}} \\
+w_{\mathrm{blend}} &= w_{\mathrm{ROM}} + w_{\mathrm{phase}}\left(w_{\mathrm{trust}} - w_{\mathrm{ROM}}\right)
+\end{align*}
+
+Why it is used: this continuously increases ROM authority as propulsion influence disappears.
+
+\subsection{Coast-only apogee drag gain}
+\begin{align*}
+g_M &= \operatorname{smoothstep}(M_{a0}, M_{a1}, M) \\
+g_{Re} &= \operatorname{smoothstep}(Re_{a0}, Re_{a1}, Re_L) \\
+g_{\mathrm{apogee}} &= 1 + g_{\max}\,w_{\mathrm{phase}}\,g_M\,g_{Re}
+\end{align*}
+
+The calibrated drag becomes
+\begin{equation*}
+C_{D,\mathrm{cal}} = C_{D,\mathrm{blend}}\,g_{\mathrm{apogee}}.
+\end{equation*}
+
+Why it is used: this is the additional tuning term introduced to bias the ROM slightly upward during coast, specifically to improve apogee and time-to-apogee agreement.
+
+\subsection{4D beta-drag trust and transonic fade}
+The 4D beta increment is faded in at low Mach and faded out near transonic speeds:
+\begin{align*}
+w_{\beta,\mathrm{low}} &= \operatorname{smoothstep}(M_{\beta 0}, M_{\beta 1}, M) \\
+w_{\beta,\mathrm{trans}} &= 1 - \operatorname{smoothstep}(M_{\beta 2}, M_{\beta 3}, M) \\
+w_{\beta} &= w_{\beta,\mathrm{low}}\,w_{\beta,\mathrm{trans}}
+\end{align*}
+
+Then the 4D beta increment is blended as
+\begin{equation*}
+C_D^{(4D,\beta)} = C_{D,\beta=0} + w_{\beta}\left(C_{D,\mathrm{full\ 4D}} - C_{D,\beta=0}\right).
+\end{equation*}
+
+The 4D drag trust itself is reduced in transonic flight:
+\begin{equation*}
+w_{4D} = 1 - (1-w_{\min})\operatorname{smoothstep}(M_{40}, M_{41}, M).
+\end{equation*}
+
+Why it is used: the 4D ROM is most useful for mild off-axis low-Mach behavior, but CN/Cm and full beta drag are not yet trusted enough to dominate the transonic production path.
+
+\subsection{Final live drag coefficient}
+\begin{equation*}
+C_{D,\mathrm{eff}} = w_{\mathrm{blend}}\,w_{4D}\,C_{D,\mathrm{cal}} + \left(1-w_{\mathrm{blend}}\,w_{4D}\right)C_{D,\mathrm{Barrowman}}
+\end{equation*}
+for the 4D path, and
+\begin{equation*}
+C_{D,\mathrm{eff}} = w_{\mathrm{blend}}\,C_{D,\mathrm{cal}} + (1-w_{\mathrm{blend}})C_{D,\mathrm{Barrowman}}
+\end{equation*}
+for the 3D path.
+
+Why it is used: this is the operational ROM overlay. The simulation keeps Barrowman stability derivatives but replaces drag in a trust-weighted fashion.
+
+\section{Geometry Extraction and Normalized Geometry Space}
+\subsection{Primary geometry quantities}
+Source: \texttt{RomGeometryParameters}, \texttt{RomGeometryInput}
+
+\begin{align*}
+L_{\mathrm{body}} &= x_{\max} - x_{\min} \\
+d_{\max} &= 2r_{\max} \\
+A_{\mathrm{ref}} &= \frac{\pi d_{\max}^2}{4} \\
+A_{\mathrm{base}} &= A_{\mathrm{ref}} \\
+\mathrm{FR} &= \frac{L_{\mathrm{body}}}{d_{\max}} \\
+\bar c &= \frac{c_r + c_t}{2} \\
+A_{\mathrm{wet,fin}} &= 2\,\bar c\,s\,N_{\mathrm{fin}} \\
+x_{\mathrm{fin}} &= \max\!\left(0,\ L_{\mathrm{body}} - c_r - L_{\mathrm{boattail}}\right) \\
+d_{\mathrm{exit}} &= \sqrt{\frac{4A_{\mathrm{exit}}}{\pi}}
+\end{align*}
+
+Why they are used: these are the physical inputs consumed by every aerodynamic correlation in the ROM.
+
+\subsection{Normalized geometry feature vector}
+The geometry-space POD model uses a 10-component normalized feature vector:
+\begin{align*}
+v_0 &= \frac{\min(L_{\mathrm{body}}/d_{\max},30)}{30} \\
+v_1 &= \min\!\left(\frac{L_{\mathrm{nose}}}{L_{\mathrm{body}}},1\right) \\
+v_2 &= \frac{\min(L_{\mathrm{boattail}}/L_{\mathrm{body}},0.5)}{0.5} \\
+v_3 &= \frac{d_{\mathrm{boattail,base}}}{d_{\max}} \\
+v_4 &= \frac{\min(2s/\bar c,8)}{8} \\
+v_5 &= \min\!\left(\frac{c_t}{c_r},1\right) \\
+v_6 &= \frac{\min(t_{\mathrm{fin}}/\bar c,0.2)}{0.2} \\
+v_7 &= \frac{\min(N_{\mathrm{fin}}A_{\mathrm{wet,fin}}/A_{\mathrm{ref}},5)}{5} \\
+v_8 &= \text{nose-shape code in }[0,1] \\
+v_9 &= \min\!\left(\frac{A_{\mathrm{exit}}}{A_{\mathrm{base}}},1\right)
+\end{align*}
+
+Why it is used: this compresses geometry into a bounded feature space where local POD regions can be blended smoothly.
+
+\subsection{Geometry-space distance}
+\begin{equation*}
+d_{\mathrm{feat}}(\mathbf a,\mathbf b)=\sqrt{\sum_i (a_i-b_i)^2}
+\end{equation*}
+
+Why it is used: seed selection, nearest-candidate matching, and local-region weighting all depend on distance in this normalized geometry space.
+
+\section{3D Aerodynamic ROM Physics}
+\subsection{Skin friction}
+Source: \texttt{rom/SkinFrictionModel.java}
+
+For low Reynolds number,
+\begin{equation*}
+C_{f,\mathrm{lam}} = \frac{1.328}{\sqrt{Re_L}}.
+\end{equation*}
+
+For turbulent flat-plate flow,
+\begin{align*}
+C_{f,\mathrm{turb}} &= \frac{0.455}{(\log_{10} Re_L)^{2.58}} \\
+A &= Re_{\mathrm{tr}}\left(\frac{0.455}{(\log_{10} Re_{\mathrm{tr}})^{2.58}} - \frac{1.328}{\sqrt{Re_{\mathrm{tr}}}}\right) \\
+C_{f,\mathrm{inc}} &= \max\!\left(C_{f,\mathrm{turb}} - \frac{A}{Re_L},\ \frac{1.328}{\sqrt{Re_L}}\right)
+\end{align*}
+
+Compressibility is added with the Van Driest II transform:
+\begin{align*}
+m &= \frac{\gamma-1}{2}M^2,\quad r=0.88,\quad F=\frac{T_w}{T_e} \\
+rm &= r\,m \\
+A_v &= \sqrt{\frac{rm}{F}} \\
+B_v &= \frac{1+rm-F}{F} \\
+\alpha_v &= \frac{2A_v^2-B_v}{\sqrt{4A_v^2+B_v^2}} \\
+\beta_v &= \frac{B_v}{\sqrt{4A_v^2+B_v^2}} \\
+F_c &= \frac{rm}{\left[\sin^{-1}(\alpha_v)+\sin^{-1}(\beta_v)\right]^2} \\
+C_{f,\mathrm{comp}} &= \frac{C_{f,\mathrm{inc}}}{F_c}
+\end{align*}
+
+Roughness-limited friction is
+\begin{equation*}
+C_{f,\mathrm{rough}} = \left[1.89 + 1.62\log_{10}\!\left(\frac{L}{k_s}\right)\right]^{-2.5}
+\end{equation*}
+and the final friction coefficient is
+\begin{equation*}
+C_f = \max(C_{f,\mathrm{comp}}, C_{f,\mathrm{rough}}).
+\end{equation*}
+
+The body form factor is
+\begin{equation*}
+FF_{\mathrm{body}} = 1 + 1.5\left(\frac{d}{L}\right)^{1.5} + 50\left(\frac{d}{L}\right)^3.
+\end{equation*}
+
+The 3D body-friction drag is
+\begin{equation*}
+C_{D,\mathrm{friction}}^{(3D)} = 0.5\,C_f\,FF_{\mathrm{body}}\,\frac{A_{\mathrm{wet}}}{A_{\mathrm{ref}}}.
+\end{equation*}
+
+Why it is used: this is the baseline viscous drag model for the axisymmetric body.
+
+\subsection{Transition Reynolds estimate}
+\begin{align*}
+Re_{\mathrm{tr,clean}} &= 5\times 10^5 \\
+k^+_{\mathrm{proxy}} &= \frac{k_s}{L}Re_L \\
+Re_{\mathrm{tr}} &=
+\begin{cases}
+10^4, & k^+_{\mathrm{proxy}} > 120 \\
+\max\!\left(10^4,\ Re_{\mathrm{tr,clean}}\left(1-\dfrac{k^+_{\mathrm{proxy}}}{120}\right)\right), & \text{otherwise}
+\end{cases}
+\end{align*}
+
+Why it is used: roughness moves transition upstream, which increases the turbulent contribution.
+
+\subsection{Base drag}
+Source: \texttt{rom/BaseDragModel.java}
+
+\begin{align*}
+K_b &= 0.0274\tan^{-1}\!\left(\frac{L_o}{d}\right) + 0.0116 + 1 \\
+n &= 3.6542\left(\frac{L_o}{d}+10^{-9}\right)^{-0.2733}
+\end{align*}
+with $n$ clamped to $[0.5,3]$.
+
+The implemented 3D subsonic base drag is
+\begin{equation*}
+C_{D,\mathrm{base,sub}}^{(3D)} = 0.029\,\frac{K_b}{\sqrt{\max(C_{f,\mathrm{body}},10^{-4})}}.
+\end{equation*}
+
+The transonic multiplier is
+\begin{equation*}
+f_b(M)=
+\begin{cases}
+1, & M<0.6 \\
+1 + 215.8(M-0.6)^6, & 0.6 \le M \le 1.0 \\
+1.75\Delta M^3 - 3.20\Delta M^2 + 1.35\Delta M + 1.72, & 1.0 < M \le 2.0 \\
+f_b(2)\dfrac{2}{M}, & M>2.0
+\end{cases}
+\end{equation*}
+with $\Delta M=M-1$ in the cubic branch.
+
+Plume-off base drag referenced to frontal area is
+\begin{equation*}
+C_{D,\mathrm{base,off}}^{(3D)} = C_{D,\mathrm{base,sub}}^{(3D)}\,f_b(M)\,\frac{A_{\mathrm{base}}}{A_{\mathrm{ref}}}.
+\end{equation*}
+
+Plume-on base drag is
+\begin{equation*}
+C_{D,\mathrm{base,on}}^{(3D)} = C_{D,\mathrm{base,off}}^{(3D)}\max\!\left(0,\frac{A_{\mathrm{base}}-A_{\mathrm{exit}}}{A_{\mathrm{base}}}\right).
+\end{equation*}
+
+Why it is used: base drag is a major part of rocket drag, especially near transonic speeds and after burnout.
+The current implementation computes $n$ but does not actually use it in the returned drag expression.
+
+\subsection{Wave drag}
+Source: \texttt{rom/WaveDragModel.java}
+
+Drag-divergence Mach number:
+\begin{equation*}
+M_{DD} = -0.0156\left(\frac{L_N}{d}\right)^2 + 0.136\left(\frac{L_N}{d}\right) + 0.6817
+\end{equation*}
+and critical Mach number:
+\begin{equation*}
+M_{cr} = M_{DD} - 0.10.
+\end{equation*}
+
+For most nose shapes,
+\begin{equation*}
+C_{D,\mathrm{nose}} \propto \frac{1}{(L_N/d)^2}\,\frac{1}{\sqrt{M^2-1+0.01}}
+\end{equation*}
+with the proportionality constant equal to $0.083$, $0.10$, $0.11$, $0.12$, or $0.13$ depending on shape.
+
+For a conical nose,
+\begin{align*}
+\theta &= \tan^{-1}\!\left(\frac{0.5}{L_N/d}\right) \\
+C_{D,\mathrm{nose,cone}} &= \frac{4}{\gamma M^2}\theta^2\left(1 + \frac{\gamma+1}{2}\theta^2\right).
+\end{align*}
+
+Fin wave drag is
+\begin{equation*}
+C_{D,\mathrm{fin,wave}} = 4\left(\frac{t}{c}\right)^2\frac{1}{\sqrt{M^2-1}}\,
+\frac{N_{\mathrm{fin}}A_{\mathrm{planform}}}{A_{\mathrm{ref}}}.
+\end{equation*}
+
+Why it is used: wave drag drives the supersonic rise of slender-body rocket drag.
+
+\subsection{Induced and angle-of-attack drag}
+Source: \texttt{rom/InducedDragModel.java}
+
+\begin{align*}
+\bar c &= \frac{c_r+c_t}{2} \\
+AR &= \frac{2s}{\bar c} \\
+C_{N\alpha,\mathrm{fin}} &= \frac{2\pi}{1+2/AR} \\
+C_L &= C_{N\alpha,\mathrm{fin}}\alpha\,N_{\mathrm{fin}}\,\frac{s\bar c}{A_{\mathrm{ref}}}
+\end{align*}
+
+Subsonic compressibility correction:
+\begin{equation*}
+f_{\mathrm{comp}}=
+\begin{cases}
+\dfrac{1}{\sqrt{\max(1-M^2,0.35)}}, & M \le 0.8 \\
+f_{0.8}(1-S) + S, & 0.8 < M < 1.2
+\end{cases}
+\end{equation*}
+where $S=t^2(3-2t)$ and $t=(M-0.8)/0.4$.
+
+Then
+\begin{align*}
+C_{D,\mathrm{ind}} &= \frac{C_L^2}{\pi ARe}, \qquad e=0.9 \\
+C_{D,\mathrm{body},\alpha} &= 0.075\sin^2\alpha \\
+\Delta C_{D,\alpha} &= C_{D,\mathrm{ind}} + C_{D,\mathrm{body},\alpha}.
+\end{align*}
+
+The protuberance multiplier is
+\begin{equation*}
+K_f \in [1.0,1.2], \qquad K_f^{\mathrm{default}} = 1.02.
+\end{equation*}
+
+Why it is used: this captures the extra drag caused by finite angle of attack and small external protrusions.
+
+\subsection{Transonic blending}
+Source: \texttt{rom/TransonicBlendingModel.java}
+
+\begin{align*}
+\sigma_{\mathrm{sub}}(M) &= \frac{1}{1+\exp(K(M-0.80))} \\
+\sigma_{\mathrm{sup}}(M) &= \frac{1}{1+\exp(-K(M-1.20))} \\
+\sigma_{\mathrm{trans}}(M) &= \max\!\left(0,1-\sigma_{\mathrm{sub}}-\sigma_{\mathrm{sup}}\right)
+\end{align*}
+with $K=30$.
+
+The blended drag is
+\begin{equation*}
+C_D(M) = \frac{\sigma_{\mathrm{sub}}C_{D,\mathrm{sub}} + \sigma_{\mathrm{trans}}C_{D,\mathrm{trans}} + \sigma_{\mathrm{sup}}C_{D,\mathrm{sup}}}
+{\sigma_{\mathrm{sub}}+\sigma_{\mathrm{trans}}+\sigma_{\mathrm{sup}}}.
+\end{equation*}
+
+The transonic peak estimate is
+\begin{equation*}
+C_{D,\mathrm{trans}} = C_{D,\mathrm{sub}}\,f_{\mathrm{peak}}\,\min\!\left(1,\frac{10}{L/d}\right)
+\end{equation*}
+where $f_{\mathrm{peak}}$ depends on nose shape: $1.45$, $1.65$, $1.75$, $1.85$, or $2.0$.
+
+Why it is used: it provides a smooth transition between subsonic empirical physics and supersonic wave-drag physics.
+
+\subsection{3D drag assembly}
+Source: \texttt{rom/DragGridEvaluator.java}
+
+Fin friction is
+\begin{align*}
+Re_{\mathrm{fin}} &= Re_L\frac{c_r}{L_{\mathrm{body}}} \\
+FF_{\mathrm{fin}} &= 1 + 2\frac{t}{\bar c} \\
+C_{D,\mathrm{fin,fric}} &= C_{f,\mathrm{fin}}\,FF_{\mathrm{fin}}\,N_{\mathrm{fin}}\frac{A_{\mathrm{wet,fin}}}{A_{\mathrm{ref}}}.
+\end{align*}
+
+Then the 3D plume-off assembled drag is
+\begin{align*}
+C_{D,\mathrm{sub}} &= C_{D,\mathrm{friction}} + C_{D,\mathrm{fin,fric}} + C_{D,\mathrm{base,sub}} \\
+C_{D,\mathrm{sup}} &= C_{D,\mathrm{friction}} + C_{D,\mathrm{fin,fric}} + C_{D,\mathrm{base,off}} + C_{D,\mathrm{wave,nose}} + C_{D,\mathrm{wave,fin}} \\
+C_{D,\mathrm{trans}} &= C_{D,\mathrm{peak}} + C_{D,\mathrm{base}}(M=1) \\
+C_{D,0} &= \operatorname{blend}(M,C_{D,\mathrm{sub}},C_{D,\mathrm{trans}},C_{D,\mathrm{sup}}) \\
+C_{D,\mathrm{off}} &= (C_{D,0} + \Delta C_{D,\alpha})K_f.
+\end{align*}
+
+The plume-on version replaces the base-drag term with the plume-on base drag.
+
+The final lower-bounded drag uses
+\begin{equation*}
+\operatorname{softfloor}(x;f,w) = f + w\ln\!\left(1+\exp\!\left(\frac{x-f}{w}\right)\right).
+\end{equation*}
+
+Why it is used: this is the exact build formula for the stored 3D ROM tables, and the soft floor prevents negative or numerically pathological coefficients without a hard kink.
+
+\subsection{3D interpolation}
+Source: \texttt{rom/DragSurfaceInterpolator.java}, \texttt{rom/PchipInterpolator1D.java}
+
+The interpolator first converts Reynolds number to log space:
+\begin{equation*}
+\log Re = \log_{10}(\max(Re_L,10^4)).
+\end{equation*}
+
+Interpolation is performed by repeated monotone cubic Hermite interpolation. For a local interval,
+\begin{align*}
+h_{00} &= 2t^3 - 3t^2 + 1 \\
+h_{10} &= t^3 - 2t^2 + t \\
+h_{01} &= -2t^3 + 3t^2 \\
+h_{11} &= t^3 - t^2
+\end{align*}
+and
+\begin{equation*}
+y(t)=h_{00}y_i + h_{10}h\,d_i + h_{01}y_{i+1} + h_{11}h\,d_{i+1}.
+\end{equation*}
+
+Secant slopes are
+\begin{equation*}
+\delta_i = \frac{y_{i+1}-y_i}{x_{i+1}-x_i}
+\end{equation*}
+and interior derivatives use the Fritsch--Carlson harmonic mean:
+\begin{equation*}
+d_i = \frac{w_1+w_2}{w_1/\delta_{i-1} + w_2/\delta_i},
+\qquad
+w_1 = 2h_i + h_{i-1},\quad
+w_2 = h_i + 2h_{i-1}.
+\end{equation*}
+
+Endpoint derivatives are
+\begin{equation*}
+d_{\mathrm{end}} = 1.5d_1 - 0.5d_2
+\end{equation*}
+with slope limiting, and the monotonicity limiter rescales $(d_i,d_{i+1})$ if
+\begin{equation*}
+r = \sqrt{\alpha^2+\beta^2} > 3,\qquad
+\alpha = \frac{d_i}{\delta_i},\quad \beta = \frac{d_{i+1}}{\delta_i}.
+\end{equation*}
+
+Why it is used: the ROM needs smooth interpolation without overshoot, because overshoot in drag tables can destabilize trajectory integration.
+
+\section{4D Aerodynamic ROM Physics}
+\subsection{Important differences from the 3D implementation}
+The 4D core physics classes intentionally differ slightly from the legacy 3D classes:
+\begin{itemize}
+\item $C_{D,\mathrm{friction}}^{(4D)} = 0.4\,C_f\,FF_{\mathrm{body}}A_{\mathrm{wet}}/A_{\mathrm{ref}}$ instead of the 3D factor $0.5$.
+\item The 4D base-drag prefactor is $0.026$ instead of $0.029$.
+\item The 4D transonic base-drag rise uses $1 + 175(M-0.6)^6$ instead of $1 + 215.8(M-0.6)^6$.
+\item The 4D path adds fin-junction drag and explicit sideslip drag.
+\end{itemize}
+
+Why this matters: the two implementations are related but not identical, so a complete documentation pass has to call out both rather than pretending there is only one set of constants.
+
+\subsection{Fin drag and sideslip}
+Sources: \texttt{core/physics/FinDragModel.java}, \texttt{core/physics/SideslipModel.java}
+
+Fin friction in the 4D path is
+\begin{align*}
+\bar c &= \frac{c_r+c_t}{2} \\
+Re_{\mathrm{fin}} &= Re_L\frac{\bar c}{L_{\mathrm{body}}} \\
+FF_{\mathrm{fin}} &= 1 + 2\frac{t}{\bar c} \\
+C_{D,\mathrm{fin,fric}}^{(4D)} &= C_{f,\mathrm{fin}}\,FF_{\mathrm{fin}}\,N_{\mathrm{fin}}\frac{A_{\mathrm{wet,fin}}}{A_{\mathrm{ref}}}.
+\end{align*}
+
+Supersonic fin wave drag is
+\begin{equation*}
+C_{D,\mathrm{fin,wave}}^{(4D)} = 4\left(\frac{t}{\bar c}\right)^2\frac{1}{\sqrt{M^2-1}}\,\frac{N_{\mathrm{fin}}(\bar c s)}{A_{\mathrm{ref}}}.
+\end{equation*}
+
+Fin-junction drag is modeled as
+\begin{equation*}
+C_{D,\mathrm{junction}} = 0.04\left(C_{D,\mathrm{fin,fric}}^{(4D)} + C_{D,\mathrm{fin,wave}}^{(4D)}\right).
+\end{equation*}
+
+The effective angular deflection used by the fin-induced sideslip model is
+\begin{equation*}
+\alpha_{\mathrm{eff}} = \sqrt{\alpha^2+\beta^2}.
+\end{equation*}
+
+The body crossflow model is
+\begin{align*}
+C_{D,\mathrm{cf}}(M) &=
+\begin{cases}
+1.2, & M \le 0.5 \\
+1.2 - 0.4\left(\dfrac{M-0.5}{0.5}\right), & 0.5 < M < 1.0 \\
+0.8, & M \ge 1.0
+\end{cases} \\
+\Delta C_{D,\mathrm{body},\beta} &= C_{D,\mathrm{cf}}(M)\,\frac{4L_{\mathrm{body}}}{\pi d}\sin^2\beta.
+\end{align*}
+
+The total sideslip increment is
+\begin{equation*}
+\Delta C_{D,\beta} = \Delta C_{D,\mathrm{body},\beta}
++ \max\!\left(0,\ C_{D,\mathrm{fin,induced}}(\alpha,\beta) - C_{D,\mathrm{fin,induced}}(\alpha,0)\right).
+\end{equation*}
+
+Why it is used: the 4D ROM tries to represent off-axis drag growth that the 3D beta-zero surface cannot capture.
+
+\subsection{Normal force and pitching moment}
+Sources: \texttt{core/physics/NormalForceModel.java}, \texttt{core/physics/PitchingMomentModel.java}
+
+The diagnostic normal force coefficient is
+\begin{align*}
+C_{N,\mathrm{body}} &= 2\alpha \\
+C_{N\alpha,\mathrm{fin}} &= \frac{2\pi}{1+2/AR} \\
+f_{\mathrm{PG}}(M) &=
+\begin{cases}
+\dfrac{1}{\sqrt{\max(1-M^2,0.01)}}, & M \le 0.8 \\
+f_{0.8}(1-S) + f_{1.2}S, & 0.8 < M < 1.2 \\
+\dfrac{1}{\sqrt{\max(M^2-1,0.01)}}, & M \ge 1.2
+\end{cases} \\
+C_{N,\mathrm{fin}} &= C_{N\alpha,\mathrm{fin}}\,\alpha\,f_{\mathrm{PG}}(M)\,\frac{N_{\mathrm{fin}}\bar c s}{A_{\mathrm{ref}}} \\
+C_N &= C_{N,\mathrm{body}} + C_{N,\mathrm{fin}}.
+\end{align*}
+
+The pitching-moment model estimates CP location first. Nose CP fractions are shape-dependent:
+\[
+\frac{x_{\mathrm{CP,nose}}}{L_{\mathrm{nose}}}
+\in \left\{
+\frac{1}{3},\ 0.417,\ 0.466,\ 0.5
+\right\}.
+\]
+
+For fins,
+\begin{align*}
+\lambda &= \frac{c_t}{c_r} \\
+x_{\mathrm{MAC,LE}} &= \frac{c_r}{3}\frac{1+2\lambda}{1+\lambda} \\
+x_{\mathrm{CP,fin}} &= x_{\mathrm{fin,LE}} + x_{\mathrm{MAC,LE}} + 0.25\bar c.
+\end{align*}
+
+The combined CP estimate is
+\begin{align*}
+C_{N,\mathrm{body,proxy}} &= 2|\alpha| \\
+C_{N,\mathrm{fin,proxy}} &= \max(0, |C_N| - C_{N,\mathrm{body,proxy}}) \\
+x_{\mathrm{CP}} &= \frac{C_{N,\mathrm{body,proxy}}x_{\mathrm{CP,nose}} + C_{N,\mathrm{fin,proxy}}x_{\mathrm{CP,fin}}}
+{C_{N,\mathrm{body,proxy}}+C_{N,\mathrm{fin,proxy}}}
+\end{align*}
+and the moment coefficient is
+\begin{equation*}
+C_m = -C_N\frac{x_{\mathrm{CP}}}{L_{\mathrm{body}}}.
+\end{equation*}
+
+Why it is used: these are currently diagnostic 4D outputs, not yet the production stability replacement.
+
+\subsection{4D point assembly}
+Source: \texttt{AeroGridEvaluator4D.computePoint}
+
+The body-only drag branches are
+\begin{align*}
+C_{D,\mathrm{body,sub}} &= C_{D,\mathrm{friction}}^{(4D)} + C_{D,\mathrm{base,sub}}^{(4D)} \\
+C_{D,\mathrm{body,trans}} &= C_{D,\mathrm{peak}}(C_{D,\mathrm{body,sub}}) + C_{D,\mathrm{base}}(M=1) \\
+C_{D,\mathrm{body,sup}} &= C_{D,\mathrm{friction}}^{(4D)} + C_{D,\mathrm{base,off}}^{(4D)} + C_{D,\mathrm{wave,nose}} \\
+C_{D,\mathrm{body}} &= \operatorname{blend}(M,C_{D,\mathrm{body,sub}},C_{D,\mathrm{body,trans}},C_{D,\mathrm{body,sup}}).
+\end{align*}
+
+The total plume-off drag branches are
+\begin{align*}
+C_{D,\mathrm{sub}} &= C_{D,\mathrm{friction}}^{(4D)} + C_{D,\mathrm{fin,total}} + C_{D,\mathrm{base,sub}}^{(4D)} \\
+C_{D,\mathrm{trans}} &= C_{D,\mathrm{peak}}(C_{D,\mathrm{sub}}) + C_{D,\mathrm{base}}(M=1) \\
+C_{D,\mathrm{sup}} &= C_{D,\mathrm{friction}}^{(4D)} + C_{D,\mathrm{fin,total}} + C_{D,\mathrm{base,off}}^{(4D)} + C_{D,\mathrm{wave,nose}} \\
+C_{D,0} &= \operatorname{blend}(M,C_{D,\mathrm{sub}},C_{D,\mathrm{trans}},C_{D,\mathrm{sup}}).
+\end{align*}
+
+Then
+\begin{align*}
+C_{D,\mathrm{off}}^{(4D)} &= \max\!\left(C_{D,\min},\ (C_{D,0} + \Delta C_{D,\alpha} + \Delta C_{D,\beta})K_f\right) \\
+C_{D,\mathrm{on}}^{(4D)} &= \max\!\left(C_{D,\min},\ (C_{D,0,\mathrm{on}} + \Delta C_{D,\alpha} + \Delta C_{D,\beta})K_f\right)
+\end{align*}
+with $C_{D,\min}=10^{-3}$.
+
+Why it is used: this is the exact coefficient set stored in the 4D surface.
+
+\subsection{4D grid construction and validation}
+Source: \texttt{AeroGridEvaluator4D}
+
+The default axes are piecewise:
+\begin{align*}
+M &\in [0.01,0.70] \cup [0.70,1.30] \cup [1.30,4.00] \\
+\log_{10}Re_L &\in [4,8] \\
+\alpha &\in \{0,0.5,1,2,3,4.5,6,7.5,9,11,13,15\}^{\circ}
+\end{align*}
+
+The beta limit depends on fin count:
+\begin{equation*}
+\beta_{\max} =
+\begin{cases}
+0^\circ, & N_{\mathrm{fin}} \le 2 \\
+60^\circ, & N_{\mathrm{fin}} = 3 \\
+45^\circ, & N_{\mathrm{fin}} \ge 4.
+\end{cases}
+\end{equation*}
+
+The greedy Mach-axis builder computes
+\begin{align*}
+\bar C_D &= \frac{1}{N}\sum_i C_D(M_i) \\
+\varepsilon_{\mathrm{abs}} &= \frac{\varepsilon_{\%}}{100}\max(\bar C_D,10^{-4})
+\end{align*}
+and keeps adding the candidate Mach point with largest interpolation error until the tolerance is satisfied.
+
+The leave-one-out metric is
+\begin{equation*}
+\mathrm{LOO\ RMSE}_{\%} = 100\frac{\sqrt{\frac{1}{N_M}\sum_i \left(\hat C_D(M_i)-C_D(M_i)\right)^2}}{\bar C_D}.
+\end{equation*}
+
+Why it is used: the build system wants a compact Mach axis while keeping the ROM interpolation error measurable.
+
+\subsection{4D interpolation}
+Source: \texttt{AeroSurface4DInterpolator.java}
+
+The 4D interpolator performs tensor-product PCHIP:
+\begin{enumerate}
+\item interpolate along Mach for each $(\log Re,\alpha,\beta)$ slice,
+\item interpolate the resulting values along $\log Re$,
+\item interpolate those values along $\alpha$,
+\item interpolate the resulting values along $\beta$.
+\end{enumerate}
+
+In symbols,
+\begin{equation*}
+f(M,\log Re,\alpha,\beta)
+= \operatorname{PCHIP}_{\beta}\!\left(
+\operatorname{PCHIP}_{\alpha}\!\left(
+\operatorname{PCHIP}_{\log Re}\!\left(
+\operatorname{PCHIP}_{M}(f_{ijkl})
+\right)\right)\right).
+\end{equation*}
+
+Why it is used: it gives a smooth multidimensional interpolant using the same monotone cubic building block as the 3D surface.
+
+\section{Geometry-Parametric ROM}
+\subsection{Snapshot flattening}
+Source: \texttt{GeometrySnapshot.java}
+
+The 4D plume-off and plume-on tensors are flattened into vectors of length
+\begin{equation*}
+n = N_M N_{Re} N_{\alpha} N_{\beta}.
+\end{equation*}
+
+Why it is used: POD and empirical interpolation operate on vectors, not 4D arrays.
+
+\subsection{POD basis construction}
+Source: \texttt{PodBasis.java}
+
+For snapshots $\mathbf s_k$, the mean vector is
+\begin{equation*}
+\bar{\mathbf s} = \frac{1}{K}\sum_{k=1}^{K}\mathbf s_k.
+\end{equation*}
+
+Centered snapshots are
+\begin{equation*}
+\mathbf c_k = \mathbf s_k - \bar{\mathbf s}.
+\end{equation*}
+
+The method-of-snapshots correlation matrix is
+\begin{equation*}
+C_{jl} = \frac{1}{n}\mathbf c_j^T\mathbf c_l.
+\end{equation*}
+
+After eigen-decomposition $C\mathbf v_q=\lambda_q\mathbf v_q$, the retained energy is
+\begin{equation*}
+E_{\mathrm{rel}} = \frac{\sum_{q=1}^{q_{\mathrm{keep}}}\max(\lambda_q,0)}{\sum_q \max(\lambda_q,0)}
+\end{equation*}
+with the smallest $q_{\mathrm{keep}}$ satisfying
+\begin{equation*}
+E_{\mathrm{rel}} \ge 1 - \text{tolerance}.
+\end{equation*}
+
+Each POD mode is built as
+\begin{equation*}
+\boldsymbol{\phi}_q = \frac{\sum_k v_{kq}\mathbf c_k}{\left\|\sum_k v_{kq}\mathbf c_k\right\|_2}
+\end{equation*}
+and the singular-value proxy is
+\begin{equation*}
+\sigma_q = \sqrt{\max(\lambda_q,0)}.
+\end{equation*}
+
+Projection is
+\begin{equation*}
+a_q = (\mathbf s-\bar{\mathbf s})^T\boldsymbol{\phi}_q
+\end{equation*}
+and reconstruction is
+\begin{equation*}
+\hat{\mathbf s} = \bar{\mathbf s} + \sum_q a_q\boldsymbol{\phi}_q.
+\end{equation*}
+
+The relative reconstruction error is
+\begin{equation*}
+\varepsilon_{\mathrm{recon}} = \sqrt{\frac{\|\hat{\mathbf s}-\mathbf s\|_2^2}{\|\mathbf s\|_2^2}}.
+\end{equation*}
+
+Why it is used: POD compresses the full grid into a small modal basis while preserving most of the snapshot energy.
+
+\subsection{Local-region weighting}
+Source: \texttt{LocalPodRegion.java}, \texttt{GeometricRomEvaluator.java}
+
+Each local region stores a centroid
+\begin{equation*}
+\boldsymbol{\mu} = \frac{1}{K}\sum_k \mathbf v_k
+\end{equation*}
+and a width
+\begin{equation*}
+\sigma = \max_k \|\mathbf v_k - \boldsymbol{\mu}\|_2,
+\end{equation*}
+clamped below by $10^{-3}$.
+
+The query weight is Gaussian:
+\begin{equation*}
+w_r(\mathbf v) = \exp\!\left(-\frac{\|\mathbf v-\boldsymbol{\mu}_r\|_2^2}{2\sigma_r^2}\right).
+\end{equation*}
+
+Normalized region weights are
+\begin{equation*}
+\tilde w_r = \frac{w_r}{\sum_j w_j}.
+\end{equation*}
+
+Why it is used: the geometry-parametric ROM blends multiple local reduced models based on feature-space proximity.
+
+\subsection{Gappy POD reconstruction and magic points}
+Sources: \texttt{MagicPointSelector.java}, \texttt{GeometryParametricRom.java}
+
+Magic-point selection starts with
+\begin{equation*}
+p_1 = \arg\max_i |\phi_1(i)|
+\end{equation*}
+and then repeatedly chooses the unselected index of maximum residual after least-squares fitting to previously chosen points.
+
+For reconstruction, if $\mathcal P$ is the set of magic-point indices, the sampled system is
+\begin{align*}
+M_{rq} &= \phi_q(p_r) \\
+b_r &= s(p_r) - \bar s(p_r).
+\end{align*}
+
+The reduced coefficients solve the normal equations
+\begin{equation*}
+(M^TM)\mathbf a = M^T\mathbf b
+\end{equation*}
+and the full state is reconstructed as
+\begin{equation*}
+\hat{\mathbf s} = \bar{\mathbf s} + \sum_q a_q \boldsymbol{\phi}_q.
+\end{equation*}
+
+Why it is used: the geometry-parametric ROM avoids evaluating the full 4D grid at every point by evaluating only a sparse set of magic points and reconstructing the rest.
+
+\subsection{Cholesky solve}
+The symmetric solve used in both magic-point fitting and POD helpers is standard Cholesky:
+\begin{equation*}
+A = LL^T,
+\end{equation*}
+followed by forward substitution $L\mathbf y=\mathbf b$ and backward substitution $L^T\mathbf x=\mathbf y$.
+
+Why it is used: the matrices are symmetric positive semidefinite by construction, so Cholesky is a compact solver choice.
+
+\subsection{Greedy geometry sampling}
+Source: \texttt{GeometrySampler.java}
+
+The candidate with largest estimated ROM error is selected next:
+\begin{align*}
+\varepsilon_i &= \texttt{basis.reconstructionError}(\mathbf s_i) \\
+\varepsilon_{i,\%} &= 100\,\varepsilon_i \quad \text{if } \bar C_{D,i} > 10^{-9}.
+\end{align*}
+
+Sampling stops when
+\begin{equation*}
+\max_i \varepsilon_{i,\%} < \varepsilon_{\mathrm{target}}.
+\end{equation*}
+
+Why it is used: this grows the training set where the current reduced basis is weakest.
+
+\subsection{Latin-hypercube geometry pool}
+For a scalar dimension over $[a,b]$, the pool uses
+\begin{equation*}
+x_i = a + i\Delta + u_i\Delta,
+\qquad
+\Delta = \frac{b-a}{n},
+\qquad
+u_i \sim U(0,1),
+\end{equation*}
+followed by shuffling.
+
+Derived synthetic geometries include:
+\begin{align*}
+d_{\max} &= \operatorname{clamp}\!\left(\frac{L_{\mathrm{body}}}{\mathrm{FR}},0.03,0.2\right) \\
+A_{\mathrm{ref}} &= \frac{\pi d_{\max}^2}{4} \\
+A_{\mathrm{wet}} &= \pi d_{\max}L_{\mathrm{body}} \\
+L_{\mathrm{nose}} &= f_{\mathrm{nose}}L_{\mathrm{body}} \\
+L_{\mathrm{boattail}} &= f_{\mathrm{boattail}}L_{\mathrm{body}} \\
+d_{\mathrm{boattail,base}} &= \max\!\left(0.3d_{\max}, d_{\max}\left(1 - 0.6\frac{f_{\mathrm{boattail}}}{0.15}\right)\right) \\
+\bar c &= 0.12L_{\mathrm{body}} \\
+c_r &= 1.2\bar c \\
+c_t &= c_r f_{\mathrm{taper}} \\
+s &= \frac{1}{2}AR\left(\frac{c_r+c_t}{2}\right) \\
+t_{\mathrm{fin}} &= f_t\left(\frac{c_r+c_t}{2}\right) \\
+\Lambda &= \left(20 + 35\frac{i}{n-1}\right)^\circ \\
+A_{\mathrm{planform}} &= \frac{1}{2}(c_r+c_t)s \\
+A_{\mathrm{wet,fin,target}} &= \frac{f_A A_{\mathrm{ref}}}{N_{\mathrm{fin}}} \\
+A_{\mathrm{wet,fin}} &= \max\!\left(A_{\mathrm{wet,fin,target}}, 2A_{\mathrm{planform}}\right) \\
+x_{\mathrm{fin}} &= \max(0, L_{\mathrm{body}} - c_r - L_{\mathrm{boattail}}) \\
+A_{\mathrm{exit}} &= f_{\mathrm{motor}}A_{\mathrm{base}}.
+\end{align*}
+
+Why it is used: the offline builder needs a broad but structured set of representative geometries to train the parametric ROM.
+
+\section{Files Inspected with No New Governing Equations}
+The following ROM-adjacent files were inspected and primarily contain data layout, serialization, hashing, or adapter logic rather than new governing equations:
+\begin{itemize}
+\item \texttt{rom/DragSurface.java}
+\item \texttt{rom/DragSurfaceSerializer.java}
+\item \texttt{rom/RomSurfaceHashUtil.java}
+\item \texttt{rom/RomSurfaceMode.java}
+\item \texttt{rom/core/io/*.java}
+\item \texttt{rom/core/surface/AeroSurface4D.java}
+\item \texttt{rom/adapter/SurfaceAdapter.java}
+\item \texttt{rom/adapter/GeometryAdapter.java}
+\end{itemize}
+
+\section{Practical Reading Notes}
+\begin{itemize}
+\item The aerodynamic physics appear twice: once in the older 3D ROM builder under \texttt{rom/*}, and again in the newer 4D geometry-parametric path under \texttt{rom/core/physics/*}.
+\item The most important equations for current flight behavior are the runtime overlay equations in \texttt{RomAerodynamicCalculator}, because those decide how much of the stored ROM actually reaches the live simulation.
+\item The most important equations for ROM generation quality are the POD, magic-point, and geometry-sampling equations, because they determine what surfaces are learned and how faithfully they are reconstructed.
+\end{itemize}
+
+\end{document}

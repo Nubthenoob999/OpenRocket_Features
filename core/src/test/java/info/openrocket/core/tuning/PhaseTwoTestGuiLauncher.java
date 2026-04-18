@@ -36,9 +36,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class PhaseTwoTestGuiLauncher {
+	private static final String TUNING_OVERVIEW = "phase-three-tuning-overview.csv";
 	private static final String SUMMARY = "phase-two-summary.csv";
 	private static final String QUANTITIES = "phase-two-quantities.csv";
 	private static final String IMPROVEMENTS = "phase-two-improvements.csv";
@@ -54,6 +57,7 @@ public final class PhaseTwoTestGuiLauncher {
 	private JTextField reportsField;
 	private JButton runTestsButton;
 	private JButton refreshButton;
+	private JButton exportCurrentViewButton;
 	private JButton openFolderButton;
 	private JTabbedPane tabs;
 
@@ -140,13 +144,17 @@ public final class PhaseTwoTestGuiLauncher {
 		controls.add(browseReports, c);
 
 		JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-		runTestsButton = new JButton("Run Phase Three");
+		runTestsButton = new JButton("Run Test");
 		runTestsButton.addActionListener(e -> runTests());
 		actions.add(runTestsButton);
 
 		refreshButton = new JButton("Refresh");
 		refreshButton.addActionListener(e -> refreshTabs(getReportsPath()));
 		actions.add(refreshButton);
+
+		exportCurrentViewButton = new JButton("Export Current View CSV");
+		exportCurrentViewButton.addActionListener(e -> exportCurrentView());
+		actions.add(exportCurrentViewButton);
 
 		openFolderButton = new JButton("Open Reports Folder");
 		openFolderButton.addActionListener(e -> openReportsFolder());
@@ -181,6 +189,7 @@ public final class PhaseTwoTestGuiLauncher {
 	private void setControlsEnabled(boolean enabled) {
 		runTestsButton.setEnabled(enabled);
 		refreshButton.setEnabled(enabled);
+		exportCurrentViewButton.setEnabled(enabled);
 		openFolderButton.setEnabled(enabled);
 		configField.setEnabled(enabled);
 		reportsField.setEnabled(enabled);
@@ -197,11 +206,12 @@ public final class PhaseTwoTestGuiLauncher {
 	private void refreshTabs(Path reportsDir) {
 		reportsLabel.setText("Reports: " + reportsDir);
 		tabs.removeAll();
-		tabs.addTab("Summary", buildCsvPanel(reportsDir.resolve(SUMMARY)));
-		tabs.addTab("Quantities", buildCsvPanel(reportsDir.resolve(QUANTITIES)));
-		tabs.addTab("Improvements", buildCsvPanel(reportsDir.resolve(IMPROVEMENTS)));
-		tabs.addTab("Analysis", buildCsvPanel(reportsDir.resolve(ANALYSIS)));
-		tabs.addTab("Residuals", buildCsvPanel(reportsDir.resolve(RESIDUALS)));
+		tabs.addTab("Tuning Overview", buildCsvPanel("Tuning Overview", reportsDir.resolve(TUNING_OVERVIEW)));
+		tabs.addTab("Summary", buildCsvPanel("Summary", reportsDir.resolve(SUMMARY)));
+		tabs.addTab("Quantities", buildCsvPanel("Quantities", reportsDir.resolve(QUANTITIES)));
+		tabs.addTab("Improvements", buildCsvPanel("Improvements", reportsDir.resolve(IMPROVEMENTS)));
+		tabs.addTab("Analysis", buildCsvPanel("Analysis", reportsDir.resolve(ANALYSIS)));
+		tabs.addTab("Residuals", buildCsvPanel("Residuals", reportsDir.resolve(RESIDUALS)));
 		tabs.addTab("Logs", buildLogsPanel(reportsDir));
 		statusLabel.setText("Loaded reports from " + reportsDir);
 	}
@@ -215,7 +225,7 @@ public final class PhaseTwoTestGuiLauncher {
 		}
 
 		setControlsEnabled(false);
-		statusLabel.setText("Running Phase Three batch analysis...");
+		statusLabel.setText("Running fresh Phase Three batch analysis...");
 
 		SwingWorker<Void, Void> worker = new SwingWorker<>() {
 			private Exception error;
@@ -260,8 +270,10 @@ public final class PhaseTwoTestGuiLauncher {
 		}
 	}
 
-	private static JPanel buildCsvPanel(Path csvPath) {
+	private JPanel buildCsvPanel(String tabTitle, Path csvPath) {
 		JPanel panel = new JPanel(new BorderLayout());
+		panel.putClientProperty("tabTitle", tabTitle);
+		panel.putClientProperty("sourcePath", csvPath);
 		if (!Files.exists(csvPath)) {
 			panel.add(new JLabel("File not found: " + csvPath), BorderLayout.NORTH);
 			return panel;
@@ -271,13 +283,14 @@ public final class PhaseTwoTestGuiLauncher {
 		try (Reader reader = Files.newBufferedReader(csvPath, StandardCharsets.UTF_8);
 				 CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build().parse(reader)) {
 			List<String> headers = parser.getHeaderNames();
-			for (String h : headers) {
+			List<String> visibleHeaders = selectHeaders(tabTitle, headers);
+			for (String h : visibleHeaders) {
 				model.addColumn(h);
 			}
 			for (CSVRecord record : parser) {
-				Object[] row = new Object[headers.size()];
-				for (int i = 0; i < headers.size(); i++) {
-					row[i] = record.get(i);
+				Object[] row = new Object[visibleHeaders.size()];
+				for (int i = 0; i < visibleHeaders.size(); i++) {
+					row[i] = record.isMapped(visibleHeaders.get(i)) ? record.get(visibleHeaders.get(i)) : "";
 				}
 				model.addRow(row);
 			}
@@ -289,8 +302,38 @@ public final class PhaseTwoTestGuiLauncher {
 		JTable table = new JTable(model);
 		table.setAutoCreateRowSorter(true);
 		table.setFillsViewportHeight(true);
+		panel.putClientProperty("tableModel", model);
 		panel.add(new JScrollPane(table), BorderLayout.CENTER);
 		return panel;
+	}
+
+	private void exportCurrentView() {
+		java.awt.Component selected = tabs.getSelectedComponent();
+		if (!(selected instanceof JPanel panel)) {
+			statusLabel.setText("No table view is selected for export.");
+			return;
+		}
+		Object modelObject = panel.getClientProperty("tableModel");
+		if (!(modelObject instanceof DefaultTableModel model)) {
+			statusLabel.setText("The selected tab does not contain exportable table data.");
+			return;
+		}
+
+		String tabTitle = String.valueOf(panel.getClientProperty("tabTitle"));
+		JFileChooser chooser = new JFileChooser(getReportsPath().toFile());
+		chooser.setDialogTitle("Export current Phase Three view");
+		chooser.setSelectedFile(getReportsPath().resolve(sanitizeFilePart(tabTitle) + ".csv").toFile());
+		if (chooser.showSaveDialog(frame) != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+
+		Path target = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+		try {
+			writeModelCsv(model, target);
+			statusLabel.setText("Exported current view to " + target.getFileName());
+		} catch (IOException e) {
+			statusLabel.setText("Failed to export current view: " + e.getMessage());
+		}
 	}
 
 	private static JPanel buildLogsPanel(Path reportsDir) {
@@ -357,5 +400,92 @@ public final class PhaseTwoTestGuiLauncher {
 		} catch (IOException e) {
 			return "Failed to read file: " + file + System.lineSeparator() + e.getMessage();
 		}
+	}
+
+	private static void writeModelCsv(DefaultTableModel model, Path target) throws IOException {
+		StringBuilder out = new StringBuilder();
+		for (int column = 0; column < model.getColumnCount(); column++) {
+			if (column > 0) {
+				out.append(',');
+			}
+			out.append(escapeCsv(String.valueOf(model.getColumnName(column))));
+		}
+		out.append(System.lineSeparator());
+		for (int row = 0; row < model.getRowCount(); row++) {
+			for (int column = 0; column < model.getColumnCount(); column++) {
+				if (column > 0) {
+					out.append(',');
+				}
+				Object value = model.getValueAt(row, column);
+				out.append(escapeCsv(value == null ? "" : String.valueOf(value)));
+			}
+			out.append(System.lineSeparator());
+		}
+		Files.writeString(target, out.toString(), StandardCharsets.UTF_8);
+	}
+
+	private static String escapeCsv(String value) {
+		if (value == null) {
+			return "";
+		}
+		boolean needsQuotes = value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r");
+		String escaped = value.replace("\"", "\"\"");
+		return needsQuotes ? "\"" + escaped + "\"" : escaped;
+	}
+
+	private static String sanitizeFilePart(String value) {
+		if (value == null || value.isBlank()) {
+			return "phase-three-results";
+		}
+		String cleaned = value.replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("-{2,}", "-");
+		return cleaned.isBlank() ? "phase-three-results" : cleaned;
+	}
+
+	private static List<String> selectHeaders(String tabTitle, List<String> headers) {
+		List<String> preferred = switch (tabTitle) {
+			case "Tuning Overview" -> List.of(
+					"dataset", "datasetClass", "romMode", "romSurfaceSource", "truthSource",
+					"candidateMaxMach", "fullScore", "fullSeverity", "boostScore", "coastScore",
+					"ascentScore", "apogeeErrorPercent", "alignedApogeeTimeDeltaSec",
+					"alignmentChannel", "alignmentLagSec", "alignmentQuality",
+					"primaryWeakness", "primaryWeaknessScore", "recommendedFocus",
+					"reliabilityLaneStatus", "reliabilityFailureReason", "topContributors", "flags");
+			case "Summary" -> List.of(
+					"dataset", "fullScore", "fullSeverity", "boostScore", "coastScore", "descentScore",
+					"apogeeErrorPercent", "alignedApogeeTimeDeltaSec", "ascentScore", "ascentLaneStatus",
+					"reliabilityLaneStatus", "candidateMaxMach", "alignmentChannel", "alignmentLagSec",
+					"alignmentQuality", "topContributors", "romImprovementHints", "failureReason");
+			case "Quantities" -> List.of(
+					"dataset", "source", "velocityAbsPeak", "accelAbsPeak", "cdProxyMean",
+					"launchTimeSec", "burnoutTimeSec", "apogeeAltitudeM", "apogeeTimeSec",
+					"alignedApogeeTimeSec", "maxMach", "rowsAccepted", "droppedSamples");
+			case "Improvements" -> List.of(
+					"dataset", "window", "rowType", "channel", "channelScore", "severity",
+					"equationGroup", "recommendation");
+			case "Analysis" -> List.of(
+					"dataset", "datasetClass", "romMode", "romSurfaceSource", "candidateMaxMach",
+					"fullScore", "fullSeverity", "apogeeErrorPercent", "ascentScore", "ascentLaneStatus",
+					"reliabilityLaneStatus", "primaryWeakness", "primaryWeaknessScore",
+					"primaryStrength", "primaryStrengthScore", "recommendedFocus",
+					"weakestResidualPhase", "weakestResidualChannel", "weakestResidualNrmse",
+					"primaryDragResidualPhase", "primaryDragDeltaPercent");
+			case "Residuals" -> List.of(
+					"dataset", "phase", "residualType", "channel", "nrmse", "rmse", "mae",
+					"percentDelta", "residualSummary");
+			default -> headers;
+		};
+
+		Set<String> remaining = new LinkedHashSet<>(headers);
+		List<String> selected = new ArrayList<>();
+		for (String header : preferred) {
+			if (remaining.remove(header)) {
+				selected.add(header);
+			}
+		}
+		if (selected.isEmpty()) {
+			return headers;
+		}
+		selected.addAll(remaining.stream().filter(header -> header.endsWith("Status")).toList());
+		return selected;
 	}
 }

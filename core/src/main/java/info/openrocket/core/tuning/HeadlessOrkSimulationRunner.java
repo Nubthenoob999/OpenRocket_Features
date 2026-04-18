@@ -79,15 +79,46 @@ public final class HeadlessOrkSimulationRunner {
 		rawSeries.setParserDiagnostics(diagnostics.freeze());
 		VerticalKinematicsReconstructor.ReconstructionResult reconstruction =
 				VerticalKinematicsReconstructor.reconstruct(rawSeries);
+		TelemetrySeries candidateSeries = preferSimulatedKinematics(
+				rawSeries,
+				reconstruction.getCorrectedSeries());
 
 		SimulationOptions options = simulation.getOptions();
 		return new OrkSimulationResult(
-				reconstruction.getCorrectedSeries(),
+				candidateSeries,
 				reconstruction.getRawSeries(),
 				reconstruction.getDiagnostics(),
 				options.getRomSurfaceMode() == null ? "" : options.getRomSurfaceMode().name(),
 				describeRomSurfaceSource(options),
 				maxFinite(mach));
+	}
+
+	private static TelemetrySeries preferSimulatedKinematics(TelemetrySeries rawSeries,
+															 TelemetrySeries reconstructedSeries) {
+		if (rawSeries == null) {
+			return reconstructedSeries;
+		}
+		TelemetrySeries preferred = new TelemetrySeries(rawSeries.getSchema());
+		for (int i = 0; i < rawSeries.size(); i++) {
+			preferred.addPoint(
+					valueAt(rawSeries.getTimeSec(), i),
+					preferFinite(valueAt(rawSeries.getAltitudeMetersAgl(), i), valueAt(reconstructedSeries.getAltitudeMetersAgl(), i)),
+					preferFinite(valueAt(rawSeries.getVelocityZMetersPerSec(), i), valueAt(reconstructedSeries.getVelocityZMetersPerSec(), i)),
+					valueAt(rawSeries.getAccelerationXMetersPerSec2(), i),
+					valueAt(rawSeries.getAccelerationYMetersPerSec2(), i),
+					preferFinite(valueAt(rawSeries.getAccelerationZMetersPerSec2(), i), valueAt(reconstructedSeries.getAccelerationZMetersPerSec2(), i)),
+					valueAt(rawSeries.getPressurePa(), i),
+					valueAt(rawSeries.getTemperatureC(), i));
+		}
+		preferred.setParserDiagnostics(rawSeries.getParserDiagnostics());
+		return preferred;
+	}
+
+	private static Double preferFinite(Double primary, Double fallback) {
+		if (primary != null && Double.isFinite(primary)) {
+			return primary;
+		}
+		return fallback;
 	}
 
 	private static Double valueAt(List<Double> values, int index) {
