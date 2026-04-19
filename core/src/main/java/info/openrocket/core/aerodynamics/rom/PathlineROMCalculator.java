@@ -37,6 +37,9 @@ import info.openrocket.core.util.ModID;
 
 public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 	private static final double PLUME_DECAY_TAU_SEC = 0.30;
+	private static final double CM_BASE_LIMIT = 0.30;
+	private static final double CM_PER_DEG_LIMIT = 0.012;
+	private static final double CM_MAX_LIMIT = 1.20;
 
 	public static final class RomComputationSnapshot {
 		private final double timeSeconds;
@@ -368,12 +371,18 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		lastResult = result;
 
 		if (settings.isDiagnosticsEnabled()) {
+			double diagnosticCmLegacy = normalizeDiagnosticCm(legacyForces.getCm(), flowState.getAngleOfAttackDeg(),
+					flowState.getMach());
+			double diagnosticCmRom = normalizeDiagnosticCm(romForces.getCm(), flowState.getAngleOfAttackDeg(),
+					flowState.getMach());
+			double diagnosticCmFinal = normalizeDiagnosticCm(blendResult.forces().getCm(),
+					flowState.getAngleOfAttackDeg(), flowState.getMach());
 			computationSnapshots.add(new RomComputationSnapshot(currentSimulationTimeSeconds, flowState.getMach(),
 					flowState.getReynoldsNumber(), flowState.getAngleOfAttackDeg(), flowState.getSideslipDeg(),
 					regime.name(), seeds.size(), confidence.getOverallScore(), blendResult.fallbackWeight(),
 					separationFraction, legacyForces.getCD(), romForces.getCD(), blendResult.forces().getCD(),
 					legacyForces.getCN(), romForces.getCN(), blendResult.forces().getCN(),
-					legacyForces.getCm(), romForces.getCm(), blendResult.forces().getCm(), notes));
+					diagnosticCmLegacy, diagnosticCmRom, diagnosticCmFinal, notes));
 		}
 		return result;
 	}
@@ -399,25 +408,25 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 			case SUPERSONIC -> 1.10;
 			case HYPERSONIC_LEANING -> 1.18;
 		};
-		double lowMachDragBoost = 1.0 + 0.12 * (1.0 - smoothStep(mach, 0.55, 1.05));
-		double separationDragBoost = 1.0 + 0.18 * clamp01(separationFraction);
+		double lowMachDragBoost = 1.0 + 0.16 * (1.0 - smoothStep(mach, 0.55, 1.05));
+		double separationDragBoost = 1.0 + 0.22 * clamp01(separationFraction);
 		double dragTrustBoost = lowMachDragBoost * separationDragBoost;
 		double lowSpeedTrust = smoothStep(mach, 0.08, 0.24);
 		double highAlphaTrust = 1.0 - smoothStep(alphaDeg, 18.0, 45.0);
 		double romDeltaBlend = clamp01(Math.min(lowSpeedTrust, highAlphaTrust));
 		double separationDamping = Math.max(0.55, 1.0 - 0.45 * separationFraction);
-		double pressureContribution = (regimeDragGain * assembler.getPressureCA() + 0.015 * slopeMetric)
+		double pressureContribution = (regimeDragGain * assembler.getPressureCA() + 0.018 * slopeMetric)
 				* dragTrustBoost;
-		double frictionContribution = (assembler.getFrictionCA() + 0.004 * (1.0 + finAreaRatio))
-				* (1.0 + 0.08 * (dragTrustBoost - 1.0));
+		double frictionContribution = (assembler.getFrictionCA() + 0.006 * (1.0 + finAreaRatio))
+				* (1.0 + 0.10 * (dragTrustBoost - 1.0));
 		double baseContribution = BaseDragClosures.coastBaseDrag(mach, geometry.getBaseArea(), refArea, 1.4)
 				* (1.0 - 0.6 * flowState.getPlumeState())
-				* (1.0 + 0.10 * (lowMachDragBoost - 1.0));
+				* (1.0 + 0.12 * (lowMachDragBoost - 1.0));
 		double pressureCD = Math.max(0.0,
-				legacyForces.getPressureCD() * (0.85 + 0.10 * romDeltaBlend)
+				legacyForces.getPressureCD() * (0.88 + 0.10 * romDeltaBlend)
 						+ romDeltaBlend * pressureContribution);
 		double frictionCD = Math.max(0.0,
-				legacyForces.getFrictionCD() * (0.80 + 0.12 * romDeltaBlend)
+				legacyForces.getFrictionCD() * (0.84 + 0.12 * romDeltaBlend)
 						+ romDeltaBlend * frictionContribution);
 		double baseCD = Math.max(0.0, legacyForces.getBaseCD() + romDeltaBlend * baseContribution);
 		double overrideCD = legacyForces.getOverrideCD();
@@ -429,7 +438,7 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 			case SUPERSONIC -> 1.85;
 			case HYPERSONIC_LEANING -> 2.05;
 		};
-		double minCd = legacyCD * (0.88 + 0.10 * romDeltaBlend);
+		double minCd = legacyCD * (0.96 + 0.04 * romDeltaBlend);
 		double maxCd = legacyCD * (maxCdFactor + 0.20 * separationFraction);
 		double totalCD = clamp(totalCDRaw, minCd, maxCd);
 		double cdScale = legacyForces.getCD() > 1e-6 ? totalCD / legacyForces.getCD() : 1.0;
@@ -521,6 +530,24 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 			max = Math.max(max, Math.abs(value));
 		}
 		return max;
+	}
+
+	private static double cmLimit(double alphaDeg, double mach) {
+		double alphaLimited = CM_BASE_LIMIT + CM_PER_DEG_LIMIT * Math.min(Math.abs(alphaDeg), 60.0);
+		double compressibilityAllowance = 0.15 * smoothStep(mach, 0.95, 1.60);
+		return clamp(alphaLimited + compressibilityAllowance, CM_BASE_LIMIT, CM_MAX_LIMIT);
+	}
+
+	private static double clampMagnitude(double value, double limit) {
+		if (!Double.isFinite(value)) {
+			return 0.0;
+		}
+		double boundedLimit = Math.max(0.0, limit);
+		return clamp(value, -boundedLimit, boundedLimit);
+	}
+
+	private static double normalizeDiagnosticCm(double cm, double alphaDeg, double mach) {
+		return clampMagnitude(cm, cmLimit(alphaDeg, mach));
 	}
 
 	private static double clamp(double value, double min, double max) {

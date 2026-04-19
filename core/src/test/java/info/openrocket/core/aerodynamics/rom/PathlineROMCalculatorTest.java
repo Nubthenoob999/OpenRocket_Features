@@ -88,6 +88,28 @@ public class PathlineROMCalculatorTest extends BaseTestCase {
 		assertTrue(result.getNotes().contains("regime=transonic"));
 	}
 
+	@Test
+	public void highAngleCaseKeepsMomentCoefficientBounded() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		FlightConfiguration configuration = rocket.getSelectedConfiguration();
+		FlightConditions conditions = createConditions(configuration, 0.20, 72.0, 0.0);
+
+		RomSettings settings = RomSettings.defaults();
+		settings.setEnabled(true);
+		settings.setDiagnosticsEnabled(true);
+		settings.setMode(RomMode.STANDARD);
+
+		RomAerodynamicCalculator rom = new RomAerodynamicCalculator(new BarrowmanCalculator(), settings);
+		AerodynamicForces romForces = rom.getAerodynamicForces(configuration, conditions, new WarningSet());
+		PathlineROMCalculator.RomComputationSnapshot snapshot =
+				rom.getComputationSnapshots().get(rom.getComputationSnapshots().size() - 1);
+
+		assertTrue(Double.isFinite(romForces.getCm()));
+		assertTrue(Double.isFinite(snapshot.getCmFinal()));
+		assertTrue(Math.abs(snapshot.getCmFinal()) <= 1.20,
+				"Diagnostic Cm should remain bounded at high AoA");
+	}
+
 	private static FlightConditions createConditions(FlightConfiguration configuration, double mach,
 			double aoaDeg, double thetaDeg) {
 		FlightConditions conditions = new FlightConditions(configuration);

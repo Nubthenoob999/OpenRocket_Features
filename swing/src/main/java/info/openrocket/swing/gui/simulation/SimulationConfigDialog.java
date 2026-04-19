@@ -127,7 +127,7 @@ public class SimulationConfigDialog extends JDialog {
 				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
 
 		//// Phase I ROM diagnostics
-		tabbedPane.addTab("Phase I ROM",
+		tabbedPane.addTab("Aerodynamics",
 				SimulationTabLayoutUtils.wrapFormScrollable(new RomPrestepPanel(simulationList[0])));
 		tabbedPane.setToolTipTextAt(AERODYNAMICS_IDX,
 				"Developer diagnostics and readiness preview for the Phase I pathline ROM.");

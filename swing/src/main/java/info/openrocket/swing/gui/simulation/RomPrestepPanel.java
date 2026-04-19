@@ -2,6 +2,7 @@ package info.openrocket.swing.gui.simulation;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -10,6 +11,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextArea;
@@ -71,6 +73,8 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 	// ---- Pathline count controls (write-through to RomSettings) ----
 	private final JSpinner bodyPathlineSpinner = new JSpinner(new SpinnerNumberModel(12, 2, 64, 1));
 	private final JSpinner finPathlineSpinner  = new JSpinner(new SpinnerNumberModel(3, 1, 16, 1));
+	private final JButton applyDesignDefaultsButton = new JButton("Apply design defaults");
+	private final JLabel defaultHintLabel = new JLabel("-");
 
 	// ---- Seed table ----
 	private final DefaultTableModel seedTableModel = new DefaultTableModel(
@@ -88,10 +92,13 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 
 	// Suppress feedback loop when loading settings into spinners
 	private boolean loadingSettings = false;
+	private boolean designDefaultsInitialized = false;
 
 	RomPrestepPanel(Simulation simulation) {
 		super(new MigLayout("fillx, insets 8, gap 8 8, wrap 2", "[grow,fill][grow,fill]", ""));
 		this.simulation = simulation;
+		defaultHintLabel.setFont(defaultHintLabel.getFont().deriveFont(Font.ITALIC, 11f));
+		defaultHintLabel.setToolTipText("Uses rocket geometry characteristics to suggest practical ROM seed counts.");
 
 		add(buildStatusAndGeometryPanel(), "span 2, growx, wrap");
 		add(buildPathlinePanel(),          "growx, top");
@@ -110,6 +117,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		// Left: ROM config status
 		JPanel status = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5", "[right][grow]", ""));
 		status.setBorder(BorderFactory.createTitledBorder("ROM status"));
+		status.add(createInfoButton("ROM status",
+				"Enabled: whether the pathline reduced-order model is active for this simulation.\n"
+						+ "Mode: seed-density preset (Standard, Conservative, or Diagnostic).\n"
+						+ "Fallback: behavior when confidence drops in harsh flow conditions."), "span 2, right, wrap");
 		status.add(new JLabel("Enabled:"));  status.add(romStatusValue, "wrap");
 		status.add(new JLabel("Mode:"));     status.add(modeValue, "wrap");
 		status.add(new JLabel("Fallback:")); status.add(fallbackValue, "wrap");
@@ -119,6 +130,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		JPanel geo = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5",
 				"[right][grow][right][grow]", ""));
 		geo.setBorder(BorderFactory.createTitledBorder("Geometry snapshot"));
+		geo.add(createInfoButton("Geometry snapshot",
+				"Geometry hash: stable signature used to detect design changes.\n"
+						+ "Body length and max diameter define fineness and flow scaling.\n"
+						+ "Fin count and shoulder/boattail transitions drive seed budgeting."), "span 4, right, wrap");
 		geo.add(new JLabel("Geometry hash:"));    geo.add(geometryHashValue);
 		geo.add(new JLabel("Body length:"));      geo.add(bodyLengthValue, "wrap");
 		geo.add(new JLabel("Max diameter:"));     geo.add(maxDiameterValue);
@@ -133,11 +148,20 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
 				"[right][grow][right][grow]", ""));
 		p.setBorder(BorderFactory.createTitledBorder("Pathline configuration"));
+		p.add(createInfoButton("Pathline configuration",
+				"Body meridian pathlines: axial seed lines over body surfaces.\n"
+						+ "Fin surface pathlines: seed lines per fin set for vortex/separation behavior.\n"
+						+ "Higher counts improve fidelity but increase runtime.\n"
+						+ "Mach/AoA/theta/plume define the current ROM evaluation condition."), "span 4, right, wrap");
 
 		p.add(new JLabel("Body meridian pathlines:"));
 		p.add(bodyPathlineSpinner, "growx");
 		p.add(new JLabel("Fin surface pathlines:"));
 		p.add(finPathlineSpinner, "growx, wrap");
+
+		applyDesignDefaultsButton.setToolTipText("Set pathline counts from current rocket geometry characteristics.");
+		p.add(applyDesignDefaultsButton, "span 2");
+		p.add(defaultHintLabel, "span 2, growx, wrap");
 
 		p.add(new JLabel("Mach:"));
 		p.add(machSpinner, "growx");
@@ -155,6 +179,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 	private JPanel buildSeedTablePanel() {
 		JPanel p = new JPanel(new MigLayout("fill, insets 6, gapy 4", "[grow,fill]", "[][grow]"));
 		p.setBorder(BorderFactory.createTitledBorder("Pathline seed plan"));
+		p.add(createInfoButton("Pathline seed plan",
+				"Shows where ROM seeds are placed before solving.\n"
+						+ "Family identifies body, fin, or aft-body placeholder seeds.\n"
+						+ "Area weight indicates each seed's influence in blended coefficients."), "right, wrap");
 		p.add(seedCountLabel, "wrap");
 		JTable table = new JTable(seedTableModel);
 		table.setFillsViewportHeight(true);
@@ -166,6 +194,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
 				"[][grow][][grow][][grow]", ""));
 		p.setBorder(BorderFactory.createTitledBorder("ROM compute"));
+		p.add(createInfoButton("ROM compute",
+				"Compute ROM evaluates coefficients at the selected flight condition.\n"
+						+ "Regime and confidence summarize trust in the current solution.\n"
+						+ "Fallback percentage shows Barrowman blend applied to stabilize output."), "span 7, right, wrap");
 
 		// Prominent compute button
 		JButton computeBtn = new JButton("Compute ROM");
@@ -204,6 +236,8 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 			applyPathlineCounts();
 		});
 
+		applyDesignDefaultsButton.addActionListener(e -> applyDesignDefaults());
+
 		// Seed preview refreshes when pathline counts or Mach/AoA change
 		ChangeListener previewListener = e -> refreshSeedPreview();
 		machSpinner.addChangeListener(previewListener);
@@ -217,7 +251,24 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		settings.setBodyMeridianSeedCount((int) spinnerValue(bodyPathlineSpinner));
 		settings.setFinSurfaceSeedCount((int) spinnerValue(finPathlineSpinner));
 		simulation.getOptions().setRomSettings(settings);
+		designDefaultsInitialized = true;
+		GeometryFeatures geometry = geometryFeatureExtractor.extract(activeConfiguration());
+		RecommendedPathlineCounts recommendation = recommendPathlineCounts(geometry);
+		updateDesignDefaultHint(settings, recommendation);
 		refreshSeedPreview();
+	}
+
+	private void applyDesignDefaults() {
+		GeometryFeatures geometry = geometryFeatureExtractor.extract(activeConfiguration());
+		RecommendedPathlineCounts recommendation = recommendPathlineCounts(geometry);
+
+		loadingSettings = true;
+		bodyPathlineSpinner.setValue(recommendation.bodySeedCount);
+		finPathlineSpinner.setValue(recommendation.finSeedCount);
+		loadingSettings = false;
+
+		designDefaultsInitialized = true;
+		applyPathlineCounts();
 	}
 
 	// ─── refresh / compute ────────────────────────────────────────────────────
@@ -225,6 +276,15 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 	private void refreshFromModel() {
 		RomSettings settings = simulation.getOptions().getRomSettings();
 		GeometryFeatures geometry = geometryFeatureExtractor.extract(activeConfiguration());
+		RecommendedPathlineCounts recommendation = recommendPathlineCounts(geometry);
+		if (!designDefaultsInitialized && shouldInitializeDesignDefaults(settings, recommendation)) {
+			RomSettings updated = settings.copy();
+			updated.setBodyMeridianSeedCount(recommendation.bodySeedCount);
+			updated.setFinSurfaceSeedCount(recommendation.finSeedCount);
+			simulation.getOptions().setRomSettings(updated);
+			settings = updated;
+			designDefaultsInitialized = true;
+		}
 
 		// Status
 		romStatusValue.setText(settings.isEnabled() ? "Enabled" : "Disabled");
@@ -246,6 +306,8 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		bodyPathlineSpinner.setValue(settings.getBodyMeridianSeedCount());
 		finPathlineSpinner.setValue(settings.getFinSurfaceSeedCount());
 		loadingSettings = false;
+
+		updateDesignDefaultHint(settings, recommendation);
 
 		refreshSeedPreview();
 
@@ -434,6 +496,108 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 			case FIN_SURFACE         -> "Fin";
 			case AFT_BODY_PLACEHOLDER -> "Aft body";
 		};
+	}
+
+	private static JButton createInfoButton(String title, String body) {
+		JButton infoButton = new JButton("(i)");
+		infoButton.setFocusable(false);
+		infoButton.setMargin(new Insets(1, 4, 1, 4));
+		infoButton.setToolTipText("Show " + title + " details");
+		infoButton.addActionListener(e -> showInfoMenu(infoButton, title, body));
+		return infoButton;
+	}
+
+	private static void showInfoMenu(JButton owner, String title, String body) {
+		JPopupMenu menu = new JPopupMenu();
+		JPanel content = new JPanel(new MigLayout("insets 8, gapy 4, wrap 1", "[grow,fill]", ""));
+
+		JLabel header = new JLabel(title);
+		header.setFont(header.getFont().deriveFont(Font.BOLD));
+
+		JTextArea bodyArea = new JTextArea(body);
+		bodyArea.setEditable(false);
+		bodyArea.setFocusable(false);
+		bodyArea.setOpaque(false);
+		bodyArea.setLineWrap(true);
+		bodyArea.setWrapStyleWord(true);
+		bodyArea.setColumns(44);
+
+		content.add(header, "growx");
+		content.add(bodyArea, "growx");
+		menu.add(content);
+		menu.show(owner, 0, owner.getHeight());
+	}
+
+	private void updateDesignDefaultHint(RomSettings settings, RecommendedPathlineCounts recommendation) {
+		defaultHintLabel.setText(String.format(Locale.ROOT,
+				"<html>Design suggestion: body %d, fin %d per set (fineness %.1f, fins %d). Current: %d / %d.</html>",
+				recommendation.bodySeedCount,
+				recommendation.finSeedCount,
+				recommendation.finenessRatio,
+				recommendation.totalFins,
+				settings.getBodyMeridianSeedCount(),
+				settings.getFinSurfaceSeedCount()));
+	}
+
+	private static boolean shouldInitializeDesignDefaults(RomSettings settings, RecommendedPathlineCounts recommendation) {
+		RomMode mode = settings.getMode() != null ? settings.getMode() : RomMode.STANDARD;
+		boolean usesModeDefaults = settings.getBodyMeridianSeedCount() == mode.getBodySeedCount()
+				&& settings.getFinSurfaceSeedCount() == mode.getFinSeedCount();
+		boolean recommendationDiffers = settings.getBodyMeridianSeedCount() != recommendation.bodySeedCount
+				|| settings.getFinSurfaceSeedCount() != recommendation.finSeedCount;
+		return usesModeDefaults && recommendationDiffers;
+	}
+
+	private static RecommendedPathlineCounts recommendPathlineCounts(GeometryFeatures geometry) {
+		double maxDiameter = Math.max(1e-3, geometry.getMaxDiameter());
+		double finenessRatio = geometry.getBodyLength() / maxDiameter;
+		int totalFins = geometry.getFins().stream().mapToInt(FinGeometry::getFinCount).sum();
+		int finSets = geometry.getFins().size();
+		int contourComplexity = geometry.getShoulderCount() + geometry.getBoattailCount()
+				+ Math.min(4, geometry.getSlopeChangeCount() / 4);
+
+		double averageSpanToChord = geometry.getFins().stream()
+				.mapToDouble(fin -> {
+					double avgChord = 0.5 * (fin.getRootChord() + fin.getTipChord());
+					return fin.getSpan() / Math.max(1e-3, avgChord);
+				})
+				.average()
+				.orElse(0.0);
+
+		int bodySeedCount = 8
+				+ (int) Math.round(Math.min(18.0, finenessRatio * 0.7))
+				+ contourComplexity
+				+ (totalFins >= 4 ? 1 : 0);
+		bodySeedCount = clampInt(bodySeedCount, 8, 40);
+
+		int finSeedCount = 1;
+		if (totalFins > 0) {
+			finSeedCount = 2
+					+ (int) Math.round(Math.min(3.0, averageSpanToChord))
+					+ (finSets > 1 ? 1 : 0)
+					+ (totalFins >= 4 ? 1 : 0);
+		}
+		finSeedCount = clampInt(finSeedCount, 1, 12);
+
+		return new RecommendedPathlineCounts(bodySeedCount, finSeedCount, finenessRatio, totalFins);
+	}
+
+	private static int clampInt(int value, int min, int max) {
+		return Math.max(min, Math.min(max, value));
+	}
+
+	private static final class RecommendedPathlineCounts {
+		private final int bodySeedCount;
+		private final int finSeedCount;
+		private final double finenessRatio;
+		private final int totalFins;
+
+		private RecommendedPathlineCounts(int bodySeedCount, int finSeedCount, double finenessRatio, int totalFins) {
+			this.bodySeedCount = bodySeedCount;
+			this.finSeedCount = finSeedCount;
+			this.finenessRatio = finenessRatio;
+			this.totalFins = totalFins;
+		}
 	}
 
 	private static double spinnerValue(JSpinner s) {
