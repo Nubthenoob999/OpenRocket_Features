@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import info.openrocket.core.simulation.SimulationOptions;
 
 import java.io.IOException;
@@ -30,6 +33,8 @@ final class NativeAirbrakesConfigurer {
 			return new AbPluginExecutionResult(AbPluginExecutionResult.Status.FAILED, -1,
 					"Native airbrakes configuration failed: simulation options were unavailable");
 		}
+
+		forcePathlineRuntime(options, null);
 
 		if (!dataset.isAirbrakeEnabled()) {
 			options.setAirbrakesEnabled(false);
@@ -66,6 +71,27 @@ final class NativeAirbrakesConfigurer {
 		}
 
 		return new AbPluginExecutionResult(AbPluginExecutionResult.Status.SUCCEEDED, 0, message.toString());
+	}
+
+	static void forcePathlineRuntime(SimulationOptions options, List<String> notes) {
+		if (options == null) {
+			return;
+		}
+
+		options.setRomEnabled(true);
+		options.setRomMode(RomMode.STANDARD);
+		options.setRomFallbackMode(RomFallbackMode.FORCE_ROM);
+		options.setRomSurfaceMode(RomSurfaceMode.THREE_D);
+		options.setRomDragSurface(null);
+		options.setRomAeroSurface4D(null);
+
+		if (notes != null) {
+			notes.add("forced pathline ROM runtime");
+			notes.add("romMode=STANDARD");
+			notes.add("romSurfaceMode=THREE_D");
+			notes.add("legacy ROM surfaces cleared");
+			notes.add("fallback=FORCE_ROM");
+		}
 	}
 
 	private static AbPluginExecutionResult autoDisabledResult(List<String> notes, String reason) {

@@ -17,6 +17,10 @@ import java.io.File;
 import java.util.List;
 
 public final class HeadlessOrkSimulationRunner {
+	private static final double DERIVED_ACCEL_OUTLIER_FLOOR_MPS2 = 250.0;
+	private static final double DERIVED_ACCEL_OUTLIER_MULTIPLIER = 6.0;
+	private static final double DERIVED_ACCEL_OUTLIER_MARGIN_MPS2 = 40.0;
+
 	private HeadlessOrkSimulationRunner() {
 	}
 
@@ -106,13 +110,34 @@ public final class HeadlessOrkSimulationRunner {
 
 		java.util.ArrayList<Double> derived = new java.util.ArrayList<>(time.size());
 		for (int i = 0; i < time.size(); i++) {
-			Double acceleration = centralDifference(time, velocityZ, i);
-			if (acceleration == null) {
-				acceleration = valueAt(fallbackAccelZ, i);
-			}
+			Double acceleration = selectAcceleration(
+					centralDifference(time, velocityZ, i),
+					valueAt(fallbackAccelZ, i));
 			derived.add(acceleration);
 		}
 		return derived;
+	}
+
+	private static Double selectAcceleration(Double derived, Double fallback) {
+		boolean hasDerived = isFinite(derived);
+		boolean hasFallback = isFinite(fallback);
+		if (!hasDerived) {
+			return hasFallback ? fallback : null;
+		}
+		if (!hasFallback) {
+			return derived;
+		}
+		double outlierThreshold = Math.max(
+				DERIVED_ACCEL_OUTLIER_FLOOR_MPS2,
+				Math.abs(fallback) * DERIVED_ACCEL_OUTLIER_MULTIPLIER + DERIVED_ACCEL_OUTLIER_MARGIN_MPS2);
+		if (Math.abs(derived) > outlierThreshold) {
+			return fallback;
+		}
+		return derived;
+	}
+
+	private static boolean isFinite(Double value) {
+		return value != null && Double.isFinite(value);
 	}
 
 	private static Double centralDifference(List<Double> time, List<Double> velocityZ, int index) {

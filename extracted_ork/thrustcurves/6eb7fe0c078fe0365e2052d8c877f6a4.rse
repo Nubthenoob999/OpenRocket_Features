@@ -1,0 +1,36 @@
+<engine-database>
+ <engine-list>
+  <engine mfg="AeroTech" code="J570W" Type="reloadable" dia="38" len="479" initWt="886.144" propWt="547.904" delays="4,6,8,10" auto-calc-mass="0" auto-calc-cg="0">
+   <comments>AeroTech J570W converted from TMT test stand data 1998 (www.tripoli.org) provided by ThrustCurve.org (www.thrustcurve.org)</comments>
+   <data>
+    <eng-data t="0" f="0" m="886.144" cg="239.5"/>
+    <eng-data t="0.039" f="1149.795" m="874.261" cg="239.5"/>
+    <eng-data t="0.119" f="1042.846" m="827.78" cg="239.5"/>
+    <eng-data t="0.199" f="960.891" m="785.303" cg="239.5"/>
+    <eng-data t="0.279" f="900.02" m="745.853" cg="239.5"/>
+    <eng-data t="0.36" f="837.772" m="708.553" cg="239.5"/>
+    <eng-data t="0.441" f="792.834" m="673.554" cg="239.5"/>
+    <eng-data t="0.521" f="735.51" m="641.155" cg="239.5"/>
+    <eng-data t="0.602" f="685.857" m="610.647" cg="239.5"/>
+    <eng-data t="0.682" f="649.599" m="582.337" cg="239.5"/>
+    <eng-data t="0.762" f="608.757" m="555.661" cg="239.5"/>
+    <eng-data t="0.844" f="597.35" m="529.453" cg="239.5"/>
+    <eng-data t="0.924" f="568.934" m="504.729" cg="239.5"/>
+    <eng-data t="1.004" f="548.552" m="481.04" cg="239.5"/>
+    <eng-data t="1.084" f="505.08" m="458.704" cg="239.5"/>
+    <eng-data t="1.165" f="484.626" m="437.461" cg="239.5"/>
+    <eng-data t="1.246" f="452.328" m="417.35" cg="239.5"/>
+    <eng-data t="1.326" f="362.439" m="400.078" cg="239.5"/>
+    <eng-data t="1.406" f="297.973" m="386.078" cg="239.5"/>
+    <eng-data t="1.487" f="262.381" m="374.051" cg="239.5"/>
+    <eng-data t="1.568" f="195.696" m="364.219" cg="239.5"/>
+    <eng-data t="1.648" f="156.733" m="356.747" cg="239.5"/>
+    <eng-data t="1.729" f="124.649" m="350.708" cg="239.5"/>
+    <eng-data t="1.809" f="113.749" m="345.654" cg="239.5"/>
+    <eng-data t="1.89" f="69.812" m="341.714" cg="239.5"/>
+    <eng-data t="1.971" f="46.023" m="339.228" cg="239.5"/>
+    <eng-data t="2.052" f="0" m="338.24" cg="239.5"/>
+   </data>
+  </engine>
+ </engine-list>
+</engine-database>

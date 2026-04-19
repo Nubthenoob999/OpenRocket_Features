@@ -241,6 +241,37 @@ public final class PhaseTwoBatchRunner {
 					Map.of(),
 					candidateLoad.getIntegratorDiagnostics());
 		}
+		String pathlineFailureReason = pathlineRuntimeFailureReason(dataset, candidateLoad);
+		if (pathlineFailureReason != null) {
+			flags.add(new TuningFlag("romMode", "DATA_QUALITY:PATHLINE_RUNTIME_INACTIVE", ScoreSeverity.CRITICAL, 0.0));
+			Map<FlightPhaseWindow, PhaseTwoScoreResult> excludedScores = dataQualityExcludedScores(pathlineFailureReason);
+			return new PhaseTwoDatasetResult(
+					dataset.getName(),
+					dataset.isAirbrakeEnabled(),
+					pluginResult,
+					excludedScores,
+					flags,
+					referenceQ,
+					rawCandidateQ,
+					reference.getParserDiagnostics(),
+					candidateRaw.getParserDiagnostics(),
+					datasetClass,
+					truthLoad.getTruthSource(),
+					candidateLoad.getCandidateSource(),
+					candidateLoad.getOrkProvenance(),
+					candidateLoad.getRomMode(),
+					candidateLoad.getRomSurfaceSource(),
+					candidateLoad.getMaxMach(),
+					"",
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Double.NaN,
+					Map.of(),
+					candidateLoad.getIntegratorDiagnostics());
+		}
 		if (isAutoDisabledPlugin(pluginResult)) {
 			flags.add(new TuningFlag("candidate-source", "DATA_QUALITY:PLUGIN_AUTO_DISABLED", ScoreSeverity.WARNING, 0.0));
 		}
@@ -667,6 +698,20 @@ public final class PhaseTwoBatchRunner {
 			return "plugin-pipeline-unhealthy: status=" + pluginResult.getStatus() + "; " + compactReason(details);
 		}
 		return null;
+	}
+
+	private static String pathlineRuntimeFailureReason(PhaseTwoDatasetConfig dataset,
+												 CandidateLoadResult candidateLoad) {
+		boolean hasOrk = dataset.getOrkPath() != null && !dataset.getOrkPath().isBlank();
+		if (!hasOrk || candidateLoad == null || !"ORK_SIMULATION".equals(candidateLoad.getCandidateSource())) {
+			return null;
+		}
+		String mode = safe(candidateLoad.getRomMode());
+		String surface = safe(candidateLoad.getRomSurfaceSource());
+		if (mode.startsWith("PATHLINE_") && surface.startsWith("PATHLINE_ACTIVE")) {
+			return null;
+		}
+		return "pathline-runtime-inactive: romMode=" + mode + "; romSurfaceSource=" + surface;
 	}
 
 	private static boolean isAutoDisabledPlugin(AbPluginExecutionResult pluginResult) {

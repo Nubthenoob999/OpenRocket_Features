@@ -1,6 +1,9 @@
 package info.openrocket.core.tuning;
 
 import com.google.gson.Gson;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.util.BaseTestCase;
 import org.junit.jupiter.api.Test;
@@ -11,6 +14,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class NativeAirbrakesConfigurerTest extends BaseTestCase {
@@ -60,6 +64,12 @@ public class NativeAirbrakesConfigurerTest extends BaseTestCase {
 		assertEquals(16.4 * 0.3048, options.getApogeeToleranceMeters(), 1.0e-9);
 		assertTrue(options.isDeployAfterBurnoutOnly());
 		assertEquals(0.4, options.getDeployAfterBurnoutDelayS(), 1.0e-9);
+		assertTrue(options.isRomEnabled());
+		assertEquals(RomMode.STANDARD, options.getRomMode());
+		assertEquals(RomSurfaceMode.THREE_D, options.getRomSurfaceMode());
+		assertEquals(RomFallbackMode.FORCE_ROM, options.getRomFallbackMode());
+		assertNull(options.getRomDragSurface());
+		assertNull(options.getRomAeroSurface4D());
 	}
 
 	@Test
@@ -81,6 +91,12 @@ public class NativeAirbrakesConfigurerTest extends BaseTestCase {
 
 		assertEquals(AbPluginExecutionResult.Status.SKIPPED, result.getStatus());
 		assertFalse(options.isAirbrakesEnabled());
+		assertTrue(options.isRomEnabled());
+		assertEquals(RomMode.STANDARD, options.getRomMode());
+		assertEquals(RomSurfaceMode.THREE_D, options.getRomSurfaceMode());
+		assertEquals(RomFallbackMode.FORCE_ROM, options.getRomFallbackMode());
+		assertNull(options.getRomDragSurface());
+		assertNull(options.getRomAeroSurface4D());
 	}
 
 	@Test
@@ -113,6 +129,12 @@ public class NativeAirbrakesConfigurerTest extends BaseTestCase {
 		assertEquals(AbPluginExecutionResult.Status.SKIPPED, result.getStatus());
 		assertFalse(options.isAirbrakesEnabled());
 		assertTrue(result.getMessage().contains("auto-disabled"));
+		assertTrue(options.isRomEnabled());
+		assertEquals(RomMode.STANDARD, options.getRomMode());
+		assertEquals(RomSurfaceMode.THREE_D, options.getRomSurfaceMode());
+		assertEquals(RomFallbackMode.FORCE_ROM, options.getRomFallbackMode());
+		assertNull(options.getRomDragSurface());
+		assertNull(options.getRomAeroSurface4D());
 	}
 
 	private static PhaseTwoDatasetConfig datasetFromJson(String json) {

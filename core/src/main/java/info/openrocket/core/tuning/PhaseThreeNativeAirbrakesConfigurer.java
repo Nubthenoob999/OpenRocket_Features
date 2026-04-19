@@ -5,6 +5,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import info.openrocket.core.simulation.SimulationOptions;
 
 import java.io.IOException;
@@ -76,12 +78,16 @@ final class PhaseThreeNativeAirbrakesConfigurer {
 		}
 
 		options.setRomEnabled(true);
+		options.setRomMode(RomMode.STANDARD);
 		options.setRomFallbackMode(RomFallbackMode.FORCE_ROM);
+		options.setRomSurfaceMode(RomSurfaceMode.THREE_D);
 		options.setRomDragSurface(null);
 		options.setRomAeroSurface4D(null);
 
 		if (notes != null) {
 			notes.add("forced pathline ROM runtime");
+			notes.add("romMode=STANDARD");
+			notes.add("romSurfaceMode=THREE_D");
 			notes.add("legacy ROM surfaces cleared");
 			notes.add("fallback=FORCE_ROM");
 		}
