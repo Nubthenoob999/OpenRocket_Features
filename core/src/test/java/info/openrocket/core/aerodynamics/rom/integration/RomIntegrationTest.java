@@ -122,6 +122,29 @@ public class RomIntegrationTest extends BaseTestCase {
 				+ basePowered + " coast=" + baseCoast);
 	}
 
+	@Test
+	void lowMachPlumeReliefCreatesWiderCoastPoweredCdSplitThanHighMach() {
+		RomAerodynamicCalculator romCoast = buildRom(0.0);
+		RomAerodynamicCalculator romPowered = buildRom(1.0);
+
+		double lowMachCoast = romCoast.getAerodynamicForces(CONFIG, conditions(0.30, 0.0), new WarningSet()).getCD();
+		double lowMachPowered = romPowered.getAerodynamicForces(CONFIG, conditions(0.30, 0.0), new WarningSet()).getCD();
+		double highMachCoast = romCoast.getAerodynamicForces(CONFIG, conditions(2.0, 0.0), new WarningSet()).getCD();
+		double highMachPowered = romPowered.getAerodynamicForces(CONFIG, conditions(2.0, 0.0), new WarningSet()).getCD();
+
+		double lowMachGap = (lowMachCoast - lowMachPowered) / Math.max(lowMachCoast, 1e-9);
+		double highMachGap = (highMachCoast - highMachPowered) / Math.max(highMachCoast, 1e-9);
+
+		assertTrue(lowMachPowered < lowMachCoast,
+				"Powered low-Mach CD should stay below coast: powered=" + lowMachPowered
+						+ " coast=" + lowMachCoast);
+		assertTrue(lowMachGap > 0.12,
+				"Low-Mach plume/coast gap should be material: gap=" + (lowMachGap * 100.0) + "%");
+		assertTrue(lowMachGap > highMachGap,
+				"Low-Mach phase split should exceed the high-Mach split: low="
+						+ (lowMachGap * 100.0) + "% high=" + (highMachGap * 100.0) + "%");
+	}
+
 	// -----------------------------------------------------------------------
 	// Motor ignition CA continuity (plan §Integration: step < 20%)
 	// -----------------------------------------------------------------------

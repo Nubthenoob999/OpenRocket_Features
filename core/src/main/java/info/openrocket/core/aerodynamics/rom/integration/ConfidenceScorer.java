@@ -97,11 +97,12 @@ public class ConfidenceScorer {
      * @return list of warning strings (empty if none)
      */
     public String[] generateWarnings(double mach, double alpha, double noseHalfAngle,
+                                     boolean calibrationActive,
                                      double[] separationFractions) {
         List<String> warnings = new ArrayList<>();
         String w;
 
-        w = checkTransonicWithoutCalibration(mach, false);
+        w = checkTransonicWithoutCalibration(mach, calibrationActive);
         if (w != null) warnings.add(w);
 
         w = checkLeeSideSeparation(alpha, noseHalfAngle);

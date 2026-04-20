@@ -86,7 +86,7 @@ public class RomGeometryParameters {
 		double finThick = 0.0;
 		double finSweep = 0.0;
 		double finWetArea = 0.0;
-		boolean primaryFinSetCaptured = false;
+		double largestFinPlanform = 0.0;
 
 		for (RocketComponent component : config.getAllComponents()) {
 			if (component instanceof SymmetricComponent) {
@@ -126,26 +126,38 @@ public class RomGeometryParameters {
 				FinSet fins = (FinSet) component;
 				finCount += fins.getFinCount();
 
-				if (!primaryFinSetCaptured || finRoot == 0.0) {
-					if (component instanceof TrapezoidFinSet) {
-						TrapezoidFinSet trapezoid = (TrapezoidFinSet) component;
-						finRoot = trapezoid.getRootChord();
-						finTip = trapezoid.getTipChord();
-						finSpan = trapezoid.getSpan();
-						finThick = trapezoid.getThickness();
-						finSweep = trapezoid.getSweepAngle();
-					} else {
-						finRoot = fins.getLength();
-						finTip = 0.0;
-						finSpan = fins.getSpan();
-						finThick = 0.003;
-						finSweep = 0.0;
-					}
-					primaryFinSetCaptured = true;
+				// M18: Use the largest fin set's geometry as representative
+				double setRoot, setTip, setSpan, setThick, setSweep;
+				if (component instanceof TrapezoidFinSet) {
+					TrapezoidFinSet trapezoid = (TrapezoidFinSet) component;
+					setRoot = trapezoid.getRootChord();
+					setTip = trapezoid.getTipChord();
+					setSpan = trapezoid.getSpan();
+					setThick = trapezoid.getThickness();
+					setSweep = trapezoid.getSweepAngle();
+				} else {
+					setRoot = fins.getLength();
+					setTip = 0.0;
+					setSpan = fins.getSpan();
+					setThick = 0.003;
+					setSweep = 0.0;
 				}
 
-				double cMean = (finRoot + finTip) / 2.0;
-				finWetArea += cMean * finSpan * 2.0 * fins.getFinCount();
+				double setMeanChord = (setRoot + setTip) / 2.0;
+				double setPlanform = setMeanChord * setSpan;
+
+				// Select the largest fin set's geometry as representative
+				if (setPlanform > largestFinPlanform) {
+					largestFinPlanform = setPlanform;
+					finRoot = setRoot;
+					finTip = setTip;
+					finSpan = setSpan;
+					finThick = setThick;
+					finSweep = setSweep;
+				}
+
+				// Accumulate per-fin wetted area from each fin set
+				finWetArea += setMeanChord * setSpan * 2.0 * fins.getFinCount();
 			}
 		}
 
@@ -154,7 +166,12 @@ public class RomGeometryParameters {
 		}
 		g.maxDiameter = 2.0 * maxRadius;
 		g.referenceArea = Math.PI * Math.pow(g.maxDiameter / 2.0, 2.0);
-		g.baseArea = g.referenceArea;
+		// M5: Use boattail base diameter for base area when a boattail is present
+		if (g.boattailBaseDiameter > 0.0) {
+			g.baseArea = Math.PI * Math.pow(g.boattailBaseDiameter / 2.0, 2.0);
+		} else {
+			g.baseArea = g.referenceArea;
+		}
 		g.finessRatio = (g.maxDiameter > 0.0) ? (g.bodyLength / g.maxDiameter) : 0.0;
 		g.surfaceRoughness = roughness;
 
@@ -173,7 +190,10 @@ public class RomGeometryParameters {
 				continue;
 			}
 			double d = Math.max(0.0, motor.getDiameter());
-			double area = Math.PI * Math.pow(d / 2.0, 2.0);
+			// M6: Motor API only provides casing OD. Estimate nozzle exit
+			// diameter as ~65% of casing diameter (typical for hobby motors).
+			double nozzleExitDiameter = d * 0.65;
+			double area = Math.PI * Math.pow(nozzleExitDiameter / 2.0, 2.0);
 			totalExitArea += area * Math.max(1, motorConfiguration.getMotorCount());
 		}
 		g.motorExitArea = totalExitArea;

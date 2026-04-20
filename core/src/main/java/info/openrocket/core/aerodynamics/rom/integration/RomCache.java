@@ -52,6 +52,7 @@ public class RomCache {
     private int nAlpha;
     private boolean valid = false;
     private String geometryHash = "";
+    private int settingsHash = 0;
 
     public RomCache() {
         allocate(N_MACH_DEFAULT, N_ALPHA_DEFAULT);
@@ -110,6 +111,7 @@ public class RomCache {
             }
         }
         geometryHash = geometry.getGeometryHash();
+        settingsHash = config != null ? config.hashCode() : 0;
         valid = true;
     }
 
@@ -181,13 +183,15 @@ public class RomCache {
      */
     public boolean isValid(GeometryFeatures geometry, RomSettings config) {
         return valid && geometry != null
-                && geometryHash.equals(geometry.getGeometryHash());
+                && geometryHash.equals(geometry.getGeometryHash())
+                && (config == null || settingsHash == config.hashCode());
     }
 
     /** Invalidate the cache (forces rebuild on next simulation). */
     public void invalidate() {
         valid = false;
         geometryHash = "";
+        settingsHash = 0;
     }
 
     /**

@@ -34,6 +34,7 @@ import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
 import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
+import info.openrocket.core.aerodynamics.rom.RomSettings;
 import info.openrocket.core.aerodynamics.rom.core.io.AeroSurfaceSerializer;
 import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.simulation.FlightData;
@@ -405,6 +406,7 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("geodeticmethod", cond.getGeodeticComputation().name().toLowerCase(Locale.ENGLISH));
 		writeElement("simulationsteppermethod", cond.getSimulationStepperMethodChoice().name().toLowerCase(Locale.ENGLISH));
 		writeElement("romsurfacemode", cond.getRomSurfaceMode().toStorageValue());
+		writeRomSettings(cond.getRomSettings());
 
 		if (cond.isISAAtmosphere()) {
 			writeln("<atmosphere model=\"isa\"/>");
@@ -853,6 +855,26 @@ public class OpenRocketSaver extends RocketSaver {
 
 		indent--;
 		writeln("</" + element + ">");
+	}
+
+	private void writeRomSettings(RomSettings settings) throws IOException {
+		if (settings == null) {
+			return;
+		}
+
+		writeElement("romenabled", settings.isEnabled());
+		writeElement("rommode", enumToXMLName(settings.getMode()));
+		writeElement("romfallbackmode", enumToXMLName(settings.getFallbackMode()));
+		writeElement("romdiagnosticsenabled", settings.isDiagnosticsEnabled());
+		writeElement("rombodymeridianseedcount", settings.getBodyMeridianSeedCount());
+		writeElement("romfinsurfaceseedcount", settings.getFinSurfaceSeedCount());
+		writeElement("romtransonicbandhalfwidth", settings.getTransonicBandHalfWidth());
+		writeElement("romhighangledeg", settings.getHighAngleDeg());
+		writeElement("rommaxtrustedseparationfraction", settings.getMaxTrustedSeparationFraction());
+		writeElement("romprestepmach", settings.getPrestepMach());
+		writeElement("romprestepaoadeg", settings.getPrestepAngleOfAttackDeg());
+		writeElement("romprestepthetadeg", settings.getPrestepThetaDeg());
+		writeElement("romprestepplumestate", settings.getPrestepPlumeState());
 	}
 	
 	

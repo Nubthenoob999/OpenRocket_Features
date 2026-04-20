@@ -24,7 +24,10 @@ import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
 import info.openrocket.core.aerodynamics.rom.DragSurface;
+import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
 import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
+import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSettings;
 import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
 import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.database.motor.MotorDatabase;
@@ -384,6 +387,39 @@ public class OpenRocketSaverTest {
 		OpenRocketDocument loaded = loadRocket(file.getPath());
 		Simulation loadedSimulation = loaded.getSimulations().get(0);
 		assertEquals(false, loadedSimulation.getOptions().hasRomAeroSurface4D());
+	}
+
+	@Test
+	public void testRomSettingsAreSavedAndRestored() throws IOException {
+		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = rocketDoc.getSimulations().get(0);
+		RomSettings settings = simulation.getOptions().getRomSettings();
+		settings.setEnabled(true);
+		settings.setMode(RomMode.DIAGNOSTIC);
+		settings.setFallbackMode(RomFallbackMode.FORCE_ROM);
+		settings.setDiagnosticsEnabled(false);
+		settings.setBodyMeridianSeedCount(17);
+		settings.setFinSurfaceSeedCount(5);
+		settings.setTransonicBandHalfWidth(0.25);
+		settings.setHighAngleDeg(18.5);
+		settings.setMaxTrustedSeparationFraction(0.375);
+		settings.setPrestepMach(0.875);
+		settings.setPrestepAngleOfAttackDeg(7.5);
+		settings.setPrestepThetaDeg(15.0);
+		settings.setPrestepPlumeState(0.25);
+		simulation.getOptions().setRomSettings(settings);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		assertTrue(xml.contains("<romenabled>true</romenabled>"));
+		assertTrue(xml.contains("<rommode>diagnostic</rommode>"));
+		assertTrue(xml.contains("<romfallbackmode>forcerom</romfallbackmode>"));
+		assertTrue(xml.contains("<romprestepaoadeg>7.5</romprestepaoadeg>"));
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSimulation = loaded.getSimulations().get(0);
+		assertEquals(settings, loadedSimulation.getOptions().getRomSettings());
 	}
 	
 	

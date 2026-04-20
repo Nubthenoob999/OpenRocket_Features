@@ -26,7 +26,7 @@ import info.openrocket.swing.util.BaseTestCase;
 public class RomPrestepPanelTest extends BaseTestCase {
 
 	@Test
-	public void testPanelReflectsPhaseISettingsAndGeometry() throws Exception {
+	public void testPanelReflectsRomSettingsAndGeometry() throws Exception {
 		OpenRocketDocument doc = TestRockets.makeTestRocket_v104_withSimulationData();
 		Simulation simulation = doc.getSimulations().get(0);
 		RomSettings settings = simulation.getOptions().getRomSettings();
@@ -35,6 +35,10 @@ public class RomPrestepPanelTest extends BaseTestCase {
 		settings.setFallbackMode(RomFallbackMode.FORCE_ROM);
 		settings.setBodyMeridianSeedCount(6);
 		settings.setFinSurfaceSeedCount(2);
+		settings.setPrestepMach(0.875);
+		settings.setPrestepAngleOfAttackDeg(7.5);
+		settings.setPrestepThetaDeg(15.0);
+		settings.setPrestepPlumeState(0.25);
 		simulation.getOptions().setRomSettings(settings);
 
 		RomPrestepPanel panel = onEdt(() -> new RomPrestepPanel(simulation));
@@ -46,6 +50,10 @@ public class RomPrestepPanelTest extends BaseTestCase {
 		JLabel finCount = field(panel, "finCountValue", JLabel.class);
 		JLabel seedCount = field(panel, "seedCountLabel", JLabel.class);
 		DefaultTableModel model = field(panel, "seedTableModel", DefaultTableModel.class);
+		JSpinner machSpinner = field(panel, "machSpinner", JSpinner.class);
+		JSpinner aoaSpinner = field(panel, "aoaSpinner", JSpinner.class);
+		JSpinner thetaSpinner = field(panel, "thetaSpinner", JSpinner.class);
+		JSpinner plumeSpinner = field(panel, "plumeSpinner", JSpinner.class);
 
 		assertEquals("Enabled", romStatus.getText());
 		assertEquals("Diagnostic", mode.getText());
@@ -54,6 +62,10 @@ public class RomPrestepPanelTest extends BaseTestCase {
 		assertTrue(finCount.getText().length() > 0);
 		assertTrue(seedCount.getText().contains("total seeds"));
 		assertTrue(model.getRowCount() > 0);
+		assertEquals(0.875, spinnerDoubleValue(machSpinner), 0.0);
+		assertEquals(7.5, spinnerDoubleValue(aoaSpinner), 0.0);
+		assertEquals(15.0, spinnerDoubleValue(thetaSpinner), 0.0);
+		assertEquals(0.25, spinnerDoubleValue(plumeSpinner), 0.0);
 	}
 
 	@Test
@@ -72,6 +84,31 @@ public class RomPrestepPanelTest extends BaseTestCase {
 
 		assertEquals(9, simulation.getOptions().getRomSettings().getBodyMeridianSeedCount());
 		assertEquals(4, simulation.getOptions().getRomSettings().getFinSurfaceSeedCount());
+	}
+
+	@Test
+	public void testPrestepConditionSpinnersWriteThroughToRomSettings() throws Exception {
+		OpenRocketDocument doc = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = doc.getSimulations().get(0);
+		RomPrestepPanel panel = onEdt(() -> new RomPrestepPanel(simulation));
+
+		JSpinner machSpinner = field(panel, "machSpinner", JSpinner.class);
+		JSpinner aoaSpinner = field(panel, "aoaSpinner", JSpinner.class);
+		JSpinner thetaSpinner = field(panel, "thetaSpinner", JSpinner.class);
+		JSpinner plumeSpinner = field(panel, "plumeSpinner", JSpinner.class);
+
+		onEdtRun(() -> {
+			machSpinner.setValue(1.25);
+			aoaSpinner.setValue(9.0);
+			thetaSpinner.setValue(25.0);
+			plumeSpinner.setValue(0.5);
+		});
+
+		RomSettings settings = simulation.getOptions().getRomSettings();
+		assertEquals(1.25, settings.getPrestepMach(), 0.0);
+		assertEquals(9.0, settings.getPrestepAngleOfAttackDeg(), 0.0);
+		assertEquals(25.0, settings.getPrestepThetaDeg(), 0.0);
+		assertEquals(0.5, settings.getPrestepPlumeState(), 0.0);
 	}
 
 	@Test
@@ -147,6 +184,10 @@ public class RomPrestepPanelTest extends BaseTestCase {
 		if (error.get() != null) {
 			throw new RuntimeException(error.get());
 		}
+	}
+
+	private static double spinnerDoubleValue(JSpinner spinner) {
+		return ((Number) spinner.getValue()).doubleValue();
 	}
 
 	@FunctionalInterface

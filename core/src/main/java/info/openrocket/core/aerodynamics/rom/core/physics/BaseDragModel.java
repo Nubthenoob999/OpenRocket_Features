@@ -13,7 +13,8 @@ public class BaseDragModel {
 		double Kb = 0.0274 * Math.atan(safeLoOverD) + 0.0116 + 1.0;
 		double n = 3.6542 * Math.pow(loOverD + 1e-9, -0.2733);
 		n = Math.max(0.5, Math.min(n, 3.0));
-		double cd = 0.026 * Kb / Math.sqrt(Math.max(cf_body, 1e-4));
+		// Hoerner/Braeunig base drag with Reynolds exponent n
+		double cd = 0.026 * Kb / Math.pow(Math.max(cf_body, 1e-4), n / 2.0);
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 

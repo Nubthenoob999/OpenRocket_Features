@@ -8,11 +8,14 @@ package info.openrocket.core.aerodynamics.rom.math;
  */
 public final class BaseDragClosures {
 	// Hoerner/Kayser-calibrated subsonic base-pressure constants.
+	
 	// Intercept reduced from 0.12 → 0.11 (better M=0 match to Hoerner blunt-base data).
 	// Quadratic coefficient raised from 0.13 → 0.14 (better M=0.5-0.8 match to
 	// Herrin-Dutton 1994 Table 1).
+
 	private static final double SUBSONIC_INTERCEPT = 0.11;
 	private static final double SUBSONIC_QUADRATIC_COEFFICIENT = 0.14;
+	
 	// Kayser BRL MR-3353 shows transonic peak |Cp_b| ≈ 0.30-0.38 at M ≈ 1.0.
 	// Peak value kept at 0.34; width widened from 0.07 → 0.09 to better span the
 	// experimentally observed drag-rise band (M ≈ 0.88-1.15, AEDC-TR-76-58).
@@ -20,6 +23,7 @@ public final class BaseDragClosures {
 	private static final double TRANSONIC_CENTER_MACH = 1.0;
 	private static final double TRANSONIC_WIDTH = 0.09;
 	private static final double LOWER_BREAK_MACH = 0.78;
+	
 	// Upper break extended from 1.10 → 1.80. The Stoney formula yields |Cp_b| ≈ 0.55
 	// at M=1.10, which is unphysically high; by extending the blended Gaussian region
 	// to M=1.80 (where Stoney gives ≈ 0.156, consistent with experiment), the
@@ -35,13 +39,13 @@ public final class BaseDragClosures {
 		double boundedMach = Math.max(0.0, mach);
 		double magnitude;
 		if (boundedMach <= LOWER_BREAK_MACH) {
-			magnitude = SUBSONIC_INTERCEPT + SUBSONIC_QUADRATIC_COEFFICIENT * boundedMach * boundedMach;
+			magnitude = SUBSONIC_INTERCEPT + (SUBSONIC_QUADRATIC_COEFFICIENT * (boundedMach * boundedMach));
 		} else if (boundedMach <= UPPER_BREAK_MACH) {
 			double t = (boundedMach - LOWER_BREAK_MACH) / (UPPER_BREAK_MACH - LOWER_BREAK_MACH);
-			double endpointBlend = lerp(subsonicMagnitude(LOWER_BREAK_MACH),
-					supersonicMagnitude(UPPER_BREAK_MACH, gamma), smoothStep(t));
+			double endpointBlend = lerp(subsonicMagnitude(LOWER_BREAK_MACH), supersonicMagnitude(UPPER_BREAK_MACH, gamma), smoothStep(t));
 			double bucket = TRANSONIC_PEAK * Math.exp(-square((boundedMach - TRANSONIC_CENTER_MACH) / TRANSONIC_WIDTH));
-			magnitude = Math.max(endpointBlend, bucket);
+			// M13: Use smooth-max (log-sum-exp) for C1 continuity instead of Math.max
+			magnitude = softMax(endpointBlend, bucket, 50.0);
 		} else {
 			magnitude = supersonicMagnitude(boundedMach, gamma);
 		}
@@ -81,5 +85,14 @@ public final class BaseDragClosures {
 
 	private static double square(double value) {
 		return value * value;
+	}
+
+	/**
+	 * Smooth approximation to max(a, b) using log-sum-exp.
+	 * As k → ∞, softMax → max. Provides C∞ continuity.
+	 */
+	private static double softMax(double a, double b, double k) {
+		double mx = Math.max(a, b);
+		return mx + Math.log(Math.exp(k * (a - mx)) + Math.exp(k * (b - mx))) / k;
 	}
 }

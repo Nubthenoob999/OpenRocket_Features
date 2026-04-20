@@ -282,7 +282,10 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
         JFileChooser fc = new JFileChooser();
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             try {
-                calibrationOverlay.importOpenFOAMSurface(fc.getSelectedFile(), 0.95, 0.0);
+                // M7: Pass body length for proper x-normalization
+                double bodyLength = simulation.getRocket().getLength();
+                if (bodyLength <= 0.0) bodyLength = 1.0; // fallback
+                calibrationOverlay.importOpenFOAMSurface(fc.getSelectedFile(), 0.95, 0.0, bodyLength);
                 overlayStatusLabel.setText("Loaded (OpenFOAM): " + fc.getSelectedFile().getName());
             } catch (Exception ex) {
                 overlayStatusLabel.setText("Error: " + ex.getMessage());

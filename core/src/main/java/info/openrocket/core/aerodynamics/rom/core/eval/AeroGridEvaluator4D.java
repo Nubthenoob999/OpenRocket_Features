@@ -179,7 +179,7 @@ public final class AeroGridEvaluator4D {
 		double cdSup = sanitizeCd(cdFriction + cdFinTotal + cdBasePlumeOffM + cdWaveNose);
 		double cdZeroAoA = sanitizeCd(TransonicBlendingModel.blend(mach, cdSub, cdTrans, cdSup));
 
-		double cdBodyAoA = sanitizeCd(InducedDragModel.cdInduced(alphaRad, mach, g));
+		double cdBodyAoA = sanitizeCd(InducedDragModel.cdInduced(alphaRad, betaRad, mach, g));
 		double cdSideslip = sanitizeCd(SideslipModel.cdSideslipIncrement(alphaRad, betaRad, mach, g));
 		double kf = InducedDragModel.protuberanceFactor();
 		double cdPlumeOff = withFloor((cdZeroAoA + cdBodyAoA + cdSideslip) * kf, MIN_CD);
@@ -191,7 +191,7 @@ public final class AeroGridEvaluator4D {
 		double cdPlumeOn = withFloor((cdZeroAoAOn + cdBodyAoA + cdSideslip) * kf, MIN_CD);
 
 		double cn = NormalForceModel.CN(alphaRad, betaRad, mach, g);
-		double cm = PitchingMomentModel.Cm(cn, alphaRad, g);
+		double cm = PitchingMomentModel.Cm(cn, alphaRad, mach, g, 0.55 * g.bodyLength);
 
 		return new PointResult(cdPlumeOff, cdPlumeOn, cdBodyValue, cn, cm);
 	}

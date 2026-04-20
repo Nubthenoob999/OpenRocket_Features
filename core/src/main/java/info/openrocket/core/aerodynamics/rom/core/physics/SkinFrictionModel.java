@@ -38,6 +38,11 @@ public class SkinFrictionModel {
 		double A = Math.sqrt(rm / F);
 		double B = (1.0 + rm - F) / F;
 		double denom = Math.sqrt(4.0 * A * A + B * B);
+		// M12: Guard against denom→0 when mach→0 and t_ratio→1
+		// (both A and B become zero, making the transform undefined).
+		if (denom < EPS) {
+			return cf_incomp;
+		}
 		double alpha = (2.0 * A * A - B) / denom;
 		double beta = B / denom;
 
@@ -82,7 +87,7 @@ public class SkinFrictionModel {
 		double cf = cfWithRoughness(cf_smooth, g.bodyLength, g.surfaceRoughness);
 		double ff = bodyFormFactor(g.maxDiameter, g.bodyLength);
 		double areaRatio = Math.max(g.wetArea, 0.0) / Math.max(g.referenceArea, EPS);
-		double cd = 0.4 * cf * ff * areaRatio;
+		double cd = cf * ff * areaRatio;
 		return Double.isFinite(cd) ? Math.max(0.0, cd) : 0.0;
 	}
 

@@ -25,6 +25,9 @@ public class WaveDragModel {
 
 	public static double cdNoseWaveSupersonic(double mach, RomGeometryInput g) {
 		mach = Double.isFinite(mach) ? Math.max(mach, 0.0) : 0.0;
+		if (mach <= 1.0) {
+			return 0.0;
+		}
 		double lnOverD = Math.max(g.noseLength, EPS) / Math.max(g.maxDiameter, EPS);
 		double cd;
 		switch (g.noseShape) {
@@ -67,7 +70,7 @@ public class WaveDragModel {
 		}
 		double meanChord = Math.max((g.finRootChord + g.finTipChord) / 2.0, EPS);
 		double tc = Math.max(g.finThickness, 0.0) / meanChord;
-		double beta = Math.sqrt(mach * mach - 1.0);
+		double beta = Math.sqrt(Math.max(mach * mach - 1.0, 1e-6));
 		double cdPerFin = 4.0 * tc * tc / beta;
 		double finPlanform = 0.5 * Math.max(g.finRootChord + g.finTipChord, 0.0) * Math.max(g.finSpan, 0.0);
 		double cd = cdPerFin * Math.max(g.finCount, 0) * finPlanform / Math.max(g.referenceArea, EPS);

@@ -128,7 +128,7 @@ public final class GeometryParametricRom {
 					for (int ib = 0; ib < nB; ib++) {
 						double betaRad = Math.toRadians(betaAxis[ib]);
 						double cn = NormalForceModel.CN(alphaRad, betaRad, machAxis[im], g);
-						double cm = PitchingMomentModel.Cm(cn, alphaRad, g);
+						double cm = PitchingMomentModel.Cm(cn, alphaRad, machAxis[im], g, 0.55 * g.bodyLength);
 						cnArr[im][ir][ia][ib] = cn;
 						cmArr[im][ir][ia][ib] = cm;
 					}

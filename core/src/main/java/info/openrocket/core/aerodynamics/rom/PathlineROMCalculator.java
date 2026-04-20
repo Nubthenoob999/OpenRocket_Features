@@ -396,6 +396,8 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		double slopeMetric = maxAbs(geometry.getAreaSlope()) / refArea;
 		double mach = flowState.getMach();
 		double alphaDeg = Math.abs(flowState.getAngleOfAttackDeg());
+		double plumeBlend = clamp01(flowState.getPlumeState());
+		double coastBlend = 1.0 - plumeBlend;
 		double regimeDragGain = switch (regime) {
 			case SUBSONIC -> 1.00;
 			case TRANSONIC -> 1.10;
@@ -408,27 +410,43 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 			case SUPERSONIC -> 1.10;
 			case HYPERSONIC_LEANING -> 1.18;
 		};
-		double lowMachDragBoost = 1.0 + 0.16 * (1.0 - smoothStep(mach, 0.55, 1.05));
-		double separationDragBoost = 1.0 + 0.22 * clamp01(separationFraction);
-		double dragTrustBoost = lowMachDragBoost * separationDragBoost;
+		double lowMachWeight = 1.0 - smoothStep(mach, 0.55, 1.05);
+		double earlyBoostRelief = plumeBlend * (1.0 - smoothStep(mach, 0.16, 0.48));
+		double coastRecovery = coastBlend * lowMachWeight;
+		double separationWeight = clamp01(separationFraction);
+		double separationDragBoost = 1.0 + 0.18 * separationWeight * (0.65 + 0.35 * coastBlend);
+		double pressurePhaseScale = (1.0 + 0.18 * coastRecovery) * (1.0 - 0.22 * earlyBoostRelief);
+		double frictionPhaseScale = (1.0 + 0.08 * coastRecovery) * (1.0 - 0.10 * earlyBoostRelief);
+		double basePlumeShielding = plumeBlend * (0.45 + 0.35 * lowMachWeight);
+		double basePhaseScale = (1.0 - basePlumeShielding)
+				* (1.0 + 0.42 * coastRecovery + 0.14 * separationWeight * coastBlend);
 		double lowSpeedTrust = smoothStep(mach, 0.08, 0.24);
 		double highAlphaTrust = 1.0 - smoothStep(alphaDeg, 18.0, 45.0);
 		double romDeltaBlend = clamp01(Math.min(lowSpeedTrust, highAlphaTrust));
 		double separationDamping = Math.max(0.55, 1.0 - 0.45 * separationFraction);
+		double pressureLegacyWeight = clamp(
+				0.88 + 0.10 * romDeltaBlend + 0.04 * coastRecovery - 0.28 * earlyBoostRelief,
+				0.55, 1.04);
+		double frictionLegacyWeight = clamp(
+				0.84 + 0.12 * romDeltaBlend + 0.03 * coastRecovery - 0.18 * earlyBoostRelief,
+				0.55, 1.02);
+		double baseLegacyWeight = clamp(
+				1.0 - 0.32 * plumeBlend - 0.20 * earlyBoostRelief + 0.18 * coastRecovery,
+				0.45, 1.35);
 		double pressureContribution = (regimeDragGain * assembler.getPressureCA() + 0.018 * slopeMetric)
-				* dragTrustBoost;
+				* separationDragBoost * pressurePhaseScale;
 		double frictionContribution = (assembler.getFrictionCA() + 0.006 * (1.0 + finAreaRatio))
-				* (1.0 + 0.10 * (dragTrustBoost - 1.0));
+				* frictionPhaseScale * (1.0 + 0.08 * (separationDragBoost - 1.0));
 		double baseContribution = BaseDragClosures.coastBaseDrag(mach, geometry.getBaseArea(), refArea, 1.4)
-				* (1.0 - 0.6 * flowState.getPlumeState())
-				* (1.0 + 0.12 * (lowMachDragBoost - 1.0));
+				* basePhaseScale;
 		double pressureCD = Math.max(0.0,
-				legacyForces.getPressureCD() * (0.88 + 0.10 * romDeltaBlend)
+				legacyForces.getPressureCD() * pressureLegacyWeight
 						+ romDeltaBlend * pressureContribution);
 		double frictionCD = Math.max(0.0,
-				legacyForces.getFrictionCD() * (0.84 + 0.12 * romDeltaBlend)
+				legacyForces.getFrictionCD() * frictionLegacyWeight
 						+ romDeltaBlend * frictionContribution);
-		double baseCD = Math.max(0.0, legacyForces.getBaseCD() + romDeltaBlend * baseContribution);
+		double baseCD = Math.max(0.0,
+				legacyForces.getBaseCD() * baseLegacyWeight + romDeltaBlend * baseContribution);
 		double overrideCD = legacyForces.getOverrideCD();
 		double totalCDRaw = pressureCD + frictionCD + baseCD + overrideCD;
 		double legacyCD = Math.max(legacyForces.getCD(), 1e-6);
@@ -438,8 +456,11 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 			case SUPERSONIC -> 1.85;
 			case HYPERSONIC_LEANING -> 2.05;
 		};
-		double minCd = legacyCD * (0.96 + 0.04 * romDeltaBlend);
-		double maxCd = legacyCD * (maxCdFactor + 0.20 * separationFraction);
+		double minCdFactor = clamp(
+				0.96 + 0.04 * romDeltaBlend + 0.05 * coastRecovery - 0.28 * earlyBoostRelief,
+				0.60, 1.05);
+		double minCd = legacyCD * minCdFactor;
+		double maxCd = legacyCD * (maxCdFactor + 0.20 * separationWeight + 0.12 * coastRecovery);
 		double totalCD = clamp(totalCDRaw, minCd, maxCd);
 		double cdScale = legacyForces.getCD() > 1e-6 ? totalCD / legacyForces.getCD() : 1.0;
 

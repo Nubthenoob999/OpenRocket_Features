@@ -25,14 +25,18 @@ public class BoundaryLayerMarcher {
 			double referenceLength) {
 		double length = Math.max(1.0e-6, pathLength);
 		double refLength = Math.max(1.0e-6, referenceLength);
+
 		double ue = Math.max(1.0e-3, edgeState.getEdgeVelocity());
 		double nu = effectiveKinematicViscosity(flowState, edgeState);
+		
 		int steps = clamp((int) Math.ceil(length / Math.max(refLength / 12.0, 1.0e-3)), MIN_STEPS, MAX_STEPS);
 		double dx = length / steps;
 
 		double theta = Math.max(5.0e-7, 0.664 * Math.sqrt(nu * dx / ue));
 		double shapeFactor = LAMINAR_SHAPE_FACTOR_BASE;
+
 		double cf = 0.664 / Math.sqrt(Math.max(1.0, ue * dx / nu));
+		
 		boolean turbulent = false;
 		boolean transitioned = false;
 		boolean separated = false;
@@ -43,11 +47,12 @@ public class BoundaryLayerMarcher {
 		for (int i = 1; i <= steps; i++) {
 			double x = i * dx;
 			double gradient = safeGradient(edgeState);
+			
 			double reTheta = ue * theta / Math.max(1.0e-9, nu);
 			double reX = ue * x / Math.max(1.0e-9, nu);
+			
 			double deltaReTheta = Math.max(0.0, ue * dx / Math.max(1.0e-9, nu));
-			double adiabaticWallTemperature = EckertReference.adiabaticWallTemp(flowState.getStaticTemperature(),
-					edgeState.getEdgeMach(), AIR_GAMMA, turbulent);
+			double adiabaticWallTemperature = EckertReference.adiabaticWallTemp(flowState.getStaticTemperature(), edgeState.getEdgeMach(), AIR_GAMMA, turbulent);
 
 			if (!turbulent) {
 				amplificationFactor = ENTransition.stepN(amplificationFactor, shapeFactor, deltaReTheta);
@@ -59,11 +64,20 @@ public class BoundaryLayerMarcher {
 				notes.append("michel-transition;");
 			}
 
+			// M9: e^N transition check — trigger transition when amplification
+			// factor reaches the critical N value (typically 9.0)
+			if (!turbulent && amplificationFactor >= DEFAULT_N_CRIT) {
+				turbulent = true;
+				transitioned = true;
+				shapeFactor = Math.min(shapeFactor, 1.55);
+				notes.append("eN-transition;");
+			}
+
 			if (turbulent) {
 				theta = integrateTurbulentTheta(theta, ue, nu, gradient, dx);
 				shapeFactor = turbulentShapeFactor(gradient, theta, ue, nu);
-				cf = WhiteChristophCf.eckertCorrectedCf(reX, flowState.getStaticTemperature(),
-						adiabaticWallTemperature, adiabaticWallTemperature, edgeState.getEdgeMach(), AIR_GAMMA);
+				cf = WhiteChristophCf.eckertCorrectedCf(reX, flowState.getStaticTemperature(), adiabaticWallTemperature, adiabaticWallTemperature, edgeState.getEdgeMach(), AIR_GAMMA);
+				
 				separated = separated || shapeFactor > TURBULENT_SEPARATION_THRESHOLD;
 			} else {
 				theta = integrateLaminarTheta(theta, ue, nu, gradient, dx);
@@ -78,29 +92,29 @@ public class BoundaryLayerMarcher {
 		}
 
 		double deltaStar = clampPositive(shapeFactor * theta, theta);
-		boolean valid = Double.isFinite(theta) && Double.isFinite(deltaStar)
-				&& Double.isFinite(shapeFactor) && Double.isFinite(cf);
+		boolean valid = Double.isFinite(theta) && Double.isFinite(deltaStar) && Double.isFinite(shapeFactor) && Double.isFinite(cf);
+		
 		if (!valid) {
-			return new BoundaryLayerState(0.0, 0.0, 10.0, 1.0e-6, turbulent, transitioned,
-					true, false, 1.0, append(notes, "invalid-state"));
+			return new BoundaryLayerState(0.0, 0.0, 10.0, 1.0e-6, turbulent, transitioned, true, false, 1.0, append(notes, "invalid-state"));
 		}
 
-		return new BoundaryLayerState(deltaStar, theta, shapeFactor, cf, turbulent, transitioned,
-				separated, true, clamp01(stiffness), notes.toString());
+		return new BoundaryLayerState(deltaStar, theta, shapeFactor, cf, turbulent, transitioned, separated, true, clamp01(stiffness), notes.toString());
 	}
 
 	private static double integrateLaminarTheta(double theta, double ue, double nu, double gradient, double dx) {
 		double theta2 = theta * theta;
+		
 		double k1 = laminarTheta2Derivative(theta2, ue, nu, gradient);
 		double k2 = laminarTheta2Derivative(theta2 + 0.5 * dx * k1, ue, nu, gradient);
 		double k3 = laminarTheta2Derivative(theta2 + 0.5 * dx * k2, ue, nu, gradient);
 		double k4 = laminarTheta2Derivative(theta2 + dx * k3, ue, nu, gradient);
+		
 		double nextTheta2 = theta2 + (dx / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
 		return Math.sqrt(clampPositive(nextTheta2, 1.0e-14));
 	}
 
 	private static double laminarTheta2Derivative(double theta2, double ue, double nu, double gradient) {
-		double lambda = theta2 * gradient / Math.max(1.0e-9, nu);
+		double lambda = (theta2 * gradient) / Math.max(1.0e-9, nu);
 		double boundedLambda = Math.max(-0.09, Math.min(0.20, lambda));
 		return Math.max(1.0e-12, (0.45 - 6.0 * boundedLambda) * nu / Math.max(1.0e-9, ue));
 	}

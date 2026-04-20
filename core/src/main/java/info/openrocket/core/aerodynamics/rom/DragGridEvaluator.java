@@ -1,5 +1,10 @@
 package info.openrocket.core.aerodynamics.rom;
 
+import info.openrocket.core.aerodynamics.rom.core.geometry.RomGeometryInput;
+import info.openrocket.core.aerodynamics.rom.core.physics.BaseDragModel;
+import info.openrocket.core.aerodynamics.rom.core.physics.InducedDragModel;
+import info.openrocket.core.aerodynamics.rom.core.physics.TransonicBlendingModel;
+
 public class DragGridEvaluator {
 	private static final double MAX_CD = 8.0;
 
@@ -51,6 +56,8 @@ public class DragGridEvaluator {
 
 	static double computeCdPlumeOff(double mach, double re_L,
 								  double alphaRad, RomGeometryParameters g) {
+		RomGeometryInput gi = g.toRomGeometryInput();
+
 		// 1. Skin friction
 		double cd_friction = sanitizeCd(SkinFrictionModel.cdFriction(mach, re_L, g));
 
@@ -64,9 +71,9 @@ public class DragGridEvaluator {
 				g.bodyLength, g.surfaceRoughness);
 
 		double cd_base_subsonic = sanitizeCd(BaseDragModel.cdBasePlumeOff(
-				Math.min(mach, 0.59), cf_body, g));
+				Math.min(mach, 0.59), cf_body, gi));
 		double cd_base_transonic_peak = sanitizeCd(BaseDragModel.cdBasePlumeOff(
-				1.0, cf_body, g));
+				1.0, cf_body, gi));
 
 		// 4. Wave drag (supersonic)
 		double cd_wave_nose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
@@ -77,18 +84,18 @@ public class DragGridEvaluator {
 
 		// 6. Supersonic total
 		double cd_sup = sanitizeCd(cd_friction + cd_fin_friction
-				+ BaseDragModel.cdBasePlumeOff(mach, cf_body, g)
+				+ BaseDragModel.cdBasePlumeOff(mach, cf_body, gi)
 				+ cd_wave_nose + cd_wave_fins);
 
 		// 7. Transonic peak estimate
-		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, g)
+		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, gi)
 				+ cd_base_transonic_peak);
 
 		// 8. Smooth blend
 		double cd_zero_aoa = sanitizeCd(TransonicBlendingModel.blend(mach, cd_sub, cd_trans, cd_sup));
 
 		// 9. AoA increment + protuberances
-		double cd_aoa = sanitizeCd(InducedDragModel.cdInduced(alphaRad, mach, g));
+		double cd_aoa = sanitizeCd(InducedDragModel.cdInduced(alphaRad, 0.0, mach, gi));
 		double kf = InducedDragModel.protuberanceFactor();
 
 		double cd = (cd_zero_aoa + cd_aoa) * kf;
@@ -97,6 +104,8 @@ public class DragGridEvaluator {
 
 	static double computeCdPlumeOn(double mach, double re_L,
 								 double alphaRad, RomGeometryParameters g) {
+		RomGeometryInput gi = g.toRomGeometryInput();
+
 		// Same as plume-off but substitute plume-on base drag
 		double cf_body = SkinFrictionModel.cfWithRoughness(
 				SkinFrictionModel.vanDriestII(
@@ -105,17 +114,21 @@ public class DragGridEvaluator {
 
 		double cd_friction = sanitizeCd(SkinFrictionModel.cdFriction(mach, re_L, g));
 		double cd_fin_friction = sanitizeCd(finFriction(mach, re_L, g));
-		double cd_base_on = sanitizeCd(BaseDragModel.cdBasePlumeOn(mach, cf_body, g));
+		double cd_base_on = sanitizeCd(BaseDragModel.cdBasePlumeOn(mach, cf_body, gi));
 		double cd_wave_nose = sanitizeCd(WaveDragModel.cdNoseWaveSupersonic(mach, g));
 		double cd_wave_fins = sanitizeCd(WaveDragModel.cdFinWaveSupersonic(mach, g));
 
 		double cd_sub = sanitizeCd(cd_friction + cd_fin_friction + cd_base_on);
 		double cd_sup = sanitizeCd(cd_friction + cd_fin_friction + cd_base_on
 				+ cd_wave_nose + cd_wave_fins);
-		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, g));
+
+		// M14: Include base transonic peak in plume-on path (same as plume-off)
+		double cd_base_transonic_peak = sanitizeCd(BaseDragModel.cdBasePlumeOn(1.0, cf_body, gi));
+		double cd_trans = sanitizeCd(TransonicBlendingModel.transonicPeakCd(cd_sub, gi)
+				+ cd_base_transonic_peak);
 
 		double cd_zero_aoa = sanitizeCd(TransonicBlendingModel.blend(mach, cd_sub, cd_trans, cd_sup));
-		double cd_aoa = sanitizeCd(InducedDragModel.cdInduced(alphaRad, mach, g));
+		double cd_aoa = sanitizeCd(InducedDragModel.cdInduced(alphaRad, 0.0, mach, gi));
 		double cd = (cd_zero_aoa + cd_aoa) * InducedDragModel.protuberanceFactor();
 		return smoothLowerBound(cd, 0.001, 1e-4);
 	}

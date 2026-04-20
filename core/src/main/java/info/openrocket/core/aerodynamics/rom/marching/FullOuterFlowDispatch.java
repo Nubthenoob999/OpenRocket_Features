@@ -87,8 +87,9 @@ public class FullOuterFlowDispatch implements OuterFlowReconstructor {
 
         // Drag-rise hump (added to pressure drag, not directly Cp here)
         double deltaCd = dragRiseHump(mach);
-        // Distribute hump evenly across Cp by proportional lift
-        double cpWithHump = cpBlended - deltaCd * 0.5;
+        // Transonic drag-rise hump should not be mixed into local Cp;
+        // it is accounted for at the integrated drag level, not in the pressure distribution.
+        double cpWithHump = cpBlended;
 
         double incidence = (1.0 - w) * eSub.getLocalIncidenceRad()
                          + w * eSuper.getLocalIncidenceRad();

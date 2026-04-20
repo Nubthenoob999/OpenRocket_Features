@@ -10,7 +10,8 @@ public final class TestFixtures {
 	public static RomGeometryInput typical4Fin() {
 		double diameter = 0.15;
 		double refArea = Math.PI * diameter * diameter / 4.0;
-		double finWettedArea = 4.0 * 2.0 * (0.5 * (0.18 + 0.08) * 0.12);
+		// Per-fin wetted area (both sides of one fin)
+		double finWettedArea = 2.0 * (0.5 * (0.18 + 0.08) * 0.12);
 		return new RomGeometryInput(
 				2.0,
 				diameter,

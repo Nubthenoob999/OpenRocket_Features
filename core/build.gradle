@@ -314,15 +314,20 @@ tasks.register('serializeEnginesExecuteDist', JavaExec) {
 }
 
 tasks.register('serializeEnginesValidate') {
-    if (!project.file(serializedEnginesPath).exists()) {
-        def message = "The SQLite motor database does not exist at the following location:\n" +
-            "${project.file(serializedEnginesPath)}.\n" +
-            "Run the following to generate it:\n" +
-            "% ./gradlew serializeEngines\n"
-        println message
-        throw new GradleException('Invalid motor database file.')
-    } else {
-        println "SQLite motor database found.\n"
+    group = 'verification'
+    description = 'Verifies that the serialized motor database exists before packaging.'
+
+    doLast {
+        if (!project.file(serializedEnginesPath).exists()) {
+            def message = "The SQLite motor database does not exist at the following location:\n" +
+                "${project.file(serializedEnginesPath)}.\n" +
+                "Run the following to generate it:\n" +
+                "% ./gradlew serializeEngines\n"
+            println message
+            throw new GradleException('Invalid motor database file.')
+        } else {
+            println "SQLite motor database found.\n"
+        }
     }
 }
 
@@ -401,23 +406,33 @@ tasks.register('externalComponentsDelete', Delete) {
 }
 
 tasks.register('externalComponentsValidate') {
+    group = 'verification'
+    description = 'Verifies that the external component database submodule is available.'
+
     File dir    = project.file(externalResourceComponents + '/orc') as File
     File gitDir = project.file('../.git') as File
-    println "Validating external components at ${dir}..."
-    if (!dir.exists()) {
-        def message = "The component database is a submodule and must be included to compile.\n"
-        if (gitDir.exists()) {
-            message += "Run manually:\n% git submodule init\n% git submodule update --remote\n"
-            println message
-            dependsOn subModuleUpdate
+
+    if (!dir.exists() && gitDir.exists()) {
+        dependsOn subModuleUpdate
+    }
+
+    doLast {
+        println "Validating external components at ${dir}..."
+        if (!dir.exists()) {
+            def message = "The component database is a submodule and must be included to compile.\n"
+            if (gitDir.exists()) {
+                message += "Run manually:\n% git submodule init\n% git submodule update --remote\n"
+                println message
+                throw new GradleException('Invalid external component resources.')
+            } else {
+                message += "Download from https://github.com/openrocket/openrocket-database\n" +
+                           "and copy into './core/${externalResourceComponents}'\n"
+                println message
+                throw new GradleException('Invalid external component resources.')
+            }
         } else {
-            message += "Download from https://github.com/openrocket/openrocket-database\n" +
-                       "and copy into './core/${externalResourceComponents}'\n"
-            println message
-            throw new GradleException('Invalid external component resources.')
+            println "Found external components"
         }
-    } else {
-        println "Found external components"
     }
 }
 
@@ -445,3 +460,4 @@ processResources {
 clean.dependsOn([externalComponentsDelete])
 processResources.dependsOn([externalComponentsCopy])
 processResources.dependsOn([copyReadmeMain])
+processResources.dependsOn('serializeEnginesValidate')

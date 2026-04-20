@@ -87,6 +87,12 @@ public final class PlumeModel {
         }
         // Shielding factor: jet fills fraction of base area
         double shielding = Math.min(1.0, Ae_Ab);
+        // M11: Modulate shielding by aftbody-to-jet radius ratio.
+        // When Ra_Rj >> 1, aftbody is much larger than jet — shielding decreases.
+        // When Ra_Rj ~ 1, jet nearly fills the base — shielding approaches Ae/Ab.
+        if (Ra_Rj > 1.0) {
+            shielding *= 1.0 / Ra_Rj;
+        }
         // Jet plume elevates base pressure toward pe
         double cpJet = 2.0 * (pe_ratio - 1.0) / (gamma_j * mach_inf * mach_inf);
         return Cp_base_jet_off * (1.0 - shielding) + cpJet * shielding;
@@ -136,9 +142,13 @@ public final class PlumeModel {
 
         double delta_p = plumeExpansionAngle(plume.pe, p_inf, plume.Me, plume.gamma_j);
 
+        // M10: Apply Addy jet-base interaction factor to account for
+        // annular base fraction not shielded by the jet.
+        double fa = addyFactor(R_body_base, Math.sqrt(plume.Ae / Math.PI));
+
         double cpJetOn = jetOnBaseCp(mach_inf, Cp_base_coast, pe_ratio, plume.Me,
                 Ae_Ab, Ra_Rj, plume.gamma_j);
         double modifier = brazzelBoattailModifier(mach_inf, D_base, D_max, delta_p);
-        return cpJetOn * modifier;
+        return cpJetOn * modifier * fa;
     }
 }

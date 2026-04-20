@@ -31,10 +31,21 @@ public class PoweredOuterFlow implements OuterFlowReconstructor {
         double mach = flowState.getMach();
         double baseCp = base.getPressureCoefficient();
 
+        // Only apply plume Cp boost to aft-body stations (x_norm > 0.8)
+        // with exponential decay upstream
+        double bodyLength = Math.max(geometry.getBodyLength(), 1e-6);
+        double xNorm = seed.getX() / bodyLength;
+        if (xNorm < 0.6) {
+            return base; // forward stations unaffected by plume
+        }
+
         // Plume shielding: base pressure is partially filled by jet
-        // Simple linear blend: powered Cp is less negative than coast
         double plumeCpBoost = plumeState * 0.15 / Math.max(1.0, mach);
-        double modifiedCp = baseCp + plumeCpBoost;
+
+        // Exponential decay upstream from x_norm=1.0, half-strength at x_norm=0.8
+        double decayRate = 10.0; // controls how quickly boost fades upstream
+        double spatialWeight = Math.exp(-decayRate * Math.max(0.0, 1.0 - xNorm));
+        double modifiedCp = baseCp + plumeCpBoost * spatialWeight;
 
         return new EdgeState(
                 base.getEdgeVelocity(),

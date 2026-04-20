@@ -9,8 +9,10 @@ public class InducedDragModel {
 	private InducedDragModel() {
 	}
 
-	public static double cdInduced(double alphaRad, double mach, RomGeometryInput g) {
-		if (alphaRad < 1e-6) {
+	public static double cdInduced(double alphaRad, double betaRad, double mach, RomGeometryInput g) {
+		// M15: Total effective angle of attack including sideslip
+		double totalAlpha = Math.sqrt(alphaRad * alphaRad + betaRad * betaRad);
+		if (totalAlpha < 1e-6) {
 			return 0.0;
 		}
 		double chord_mean = (g.finRootChord + g.finTipChord) / 2.0;
@@ -18,7 +20,7 @@ public class InducedDragModel {
 		double e = 0.9;
 
 		double cNa_fin = 2.0 * Math.PI / (1.0 + 2.0 / ar);
-		double cl = cNa_fin * alphaRad * g.finCount
+		double cl = cNa_fin * totalAlpha * g.finCount
 				* (g.finSpan * chord_mean) / g.referenceArea;
 
 		double compressibilityFactor = 1.0;
@@ -28,14 +30,18 @@ public class InducedDragModel {
 		} else if (mach < 1.2) {
 			double beta2At08 = Math.max(1.0 - 0.8 * 0.8, 0.35);
 			double subsonicAt08 = 1.0 / Math.sqrt(beta2At08);
+			double supAt12 = 1.0 / Math.sqrt(Math.max(1.2 * 1.2 - 1.0, 0.01));
 			double t = (mach - 0.8) / 0.4;
 			double smooth = t * t * (3.0 - 2.0 * t);
-			compressibilityFactor = subsonicAt08 * (1.0 - smooth) + smooth;
+			compressibilityFactor = subsonicAt08 * (1.0 - smooth) + supAt12 * smooth;
+		} else {
+			// Supersonic: Ackeret-based compressibility factor
+			compressibilityFactor = 1.0 / Math.sqrt(Math.max(mach * mach - 1.0, 0.01));
 		}
 		cl *= compressibilityFactor;
 
 		double cd_induced = cl * cl / (Math.PI * ar * e);
-		double cd_body_aoa = 0.075 * Math.sin(alphaRad) * Math.sin(alphaRad);
+		double cd_body_aoa = 0.075 * Math.sin(totalAlpha) * Math.sin(totalAlpha);
 		return cd_induced + cd_body_aoa;
 	}
 

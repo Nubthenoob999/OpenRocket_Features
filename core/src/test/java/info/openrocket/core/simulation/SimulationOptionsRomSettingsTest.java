@@ -8,6 +8,7 @@ import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
 import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.rom.RomSettings;
 import info.openrocket.core.util.BaseTestCase;
 
 import org.junit.jupiter.api.Test;
@@ -15,17 +16,30 @@ import org.junit.jupiter.api.Test;
 public class SimulationOptionsRomSettingsTest extends BaseTestCase {
 
 	@Test
-	public void cloneAndCopyPreservePhaseOneRomSettings() {
+	public void cloneAndCopyPreserveRomSettings() {
 		SimulationOptions source = new SimulationOptions();
-		source.setRomEnabled(true);
-		source.setRomMode(RomMode.DIAGNOSTIC);
-		source.setRomFallbackMode(RomFallbackMode.BARROWMAN_ONLY);
-		source.setRomDiagnosticsEnabled(false);
+		RomSettings sourceSettings = source.getRomSettings();
+		sourceSettings.setEnabled(true);
+		sourceSettings.setMode(RomMode.DIAGNOSTIC);
+		sourceSettings.setFallbackMode(RomFallbackMode.BARROWMAN_ONLY);
+		sourceSettings.setDiagnosticsEnabled(false);
+		sourceSettings.setBodyMeridianSeedCount(16);
+		sourceSettings.setFinSurfaceSeedCount(5);
+		sourceSettings.setTransonicBandHalfWidth(0.25);
+		sourceSettings.setHighAngleDeg(18.5);
+		sourceSettings.setMaxTrustedSeparationFraction(0.375);
+		sourceSettings.setPrestepMach(1.25);
+		sourceSettings.setPrestepAngleOfAttackDeg(7.5);
+		sourceSettings.setPrestepThetaDeg(20.0);
+		sourceSettings.setPrestepPlumeState(0.5);
+		source.setRomSettings(sourceSettings);
 
 		SimulationOptions clone = source.clone();
 		SimulationOptions copy = new SimulationOptions();
 		copy.copyConditionsFrom(source);
 
+		assertEquals(source.getRomSettings(), clone.getRomSettings());
+		assertEquals(source.getRomSettings(), copy.getRomSettings());
 		assertTrue(clone.isRomEnabled());
 		assertEquals(RomMode.DIAGNOSTIC, clone.getRomMode());
 		assertEquals(RomFallbackMode.BARROWMAN_ONLY, clone.getRomFallbackMode());

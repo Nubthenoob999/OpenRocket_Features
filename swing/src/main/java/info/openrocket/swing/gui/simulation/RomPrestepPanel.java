@@ -238,12 +238,20 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 
 		applyDesignDefaultsButton.addActionListener(e -> applyDesignDefaults());
 
-		// Seed preview refreshes when pathline counts or Mach/AoA change
-		ChangeListener previewListener = e -> refreshSeedPreview();
-		machSpinner.addChangeListener(previewListener);
-		aoaSpinner.addChangeListener(previewListener);
-		bodyPathlineSpinner.addChangeListener(previewListener);
-		finPathlineSpinner.addChangeListener(previewListener);
+		ChangeListener persistedPreviewListener = e -> {
+			if (loadingSettings) return;
+			applyPrestepInputs();
+			refreshSeedPreview();
+		};
+		machSpinner.addChangeListener(persistedPreviewListener);
+		aoaSpinner.addChangeListener(persistedPreviewListener);
+
+		ChangeListener persistedComputeListener = e -> {
+			if (loadingSettings) return;
+			applyPrestepInputs();
+		};
+		thetaSpinner.addChangeListener(persistedComputeListener);
+		plumeSpinner.addChangeListener(persistedComputeListener);
 	}
 
 	private void applyPathlineCounts() {
@@ -256,6 +264,15 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		RecommendedPathlineCounts recommendation = recommendPathlineCounts(geometry);
 		updateDesignDefaultHint(settings, recommendation);
 		refreshSeedPreview();
+	}
+
+	private void applyPrestepInputs() {
+		RomSettings settings = simulation.getOptions().getRomSettings().copy();
+		settings.setPrestepMach(spinnerValue(machSpinner));
+		settings.setPrestepAngleOfAttackDeg(spinnerValue(aoaSpinner));
+		settings.setPrestepThetaDeg(spinnerValue(thetaSpinner));
+		settings.setPrestepPlumeState(spinnerValue(plumeSpinner));
+		simulation.getOptions().setRomSettings(settings);
 	}
 
 	private void applyDesignDefaults() {
@@ -305,6 +322,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		loadingSettings = true;
 		bodyPathlineSpinner.setValue(settings.getBodyMeridianSeedCount());
 		finPathlineSpinner.setValue(settings.getFinSurfaceSeedCount());
+		machSpinner.setValue(settings.getPrestepMach());
+		aoaSpinner.setValue(settings.getPrestepAngleOfAttackDeg());
+		thetaSpinner.setValue(settings.getPrestepThetaDeg());
+		plumeSpinner.setValue(settings.getPrestepPlumeState());
 		loadingSettings = false;
 
 		updateDesignDefaultHint(settings, recommendation);

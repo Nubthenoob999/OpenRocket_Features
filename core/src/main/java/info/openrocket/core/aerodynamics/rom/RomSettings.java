@@ -12,6 +12,10 @@ public class RomSettings implements Cloneable {
 	private double transonicBandHalfWidth = 0.20;
 	private double highAngleDeg = 12.0;
 	private double maxTrustedSeparationFraction = 0.25;
+	private double prestepMach = 0.80;
+	private double prestepAngleOfAttackDeg = 5.0;
+	private double prestepThetaDeg = 0.0;
+	private double prestepPlumeState = 0.0;
 
 	public static RomSettings defaults() {
 		return new RomSettings();
@@ -109,6 +113,42 @@ public class RomSettings implements Cloneable {
 		this.maxTrustedSeparationFraction = Math.max(0.01, Math.min(1.0, maxTrustedSeparationFraction));
 	}
 
+	public double getPrestepMach() {
+		return clamp(prestepMach, 0.0, 8.0);
+	}
+
+	public void setPrestepMach(double prestepMach) {
+		this.prestepMach = clamp(prestepMach, 0.0, 8.0);
+	}
+
+	public double getPrestepAngleOfAttackDeg() {
+		return clamp(prestepAngleOfAttackDeg, -30.0, 30.0);
+	}
+
+	public void setPrestepAngleOfAttackDeg(double prestepAngleOfAttackDeg) {
+		this.prestepAngleOfAttackDeg = clamp(prestepAngleOfAttackDeg, -30.0, 30.0);
+	}
+
+	public double getPrestepThetaDeg() {
+		return clamp(prestepThetaDeg, -180.0, 180.0);
+	}
+
+	public void setPrestepThetaDeg(double prestepThetaDeg) {
+		this.prestepThetaDeg = clamp(prestepThetaDeg, -180.0, 180.0);
+	}
+
+	public double getPrestepPlumeState() {
+		return clamp(prestepPlumeState, 0.0, 1.0);
+	}
+
+	public void setPrestepPlumeState(double prestepPlumeState) {
+		this.prestepPlumeState = clamp(prestepPlumeState, 0.0, 1.0);
+	}
+
+	private static double clamp(double value, double min, double max) {
+		return Math.max(min, Math.min(max, value));
+	}
+
 	@Override
 	public boolean equals(Object o) {
 		if (this == o) {
@@ -124,6 +164,10 @@ public class RomSettings implements Cloneable {
 				&& Double.compare(transonicBandHalfWidth, that.transonicBandHalfWidth) == 0
 				&& Double.compare(highAngleDeg, that.highAngleDeg) == 0
 				&& Double.compare(maxTrustedSeparationFraction, that.maxTrustedSeparationFraction) == 0
+				&& Double.compare(prestepMach, that.prestepMach) == 0
+				&& Double.compare(prestepAngleOfAttackDeg, that.prestepAngleOfAttackDeg) == 0
+				&& Double.compare(prestepThetaDeg, that.prestepThetaDeg) == 0
+				&& Double.compare(prestepPlumeState, that.prestepPlumeState) == 0
 				&& mode == that.mode
 				&& fallbackMode == that.fallbackMode;
 	}
@@ -131,6 +175,7 @@ public class RomSettings implements Cloneable {
 	@Override
 	public int hashCode() {
 		return Objects.hash(enabled, mode, fallbackMode, diagnosticsEnabled, bodyMeridianSeedCount,
-				finSurfaceSeedCount, transonicBandHalfWidth, highAngleDeg, maxTrustedSeparationFraction);
+				finSurfaceSeedCount, transonicBandHalfWidth, highAngleDeg, maxTrustedSeparationFraction,
+				prestepMach, prestepAngleOfAttackDeg, prestepThetaDeg, prestepPlumeState);
 	}
 }

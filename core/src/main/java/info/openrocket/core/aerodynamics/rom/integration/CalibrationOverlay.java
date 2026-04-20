@@ -103,17 +103,24 @@ public class CalibrationOverlay {
      */
     public double applyResidualCA(double CA_physics, double mach, double alpha) {
         if (!loaded) return CA_physics;
-        // Integrate Cp residuals over the body surface as a simple average
-        double avgResidual = 0.0;
-        int count = 0;
+        // M8: Surface-area-weighted integration of Cp residuals along body stations.
+        // Each record has an x-station; we weight by the local panel spacing (dx).
+        List<double[]> matching = new ArrayList<>();
         for (double[] r : records) {
             if (Math.abs(r[0] - mach) < 0.1 && Math.abs(r[1] - alpha) < 2.0) {
-                avgResidual += r[3];
-                count++;
+                matching.add(r);
             }
         }
-        if (count == 0) return CA_physics;
-        return CA_physics + avgResidual / count * 0.1; // scaled to CA
+        if (matching.isEmpty()) return CA_physics;
+        // Sort by x_norm for trapezoidal integration
+        matching.sort((a, b) -> Double.compare(a[2], b[2]));
+        double integral = 0.0;
+        for (int i = 0; i < matching.size() - 1; i++) {
+            double dx = matching.get(i + 1)[2] - matching.get(i)[2];
+            double cpAvg = (matching.get(i)[3] + matching.get(i + 1)[3]) / 2.0;
+            integral += cpAvg * dx;
+        }
+        return CA_physics + integral;
     }
 
     /**
@@ -125,17 +132,26 @@ public class CalibrationOverlay {
      */
     public double applyResidualCdBase(double Cd_base_physics, double mach) {
         if (!loaded) return Cd_base_physics;
-        // Use last-station (x_norm ~ 1) residuals for base
-        double sum = 0.0;
-        int count = 0;
+        // M8: Use last-station (x_norm ~ 1) residuals, weighted by station spacing
+        List<double[]> aftRecords = new ArrayList<>();
         for (double[] r : records) {
             if (Math.abs(r[0] - mach) < 0.1 && r[2] > 0.9) {
-                sum += r[3];
-                count++;
+                aftRecords.add(r);
             }
         }
-        if (count == 0) return Cd_base_physics;
-        return Cd_base_physics + sum / count * 0.05;
+        if (aftRecords.isEmpty()) return Cd_base_physics;
+        // Sort and trapezoidally integrate over the aft region
+        aftRecords.sort((a, b) -> Double.compare(a[2], b[2]));
+        if (aftRecords.size() == 1) {
+            return Cd_base_physics + aftRecords.get(0)[3] * 0.1; // single point, small aft fraction
+        }
+        double integral = 0.0;
+        for (int i = 0; i < aftRecords.size() - 1; i++) {
+            double dx = aftRecords.get(i + 1)[2] - aftRecords.get(i)[2];
+            double cpAvg = (aftRecords.get(i)[3] + aftRecords.get(i + 1)[3]) / 2.0;
+            integral += cpAvg * dx;
+        }
+        return Cd_base_physics + integral;
     }
 
     /**
@@ -149,18 +165,21 @@ public class CalibrationOverlay {
      * @param alpha       angle of attack (deg) of this CFD run
      * @throws IOException on read error
      */
-    public void importOpenFOAMSurface(File ofPostProc, double mach, double alpha) throws IOException {
+    public void importOpenFOAMSurface(File ofPostProc, double mach, double alpha,
+                                      double bodyLength) throws IOException {
         if (ofPostProc == null || !ofPostProc.exists()) {
             throw new IOException("OpenFOAM post-processing file not found: " + ofPostProc);
+        }
+        if (bodyLength <= 0.0) {
+            throw new IllegalArgumentException("bodyLength must be positive for x-normalization");
         }
         // Parse plain-text OpenFOAM field: lines with "(x y z) value"
         try (BufferedReader br = new BufferedReader(new FileReader(ofPostProc))) {
             String line;
-            int pointIndex = 0;
             while ((line = br.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("//") || line.startsWith("/*")) continue;
-                // Expecting format: (x y z) cp_value  or just values
+                // Expecting format: (x y z) cp_value
                 if (line.startsWith("(")) {
                     int end = line.indexOf(')');
                     if (end < 0) continue;
@@ -168,10 +187,11 @@ public class CalibrationOverlay {
                     String rest = line.substring(end + 1).trim();
                     if (coords.length >= 1 && !rest.isEmpty()) {
                         try {
-                            double xNorm = (double) pointIndex / Math.max(1, 100);
+                            // M7: Parse actual x coordinate and normalize by body length
+                            double xActual = Double.parseDouble(coords[0]);
+                            double xNorm = Math.max(0.0, Math.min(1.0, xActual / bodyLength));
                             double cpVal = Double.parseDouble(rest.split("\\s+")[0]);
                             records.add(new double[]{mach, alpha, xNorm, cpVal});
-                            pointIndex++;
                         } catch (NumberFormatException ignored) {}
                     }
                 }
