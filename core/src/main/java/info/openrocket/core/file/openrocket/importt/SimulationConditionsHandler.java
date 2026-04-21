@@ -137,6 +137,8 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 			case "liveweatherselected" -> options.setLiveWeatherDataSelected(Boolean.parseBoolean(content));
 			case "liveweatherdate" -> options.setLiveWeatherLaunchDate(content);
 			case "liveweathertime" -> options.setLiveWeatherLaunchTime(content);
+			case "weathercockingcompensationenabled" ->
+					options.setWeathercockingCompensationEnabled(Boolean.parseBoolean(content));
 			case "airbrakesenabled" -> options.setAirbrakesEnabled(Boolean.parseBoolean(content));
 			case "airbrakescfddatafilepath" -> options.setCfdDataFilePath(content);
 			case "airbrakesreferencearea" -> {

@@ -80,6 +80,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 	private boolean launchIntoWind = preferences.getBoolean(ApplicationPreferences.LAUNCH_INTO_WIND, true);
 	private double launchRodAngle = preferences.getDouble(ApplicationPreferences.LAUNCH_ROD_ANGLE, 0);
 	private double launchRodDirection = preferences.getDouble(ApplicationPreferences.LAUNCH_ROD_DIRECTION, Math.PI / 2);
+	private boolean weathercockingCompensationEnabled =
+			preferences.getBoolean(ApplicationPreferences.WEATHERCOCKING_COMPENSATION_ENABLED, false);
 
 	/*
 	 * SimulationOptions maintains the launch site parameters as separate double values,
@@ -188,6 +190,18 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		if (MathUtil.equals(this.launchRodDirection, launchRodDirection))
 			return;
 		this.launchRodDirection = launchRodDirection;
+		fireChangeEvent();
+	}
+
+	public boolean isWeathercockingCompensationEnabled() {
+		return weathercockingCompensationEnabled;
+	}
+
+	public void setWeathercockingCompensationEnabled(boolean enabled) {
+		if (this.weathercockingCompensationEnabled == enabled) {
+			return;
+		}
+		this.weathercockingCompensationEnabled = enabled;
 		fireChangeEvent();
 	}
 
@@ -1054,6 +1068,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.liveWeatherLaunchDate = this.liveWeatherLaunchDate;
 			copy.liveWeatherLaunchTime = this.liveWeatherLaunchTime;
 			copy.liveWeatherDataSelected = this.liveWeatherDataSelected;
+			copy.weathercockingCompensationEnabled = this.weathercockingCompensationEnabled;
 			copy.airbrakesEnabled = this.airbrakesEnabled;
 			copy.airbrakeConfig = this.airbrakeConfig.clone();
 
@@ -1150,6 +1165,10 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.liveWeatherDataSelected = src.liveWeatherDataSelected;
 		}
+		if (this.weathercockingCompensationEnabled != src.weathercockingCompensationEnabled) {
+			isChanged = true;
+			this.weathercockingCompensationEnabled = src.weathercockingCompensationEnabled;
+		}
 		if (this.airbrakesEnabled != src.airbrakesEnabled) {
 			isChanged = true;
 			this.airbrakesEnabled = src.airbrakesEnabled;
@@ -1241,6 +1260,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
 				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
+				this.weathercockingCompensationEnabled == o.weathercockingCompensationEnabled &&
 				this.airbrakesEnabled == o.airbrakesEnabled &&
 				this.airbrakeConfig.equals(o.airbrakeConfig) &&
 				this.averageWindModel.equals(o.averageWindModel) &&
@@ -1291,6 +1311,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		conditions.setLaunchRodLength(getLaunchRodLength());
 		conditions.setLaunchRodAngle(getLaunchRodAngle());
 		conditions.setLaunchRodDirection(getLaunchRodDirection());
+		conditions.setWeathercockingCompensationEnabled(isWeathercockingCompensationEnabled());
 		conditions.setLaunchSite(new WorldCoordinate(getLaunchLatitude(), getLaunchLongitude(), getLaunchAltitude()));
 		conditions.setGeodeticComputation(getGeodeticComputation());
 		conditions.setRandomSeed(randomSeed);
@@ -1334,6 +1355,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    launchIntoWind: %b\n", launchIntoWind))
 				.concat(String.format("    launchRodAngle:  %f\n", launchRodAngle))
 				.concat(String.format("    launchRodDirection:  %f\n", launchRodDirection))
+				.concat(String.format("    weathercockingCompensationEnabled: %b\n", weathercockingCompensationEnabled))
 				.concat(String.format("    windModelType: %s\n", windModelType))
 				.concat(String.format("    pinkNoiseWindModel: %s\n", averageWindModel))
 				.concat(String.format("    multiLevelPinkNoiseWindModel: %s\n", multiLevelPinkNoiseWindModel))

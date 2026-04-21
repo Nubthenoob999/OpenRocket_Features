@@ -39,6 +39,34 @@ public abstract class AbstractSimulationStepper implements SimulationStepper {
 	 */
 	abstract void calculateAcceleration(SimulationStatus status, DataStore store) throws SimulationException;
 
+	protected void applyWeathercockingPostRodBlend(SimulationStatus status,
+			MutableCoordinate linearAcceleration,
+			MutableCoordinate angularAcceleration) {
+		double blendFactor = status.getWeathercockingBlendFactor();
+		if (blendFactor <= 0.0) {
+			return;
+		}
+
+		double magnitude = linearAcceleration.length();
+		if (magnitude > MathUtil.EPSILON) {
+			CoordinateIF targetDirection = status.getWeathercockingLaunchRodDirectionVector();
+			double invMagnitude = 1.0 / magnitude;
+			double blendedX = linearAcceleration.getX() * invMagnitude * (1.0 - blendFactor)
+					+ targetDirection.getX() * blendFactor;
+			double blendedY = linearAcceleration.getY() * invMagnitude * (1.0 - blendFactor)
+					+ targetDirection.getY() * blendFactor;
+			double blendedZ = linearAcceleration.getZ() * invMagnitude * (1.0 - blendFactor)
+					+ targetDirection.getZ() * blendFactor;
+			double blendedMagnitude = Math.sqrt(blendedX * blendedX + blendedY * blendedY + blendedZ * blendedZ);
+			if (blendedMagnitude > MathUtil.EPSILON) {
+				double scale = magnitude / blendedMagnitude;
+				linearAcceleration.set(blendedX * scale, blendedY * scale, blendedZ * scale, 0.0);
+			}
+		}
+
+		angularAcceleration.multiply(Math.max(0.0, 1.0 - blendFactor));
+	}
+
 	/**
 	 * Calculate the flight conditions for the current rocket status.
 	 * Listeners can override these if necessary.

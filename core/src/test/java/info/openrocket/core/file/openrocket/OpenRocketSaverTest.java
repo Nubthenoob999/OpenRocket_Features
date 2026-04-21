@@ -546,6 +546,30 @@ public class OpenRocketSaverTest {
 	}
 
 	@Test
+	public void testWeathercockingCompensationStateSavedAndLoaded() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
+
+		Simulation sim = new Simulation(rocket);
+		sim.getOptions().setWeathercockingCompensationEnabled(true);
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+		rocketDoc.addSimulation(sim);
+
+		File file = saveRocket(rocketDoc, new StorageOptions());
+		String xml;
+		try {
+			xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		} catch (IOException e) {
+			throw new AssertionError("Failed to read saved .ork", e);
+		}
+		assertTrue(xml.contains("<weathercockingcompensationenabled>true</weathercockingcompensationenabled>"));
+
+		OpenRocketDocument loaded = loadRocket(file.getPath());
+		Simulation loadedSim = loaded.getSimulations().get(0);
+		assertTrue(loadedSim.getOptions().isWeathercockingCompensationEnabled());
+	}
+
+	@Test
 	public void testNativeAirbrakeStateSavedAndLoaded() throws IOException {
 		Rocket rocket = TestRockets.makeEstesAlphaIII();
 		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);

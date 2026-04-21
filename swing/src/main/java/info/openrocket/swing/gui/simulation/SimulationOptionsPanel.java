@@ -89,6 +89,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	JMenu extensionMenuCopyExtension;
 	private JCheckBox monteCarloEnabledCheckBox;
 	private JButton monteCarloConfigureButton;
+	private JCheckBox weathercockingEnabledCheckBox;
 	private JCheckBox airbrakesEnabledCheckBox;
 	private AirbrakeSettingsPanel airbrakeSettingsPanel;
 
@@ -170,6 +171,16 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 
 		romStatusArea = createWrappingTextArea(infoTextColor);
 		optionsForm.add(romStatusArea, "gapleft para, span 4, growx, wrap para");
+
+		weathercockingEnabledCheckBox = new JCheckBox("Enable weathercocking compensation");
+		weathercockingEnabledCheckBox.setToolTipText(
+				"Apply the ROM beta signed rail-angle compensation model and its short post-rod correction window.");
+		weathercockingEnabledCheckBox.addActionListener(e -> {
+			options.setWeathercockingCompensationEnabled(weathercockingEnabledCheckBox.isSelected());
+			updateWeathercockingControls();
+		});
+		optionsForm.add(weathercockingEnabledCheckBox, "span 4, alignx left, wrap para");
+		updateWeathercockingControls();
 
 		label = new JLabel(trans.get("simedtdlg.lbl.GeodeticMethod"));
 		label.setToolTipText(trans.get("simedtdlg.lbl.ttip.GeodeticMethodTip"));
@@ -397,8 +408,8 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		updateCurrentExtensions();
 		updateMonteCarloControls();
 
-		options.addChangeListener(e -> SwingUtilities.invokeLater(this::refreshRomPresentation));
-		refreshRomPresentation();
+		options.addChangeListener(e -> SwingUtilities.invokeLater(this::refreshManagedOptionPresentation));
+		refreshManagedOptionPresentation();
 	}
 
 	private static void initColors() {
@@ -736,6 +747,20 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		airbrakeSettingsPanel.setControlsEnabled(enabled);
 		airbrakeSettingsPanel.revalidate();
 		airbrakeSettingsPanel.repaint();
+	}
+
+	private void updateWeathercockingControls() {
+		if (weathercockingEnabledCheckBox == null) {
+			return;
+		}
+
+		weathercockingEnabledCheckBox.setSelected(options.isWeathercockingCompensationEnabled());
+	}
+
+	private void refreshManagedOptionPresentation() {
+		refreshRomPresentation();
+		updateWeathercockingControls();
+		updateAirbrakeControls();
 	}
 
 	private void updateCurrentExtensions() {

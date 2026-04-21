@@ -34,11 +34,13 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	
 	private double launchRodLength = 1;
 	
-	/** Launch rod angle >= 0, radians from vertical */
+	/** Launch rod angle, signed radians from vertical */
 	private double launchRodAngle = 0;
 	
 	/** Launch rod direction, 0 = north */
 	private double launchRodDirection = 0;
+
+	private boolean weathercockingCompensationEnabled = false;
 	
 	// Launch site location (lat, lon, alt)
 	private WorldCoordinate launchSite = new WorldCoordinate(0, 0, 0);
@@ -74,6 +76,10 @@ public class SimulationConditions implements Monitorable, Cloneable {
 		if (romAerodynamicCalculator != null && romAerodynamicCalculator.isEnabled()) {
 			return romAerodynamicCalculator;
 		}
+		return aerodynamicCalculator;
+	}
+
+	public AerodynamicCalculator getBaselineAerodynamicCalculator() {
 		return aerodynamicCalculator;
 	}
 
@@ -140,6 +146,18 @@ public class SimulationConditions implements Monitorable, Cloneable {
 
 	public void setLaunchRodDirection(double launchRodDirection) {
 		this.launchRodDirection = launchRodDirection;
+		this.modID = new ModID();
+	}
+
+	public boolean isWeathercockingCompensationEnabled() {
+		return weathercockingCompensationEnabled;
+	}
+
+	public void setWeathercockingCompensationEnabled(boolean weathercockingCompensationEnabled) {
+		if (this.weathercockingCompensationEnabled == weathercockingCompensationEnabled) {
+			return;
+		}
+		this.weathercockingCompensationEnabled = weathercockingCompensationEnabled;
 		this.modID = new ModID();
 	}
 

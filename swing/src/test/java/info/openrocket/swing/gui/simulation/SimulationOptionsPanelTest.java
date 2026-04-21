@@ -134,6 +134,28 @@ public class SimulationOptionsPanelTest {
 		assertTrue(romSummary.getText().contains("Seed plan"));
 	}
 
+	@Test
+	public void testWeathercockingCheckboxUpdatesOptions() throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> holder[0] = new SimulationOptionsPanel(document, simulation));
+		SimulationOptionsPanel panel = holder[0];
+		assertNotNull(panel);
+
+		JCheckBox checkbox = findCheckBox(panel, "Enable weathercocking compensation");
+		assertNotNull(checkbox);
+		assertFalse(simulation.getOptions().isWeathercockingCompensationEnabled());
+
+		SwingUtilities.invokeAndWait(checkbox::doClick);
+		assertTrue(simulation.getOptions().isWeathercockingCompensationEnabled());
+
+		SwingUtilities.invokeAndWait(checkbox::doClick);
+		assertFalse(simulation.getOptions().isWeathercockingCompensationEnabled());
+	}
+
 	private static JCheckBox findCheckBox(Container root, String text) {
 		return findComponent(root, JCheckBox.class, component -> text.equals(component.getText()));
 	}

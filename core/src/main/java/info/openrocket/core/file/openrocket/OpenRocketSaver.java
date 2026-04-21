@@ -379,6 +379,7 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("liveweatherselected", cond.isLiveWeatherDataSelected());
 		writeElement("liveweatherdate", cond.getLiveWeatherLaunchDate());
 		writeElement("liveweathertime", cond.getLiveWeatherLaunchTime());
+		writeElement("weathercockingcompensationenabled", cond.isWeathercockingCompensationEnabled());
 		writeElement("airbrakesenabled", cond.isAirbrakesEnabled());
 		writeElement("airbrakescfddatafilepath", cond.getCfdDataFilePath());
 		writeElement("airbrakesreferencearea", cond.getReferenceArea());

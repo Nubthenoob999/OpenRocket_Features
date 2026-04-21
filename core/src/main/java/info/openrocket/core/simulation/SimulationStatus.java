@@ -17,9 +17,11 @@ import info.openrocket.core.motor.MotorConfigurationId;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.LaunchLug;
 import info.openrocket.core.rocketcomponent.RecoveryDevice;
+import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.listeners.SimulationListenerHelper;
+import info.openrocket.core.util.BoundingBox;
 import info.openrocket.core.util.BugException;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
@@ -71,6 +73,9 @@ public class SimulationStatus implements Cloneable, Monitorable {
 	private double startWarningsTime = RK4SimulationStepper.RECOMMENDED_MAX_TIME;
 	
 	private double effectiveLaunchRodLength;
+	private WeathercockingCompensation.Prediction weathercockingPrediction;
+	private double weathercockingLaunchRodClearTime = Double.NaN;
+	private boolean weathercockingTumbleWarningAdded = false;
 
 	// Set of all motors
 	private final List<MotorClusterState> motorStateList = new ArrayList<>();
@@ -122,42 +127,46 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.position = this.simulationConditions.getLaunchPosition();
 		this.velocity = this.simulationConditions.getLaunchVelocity();
 		this.worldPosition = this.simulationConditions.getLaunchSite();
+		this.weathercockingPrediction = WeathercockingCompensation.evaluate(this.simulationConditions, this.configuration);
 
 		// Initialize to roll angle with least stability w.r.t. the wind
 		Quaternion o;
 		FlightConditions cond = new FlightConditions(this.configuration);
-		double angle = -cond.getTheta() - (Math.PI / 2.0 - this.simulationConditions.getLaunchRodDirection());
+		double launchRodDirection = weathercockingPrediction.getLaunchRodDirection();
+		double launchRodAngle = weathercockingPrediction.getAppliedLaunchAngle();
+		double angle = -cond.getTheta() - (Math.PI / 2.0 - launchRodDirection);
 		o = Quaternion.rotation(new Coordinate(0, 0, angle));
 
 		// Launch rod angle and direction
-		o = o.multiplyLeft(Quaternion.rotation(new Coordinate(0, this.simulationConditions.getLaunchRodAngle(), 0)));
-		o = o.multiplyLeft(Quaternion.rotation(new Coordinate(0, 0, Math.PI / 2.0 - this.simulationConditions.getLaunchRodDirection())));
+		o = o.multiplyLeft(Quaternion.rotation(new Coordinate(0, launchRodAngle, 0)));
+		o = o.multiplyLeft(Quaternion.rotation(new Coordinate(0, 0, Math.PI / 2.0 - launchRodDirection)));
 		
 		this.orientation = o;
 		this.rotationVelocity = Coordinate.NUL;
 
 		/*
-		 * Calculate the effective launch rod length taking into account launch lugs.
-		 * If no lugs are found, assume a tower launcher of full length.
+		 * Calculate the effective launch guide length taking into account launch lugs
+		 * and rail buttons. If no guide hardware is found, assume a tower launcher of
+		 * full length.
 		 */
 		double length = this.simulationConditions.getLaunchRodLength();
-		double lugPosition = Double.NaN;
+		double guidePosition = Double.NaN;
 		for (RocketComponent c : this.configuration.getActiveComponents()) {
-			if (c instanceof LaunchLug) {
-				double pos = c.toAbsolute(new Coordinate(c.getLength()))[0].getX();
-				if (Double.isNaN(lugPosition) || pos > lugPosition) {
-					lugPosition = pos;
+			if (c instanceof LaunchLug || c instanceof RailButton) {
+				for (CoordinateIF bound : c.getComponentBounds()) {
+					for (CoordinateIF position : c.toAbsolute(bound)) {
+						if (Double.isNaN(guidePosition) || position.getX() > guidePosition) {
+							guidePosition = position.getX();
+						}
+					}
 				}
 			}
 		}
-		if (!Double.isNaN(lugPosition)) {
-			double maxX = 0;
-			for (CoordinateIF c : this.configuration.getBounds()) {
-				if (c.getX() > maxX)
-					maxX = c.getX();
-			}
-			if (maxX >= lugPosition) {
-				length = Math.max(0, length - (maxX - lugPosition));
+		if (!Double.isNaN(guidePosition)) {
+			BoundingBox bounds = this.configuration.getBoundingBox();
+			double maxX = bounds.isEmpty() ? 0.0 : bounds.max.getX();
+			if (maxX >= guidePosition) {
+				length = Math.max(0, length - (maxX - guidePosition));
 			}
 		}
 		this.effectiveLaunchRodLength = length;
@@ -168,9 +177,12 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.liftoff = false;
 		this.launchRodCleared = false;
 		this.apogeeReached = false;
+		this.warnings = new WarningSet();
 
 		this.populateMotors();
-		this.warnings = new WarningSet();
+		if (weathercockingPrediction.isClamped()) {
+			addWarning(Warning.fromString(weathercockingPrediction.getClampWarningText()));
+		}
 	}
 
 	/**
@@ -205,6 +217,9 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.landed = orig.landed;
 		this.maxZVelocity = orig.maxZVelocity;
 		this.startWarningsTime = orig.startWarningsTime;
+		this.weathercockingPrediction = orig.weathercockingPrediction;
+		this.weathercockingLaunchRodClearTime = orig.weathercockingLaunchRodClearTime;
+		this.weathercockingTumbleWarningAdded = orig.weathercockingTumbleWarningAdded;
 		
 		this.configuration.copyStages(orig.configuration);
 
@@ -382,6 +397,9 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.launchRodCleared = launchRod;
 		if (launchRod) {
 			startWarningsTime = getSimulationTime() + WARNINGS_WAIT;
+			weathercockingLaunchRodClearTime = getSimulationTime();
+		} else {
+			weathercockingLaunchRodClearTime = Double.NaN;
 		}
 		modID = new ModID();
 	}
@@ -401,6 +419,10 @@ public class SimulationStatus implements Cloneable, Monitorable {
 
 	public void setTumbling(boolean tumbling) {
 		this.tumbling = tumbling;
+		if (tumbling && !weathercockingTumbleWarningAdded && getWeathercockingBlendFactor() > 0.0) {
+			weathercockingTumbleWarningAdded = true;
+			addWarning(Warning.fromString(WeathercockingCompensation.tumbleWarningMessage()));
+		}
 		modID = new ModID();
 	}
 
@@ -540,6 +562,55 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		return extraData.get(key);
 	}
 
+	public boolean isWeathercockingCompensationActive() {
+		return weathercockingPrediction != null && weathercockingPrediction.isActive();
+	}
+
+	public double getWeathercockingRequestedLaunchRodAngle() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getRequestedLaunchAngle()
+				: getSimulationConditions().getLaunchRodAngle();
+	}
+
+	public double getWeathercockingAppliedLaunchRodAngle() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getAppliedLaunchAngle()
+				: getSimulationConditions().getLaunchRodAngle();
+	}
+
+	public double getWeathercockingLaunchRodDirection() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getLaunchRodDirection()
+				: getSimulationConditions().getLaunchRodDirection();
+	}
+
+	public CoordinateIF getWeathercockingLaunchRodDirectionVector() {
+		return WeathercockingCompensation.toLaunchRodDirectionVector(
+				getWeathercockingAppliedLaunchRodAngle(),
+				getWeathercockingLaunchRodDirection());
+	}
+
+	public double getWeathercockingAppliedCorrectionAngle() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getAppliedCorrectionAngle() : 0.0;
+	}
+
+	public double getWeathercockingProfileWindSpeed() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getProfileWindSpeedMps() : Double.NaN;
+	}
+
+	public double getWeathercockingStabilityCalibers() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getStabilityCalibers() : Double.NaN;
+	}
+
+	public double getWeathercockingStabilityToMassRatio() {
+		return weathercockingPrediction != null ? weathercockingPrediction.getStabilityToMassRatio() : Double.NaN;
+	}
+
+	public double getWeathercockingBlendFactor() {
+		if (weathercockingPrediction == null || isTumbling() || isLanded() || !isLaunchRodCleared()
+				|| !Double.isFinite(weathercockingLaunchRodClearTime)) {
+			return 0.0;
+		}
+		return weathercockingPrediction.getBlendFactor(getSimulationTime() - weathercockingLaunchRodClearTime);
+	}
+
 	/**
 	 * Returns a copy of this object.  The general purpose is that the conditions,
 	 * rocket configuration, flight data etc. point to the same objects.  However,
@@ -571,6 +642,9 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.velocity = orig.velocity.clone();
 		this.orientation = orig.orientation.clone();
 		this.rotationVelocity = orig.rotationVelocity.clone();
+		this.weathercockingPrediction = orig.weathercockingPrediction;
+		this.weathercockingLaunchRodClearTime = orig.weathercockingLaunchRodClearTime;
+		this.weathercockingTumbleWarningAdded = orig.weathercockingTumbleWarningAdded;
 		// these are booleans, so no cloning (primitives).
 		this.motorIgnited = orig.motorIgnited;
 		this.liftoff = orig.liftoff;
@@ -654,6 +728,22 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		flightDataBranch.setValue(FlightDataType.TYPE_ORIENTATION_PHI, phi);
 		flightDataBranch.setValue(FlightDataType.TYPE_COMPUTATION_TIME,
 				(System.nanoTime() - getSimulationStartWallTime()) / 1000000000.0);
+		if (getSimulationConditions().isWeathercockingCompensationEnabled()) {
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_REQUESTED_EFFECTIVE_ANGLE,
+					getWeathercockingRequestedLaunchRodAngle());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_APPLIED_EFFECTIVE_ANGLE,
+					getWeathercockingAppliedLaunchRodAngle());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_APPLIED_CORRECTION_ANGLE,
+					getWeathercockingAppliedCorrectionAngle());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_POST_ROD_BLEND,
+					getWeathercockingBlendFactor());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_PROFILE_WIND_SPEED,
+					getWeathercockingProfileWindSpeed());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_STABILITY_CALIBERS,
+					getWeathercockingStabilityCalibers());
+			flightDataBranch.setValue(WeathercockingCompensation.TYPE_STABILITY_TO_MASS_RATIO,
+					getWeathercockingStabilityToMassRatio());
+		}
 	}		
 
 	/**

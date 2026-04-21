@@ -269,7 +269,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 				// Check for launch guide clearance
 				if (currentStatus.isLiftoff() &&
 						!currentStatus.isLaunchRodCleared() &&
-						relativePosition.length() > currentStatus.getSimulationConditions().getLaunchRodLength()) {
+						relativePosition.length() > currentStatus.getEffectiveLaunchRodLength()) {
 					currentStatus.addEvent(new FlightEvent(FlightEvent.Type.LAUNCHROD, currentStatus.getSimulationTime(), null));
 				}
 				

@@ -146,6 +146,7 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	public static final String LAUNCH_INTO_WIND = "LaunchIntoWind";
 	public static final String LAUNCH_ROD_ANGLE = "LaunchRodAngle";
 	public static final String LAUNCH_ROD_DIRECTION = "LaunchRodDirection";
+	public static final String WEATHERCOCKING_COMPENSATION_ENABLED = "WeathercockingCompensationEnabled";
 	public static final String WIND_DIRECTION = "WindDirection";
 	public static final String WIND_AVERAGE = "WindAverage";
 	public static final String WIND_TURBULENCE = "WindTurbulence";
@@ -392,6 +393,20 @@ public abstract class ApplicationPreferences implements ChangeSource, ORPreferen
 	
 	public final void setLaunchIntoWind(boolean check) {
 		this.putBoolean(LAUNCH_INTO_WIND, check);
+	}
+
+	@Override
+	public final boolean isWeathercockingCompensationEnabled() {
+		return this.getBoolean(WEATHERCOCKING_COMPENSATION_ENABLED, false);
+	}
+
+	@Override
+	public final void setWeathercockingCompensationEnabled(boolean enabled) {
+		if (this.getBoolean(WEATHERCOCKING_COMPENSATION_ENABLED, false) == enabled) {
+			return;
+		}
+		this.putBoolean(WEATHERCOCKING_COMPENSATION_ENABLED, enabled);
+		fireChangeEvent();
 	}
 
 	public final boolean getShowRASAeroFormatWarning() {

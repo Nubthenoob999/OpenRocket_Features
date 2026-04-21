@@ -21,6 +21,10 @@ public interface SimulationOptionsInterface extends ChangeSource {
 
 	void setLaunchRodDirection(double launchRodDirection);
 
+	boolean isWeathercockingCompensationEnabled();
+
+	void setWeathercockingCompensationEnabled(boolean enabled);
+
 	PinkNoiseWindModel getAverageWindModel();
 
 	double getLaunchAltitude();

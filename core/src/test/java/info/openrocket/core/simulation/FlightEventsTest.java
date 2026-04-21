@@ -20,13 +20,18 @@ import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.DeploymentConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.InnerTube;
+import info.openrocket.core.rocketcomponent.LaunchLug;
 import info.openrocket.core.rocketcomponent.Parachute;
 import info.openrocket.core.rocketcomponent.ParallelStage;
+import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.position.AxialMethod;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.exception.SimulationException;
+import info.openrocket.core.util.BoundingBox;
 import info.openrocket.core.util.BaseTestCase;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.TestRockets;
 
 /**
@@ -273,6 +278,80 @@ public class FlightEventsTest extends BaseTestCase {
 				checkLastRecord(sim, b);
 			}
 		}
+	}
+
+	@Test
+	public void testLaunchGuideClearanceUsesEffectiveGuideLength() throws SimulationException {
+		final Rocket rocket = TestRockets.makeEstesAlphaIII();
+		final BodyTube bodyTube = (BodyTube) rocket.getStage(0).getChild(1);
+		final LaunchLug lug = (LaunchLug) bodyTube.getChild(1);
+
+		lug.setAxialMethod(AxialMethod.TOP);
+		lug.setAxialOffset(0.0);
+		lug.setLength(0.01);
+
+		final Simulation sim = new Simulation(rocket);
+		sim.getOptions().setISAAtmosphere(true);
+		sim.getOptions().setTimeStep(0.005);
+		sim.getOptions().setLaunchRodLength(0.6);
+		sim.getOptions().getAverageWindModel().setAverage(0.0);
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+
+		SimulationStatus status = new SimulationStatus(sim.getActiveConfiguration(), sim.getOptions().toSimulationConditions());
+		double rawLength = sim.getOptions().getLaunchRodLength();
+		double effectiveLength = status.getEffectiveLaunchRodLength();
+		assertTrue(effectiveLength < rawLength - 0.1, "Test setup should shorten the effective guide length");
+
+		sim.simulate();
+
+		FlightDataBranch branch = sim.getSimulatedData().getBranch(0);
+		FlightEvent launchRodEvent = branch.getFirstEvent(FlightEvent.Type.LAUNCHROD);
+		assertNotNull(launchRodEvent, "Expected a launch guide clearance event");
+
+		int dataIndex = branch.getDataIndexOfTime(launchRodEvent.getTime());
+		assertTrue(dataIndex >= 0, "Expected flight data at guide-clearance time");
+
+		double x = branch.getByIndex(FlightDataType.TYPE_POSITION_X, dataIndex);
+		double y = branch.getByIndex(FlightDataType.TYPE_POSITION_Y, dataIndex);
+		double z = branch.getByIndex(FlightDataType.TYPE_ALTITUDE, dataIndex);
+		double distance = Math.sqrt(x * x + y * y + z * z);
+
+		assertTrue(distance >= effectiveLength - 0.03,
+				"Guide clearance should occur after traveling the effective guide length");
+		assertTrue(distance < rawLength - 0.05,
+				"Guide clearance should not wait for the full configured rod length when the rocket overhang shortens the effective guide");
+	}
+
+	@Test
+	public void testEffectiveGuideLengthIncludesRailButtons() {
+		final Rocket rocket = TestRockets.makeEstesAlphaIII();
+		final BodyTube bodyTube = (BodyTube) rocket.getStage(0).getChild(1);
+		bodyTube.removeChild(bodyTube.getChild(1));
+
+		RailButton railButton = new RailButton();
+		railButton.setAxialMethod(AxialMethod.TOP);
+		railButton.setAxialOffset(0.0);
+		railButton.setOuterDiameter(0.03);
+		railButton.setInstanceCount(2);
+		railButton.setInstanceSeparation(0.05);
+		bodyTube.addChild(railButton);
+
+		final Simulation sim = new Simulation(rocket);
+		sim.getOptions().setLaunchRodLength(0.6);
+		sim.setFlightConfigurationId(TestRockets.TEST_FCID_0);
+
+		SimulationStatus status = new SimulationStatus(sim.getActiveConfiguration(), sim.getOptions().toSimulationConditions());
+		double aftGuidePosition = Double.NEGATIVE_INFINITY;
+		for (CoordinateIF bound : railButton.getComponentBounds()) {
+			for (CoordinateIF position : railButton.toAbsolute(bound)) {
+				aftGuidePosition = Math.max(aftGuidePosition, position.getX());
+			}
+		}
+		BoundingBox rocketBounds = sim.getActiveConfiguration().getBoundingBox();
+		double expectedLength = sim.getOptions().getLaunchRodLength() - (rocketBounds.max.getX() - aftGuidePosition);
+
+		assertEquals(expectedLength, status.getEffectiveLaunchRodLength(), 1.0e-9,
+				"Effective guide length should use the aft-most rail-button contact point and full rocket bounds");
 	}
 
 	/*

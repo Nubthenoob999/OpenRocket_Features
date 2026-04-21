@@ -78,10 +78,7 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
 
         SimulationConditions sim = original.getSimulationConditions();
 
-        store.launchRodDirection = new Coordinate(
-                Math.sin(sim.getLaunchRodAngle()) * Math.cos(Math.PI / 2.0 - sim.getLaunchRodDirection()),
-                Math.sin(sim.getLaunchRodAngle()) * Math.sin(Math.PI / 2.0 - sim.getLaunchRodDirection()),
-                Math.cos(sim.getLaunchRodAngle()));
+                store.launchRodDirection = status.getWeathercockingLaunchRodDirectionVector();
 
         this.random = new Random(original.getSimulationConditions().getRandomSeed() ^ SEED_RANDOMIZATION);
 
@@ -186,7 +183,7 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
                         Math.abs(store.accelerationData.getRotationalAccelerationRC().getY())));
         if (!status.isLaunchRodCleared()) {
             dt[0] /= 5.0;
-            dt[6] = status.getSimulationConditions().getLaunchRodLength() / k1.v.length() / 10;
+                        dt[6] = status.getEffectiveLaunchRodLength() / k1.v.length() / 10;
         }
         dt[7] = 1.5 * store.timeStep;
 
@@ -692,6 +689,7 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
 
             // Convert to world coordinates
             status.getRocketOrientationQuaternion().rotateInPlace(angularAcceleration);
+			applyWeathercockingPostRodBlend(status, linearAcceleration, angularAcceleration);
         }
 
         return new AccelerationData(null, null, linearAcceleration, angularAcceleration, status.getRocketOrientationQuaternion());
