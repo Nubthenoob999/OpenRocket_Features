@@ -123,15 +123,25 @@ def install4jDisableBundling = providers.gradleProperty('install4jDisableBundlin
         .orElse(false)
 def install4jBuildIds = [
         windows: ['60', '248'],
+        linux  : ['168', '244'],
         mac    : ['213', '240'],
-        all    : ['60', '248', '213', '240']
+        all    : ['60', '248', '168', '244', '213', '240']
 ]
 def install4jExpectedArtifacts = [
         '60' : "Project-Imperia-${projectVersionString}-installer-Windows-x86_64.exe",
         '248': "Project-Imperia-${projectVersionString}-installer-Windows-Arm64.exe",
+        '168': "Project-Imperia-${projectVersionString}-installer-Linux-x86_64",
+        '244': "Project-Imperia-${projectVersionString}-installer-Linux-Arm64",
         '213': "Project-Imperia-${projectVersionString}-installer-macOS-Intel.dmg",
         '240': "Project-Imperia-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
 ]
+
+def install4jArtifactExists = { File outputDir, String expectedName ->
+    def outputFiles = outputDir.listFiles() ?: []
+    outputFiles.any { file ->
+        file.name == expectedName || file.name.startsWith("${expectedName}.")
+    }
+}
 
 install4j {
     if (install4jHomeDir.present) {
@@ -551,7 +561,7 @@ def configureInstall4jTask = { task, List<String> buildIds, String taskDescripti
     task.doLast {
         def outputDir = install4jMediaDir.get().asFile
         def expectedFiles = buildIds.collect { install4jExpectedArtifacts[it] }.findAll { it != null }
-        def missingFiles = expectedFiles.findAll { !new File(outputDir, it).exists() }
+        def missingFiles = expectedFiles.findAll { !install4jArtifactExists(outputDir, it) }
 
         if (!missingFiles.isEmpty()) {
             throw new GradleException(
@@ -567,12 +577,16 @@ tasks.register('install4jWindowsInstallers', com.install4j.gradle.Install4jTask)
     configureInstall4jTask(delegate, install4jBuildIds.windows, 'Builds install4j Windows installers for Intel/AMD64 and ARM64.')
 }
 
+tasks.register('install4jLinuxInstallers', com.install4j.gradle.Install4jTask) {
+    configureInstall4jTask(delegate, install4jBuildIds.linux, 'Builds install4j Linux installers for x86_64 and ARM64.')
+}
+
 tasks.register('install4jMacInstallers', com.install4j.gradle.Install4jTask) {
     configureInstall4jTask(delegate, install4jBuildIds.mac, 'Builds install4j macOS installers for Intel and Apple Silicon.')
 }
 
 tasks.register('install4jAllInstallers', com.install4j.gradle.Install4jTask) {
-    configureInstall4jTask(delegate, install4jBuildIds.all, 'Builds install4j installers for Windows and macOS across Intel/AMD64 and ARM64 targets.')
+    configureInstall4jTask(delegate, install4jBuildIds.all, 'Builds install4j installers for Windows, Linux, and macOS across Intel/AMD64 and ARM64 targets.')
 }
 
 // jacoco aggregate report for all subprojects

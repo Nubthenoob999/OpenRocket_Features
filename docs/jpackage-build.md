@@ -35,16 +35,17 @@ On Windows, you can choose the installer format explicitly:
 .\gradlew.bat jpackageInstaller -PjpackageType=exe
 ```
 
-Build install4j installers for Windows Intel/AMD64 plus ARM64, and macOS Intel plus Apple Silicon:
+Build install4j installers for Windows, Linux, and macOS across x86_64/Intel plus ARM64/Apple Silicon targets:
 
 ```powershell
 .\gradlew.bat install4jAllInstallers
 ```
 
-Build only the Windows or macOS install4j artifacts:
+Build only the Windows, Linux, or macOS install4j artifacts:
 
 ```powershell
 .\gradlew.bat install4jWindowsInstallers
+.\gradlew.bat install4jLinuxInstallers
 .\gradlew.bat install4jMacInstallers
 ```
 
