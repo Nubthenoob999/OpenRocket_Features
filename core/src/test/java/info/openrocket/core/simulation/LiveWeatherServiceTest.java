@@ -18,15 +18,26 @@ import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
 public class LiveWeatherServiceTest {
 
 	@Test
-	public void testBuildOpenMeteoUriUsesArchiveForOlderDates() {
+	public void testBuildOpenMeteoUriUsesArchiveForPastDates() {
 		Clock clock = Clock.fixed(Instant.parse("2026-04-01T12:00:00Z"), ZoneOffset.UTC);
 		LiveWeatherService service = new LiveWeatherService(null, clock);
 
 		URI uri = service.buildOpenMeteoUri(new LiveWeatherService.LiveWeatherRequest(
-				35.0, -76.0, LocalDate.of(2026, 3, 20), LocalTime.of(14, 0)));
+				35.0, -76.0, LocalDate.of(2026, 3, 31), LocalTime.of(14, 0)));
 
 		assertTrue(uri.toString().startsWith("https://archive-api.open-meteo.com/v1/archive"));
 		assertTrue(uri.toString().contains("wind_speed_unit=ms"));
+	}
+
+	@Test
+	public void testBuildOpenMeteoUriUsesForecastForCurrentAndFutureDates() {
+		Clock clock = Clock.fixed(Instant.parse("2026-04-01T12:00:00Z"), ZoneOffset.UTC);
+		LiveWeatherService service = new LiveWeatherService(null, clock);
+
+		URI uri = service.buildOpenMeteoUri(new LiveWeatherService.LiveWeatherRequest(
+				35.0, -76.0, LocalDate.of(2026, 4, 2), LocalTime.of(14, 0)));
+
+		assertTrue(uri.toString().startsWith("https://api.open-meteo.com/v1/forecast"));
 	}
 
 	@Test
@@ -146,6 +157,7 @@ public class LiveWeatherServiceTest {
 		assertEquals(180.0, result.levels().get(0).directionDegrees(), 1e-9);
 		assertEquals(26000, result.levels().get(result.levels().size() - 1).altitudeMeters());
 		assertEquals(18.2, result.surfaceTemperatureC(), 1e-9);
+		assertEquals("2026-04-01 14:00", result.requestedAtLabel());
 	}
 
 	@Test

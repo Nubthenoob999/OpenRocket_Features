@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -27,6 +28,7 @@ import info.openrocket.core.models.wind.WindModel;
 
 public class LiveWeatherService {
 	private static final DateTimeFormatter REQUEST_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+	private static final DateTimeFormatter REQUESTED_AT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 	private static final DateTimeFormatter FETCHED_AT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 			.withZone(ZoneId.systemDefault());
 	private static final String FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast";
@@ -127,7 +129,7 @@ public class LiveWeatherService {
 	}
 
 	URI buildOpenMeteoUri(LiveWeatherRequest request) {
-		String baseUrl = request.date().isBefore(LocalDate.now(clock).minusDays(7))
+		String baseUrl = request.date().isBefore(LocalDate.now(clock))
 				? ARCHIVE_BASE_URL
 				: FORECAST_BASE_URL;
 
@@ -158,6 +160,7 @@ public class LiveWeatherService {
 		if (selectedIndex < 0) {
 			throw new LiveWeatherException("No wind data was returned for the selected launch time.");
 		}
+		LocalDateTime requestedAt = LocalDateTime.parse(times.get(selectedIndex).getAsString());
 
 		List<LiveWeatherLevel> levels = new ArrayList<>();
 		for (PressureLevel level : PRESSURE_LEVELS) {
@@ -175,7 +178,7 @@ public class LiveWeatherService {
 			surfaceTemperatureC = temperatures.get(selectedIndex).getAsDouble();
 		}
 
-		return new LiveWeatherResult(levels, SOURCE_LABEL, surfaceTemperatureC, Instant.now(clock), true);
+		return new LiveWeatherResult(levels, SOURCE_LABEL, surfaceTemperatureC, requestedAt, Instant.now(clock), true);
 	}
 
 	private void validateRequest(LiveWeatherRequest request) throws LiveWeatherException {
@@ -245,9 +248,13 @@ public class LiveWeatherService {
 	}
 
 	public record LiveWeatherResult(List<LiveWeatherLevel> levels, String source, Double surfaceTemperatureC,
-			Instant fetchedAt, boolean altitudeReferenceIsMsl) {
+			LocalDateTime requestedAt, Instant fetchedAt, boolean altitudeReferenceIsMsl) {
 		public LiveWeatherResult {
 			levels = List.copyOf(levels);
+		}
+
+		public String requestedAtLabel() {
+			return REQUESTED_AT_FORMAT.format(requestedAt);
 		}
 
 		public String fetchedAtLabel() {

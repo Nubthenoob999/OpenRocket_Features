@@ -186,7 +186,7 @@ class LiveWeatherSettingsPanel extends JPanel {
 					latestResult = get();
 					fetchButton.setEnabled(true);
 					statusLabel.setText(String.format(trans.get("simedtdlg.lbl.liveweather.status.success"),
-							latestResult.source(), latestResult.fetchedAtLabel()));
+							latestResult.source(), latestResult.requestedAtLabel()));
 					previewLabel.setText(buildPreviewHtml(latestResult));
 					applyButton.setEnabled(true);
 				} catch (Exception ex) {

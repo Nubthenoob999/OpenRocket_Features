@@ -11,7 +11,9 @@ import info.openrocket.core.database.ComponentPresetDatabase;
 import info.openrocket.core.database.motor.MotorDatabase;
 import info.openrocket.core.database.motor.ThrustCurveMotorSQLiteDatabase;
 import info.openrocket.core.database.motor.ThrustCurveMotorSetDatabase;
+import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.motor.ThrustCurveMotor;
+import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.preset.ComponentPreset;
 import info.openrocket.core.preset.xml.OpenRocketComponentLoader;
@@ -38,12 +40,17 @@ final class TuningTestInfrastructure {
 			return;
 		}
 
+		Module bootstrapModule = bootstrapTestingModule();
+		Module applicationModule = new ServicesForTesting();
+		Module pluginModule = new PluginModule();
+		if (Application.getInjector() == null) {
+			Application.setInjector(Guice.createInjector(bootstrapModule));
+		}
+
 		Path coreRoot = findCoreModuleRoot();
 		ComponentPresetDatabase componentPresetDatabase = loadComponentPresetDatabase(coreRoot);
 		ThrustCurveMotorSetDatabase motorDatabase = loadMotorDatabase(coreRoot);
 
-		Module applicationModule = new ServicesForTesting();
-		Module pluginModule = new PluginModule();
 		Module dbOverrides = new AbstractModule() {
 			@Override
 			protected void configure() {
@@ -56,6 +63,16 @@ final class TuningTestInfrastructure {
 		Injector injector = Guice.createInjector(Modules.override(applicationModule).with(dbOverrides), pluginModule);
 		Application.setInjector(injector);
 		initialized = true;
+	}
+
+	private static Module bootstrapTestingModule() {
+		return new AbstractModule() {
+			@Override
+			protected void configure() {
+				bind(ApplicationPreferences.class).to(ServicesForTesting.PreferencesForTesting.class);
+				bind(Translator.class).toProvider(ServicesForTesting.TranslatorProviderForTesting.class);
+			}
+		};
 	}
 
 	private static ComponentPresetDatabase loadComponentPresetDatabase(Path coreRoot) throws IOException {

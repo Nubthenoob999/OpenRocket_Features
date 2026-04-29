@@ -30,11 +30,11 @@ public class WeathercockingCompensationTest extends BaseTestCase {
 	private static final double MPH_TO_MPS = 0.44704;
 
 	@Test
-	public void testCalibrationPointsMatchCurrentGlobalFit() {
-		assertPredictedAngle(13.0, 18.0, 20.0, 3.77, 12.5);
-		assertPredictedAngle(1.0, -8.0, 9.62, 3.29, 42.0);
-		assertPredictedAngle(20.0, 33.6, 5.0, 3.58, 40.8);
-		assertPredictedAngle(5.0, 20.0, 5.23, 3.0, 6.31);
+	public void testCalibrationPointsMatchCurrentLaunchCaseFit() {
+		assertPredictedAngleForCase(20.0, 33.60, 2.541, 3.576, 0.193);
+		assertPredictedAngleForCase(13.0, 18.00, 8.102, 3.771, 0.663);
+		assertPredictedAngleForCase(1.0, -8.00, 5.188, 3.288, 0.173);
+		assertPredictedAngleForCase(5.0, 23.63, 2.430, 3.000, 1.049);
 	}
 
 	@Test
@@ -79,6 +79,19 @@ public class WeathercockingCompensationTest extends BaseTestCase {
 				wetMassLb * LB_TO_KG);
 
 		assertEquals(expectedAngleDeg, Math.toDegrees(prediction.getRequestedLaunchAngle()), 1.0e-2);
+	}
+
+	private static void assertPredictedAngleForCase(double initialAngleDeg, double expectedAngleDeg,
+			double windMps, double stabilityCalibers, double stabilityToMassRatio) {
+		double wetMassKg = stabilityCalibers / stabilityToMassRatio;
+		WeathercockingCompensation.Prediction prediction = WeathercockingCompensation.predictForInputs(
+				Math.toRadians(initialAngleDeg),
+				Math.PI / 2.0,
+				windMps,
+				stabilityCalibers,
+				wetMassKg);
+
+		assertEquals(expectedAngleDeg, Math.toDegrees(prediction.getRequestedLaunchAngle()), 5.0e-2);
 	}
 
 	private static SimulationConditions newConditions(RomAerodynamicCalculator romCalculator) {

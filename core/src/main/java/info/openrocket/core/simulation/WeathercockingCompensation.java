@@ -28,10 +28,10 @@ public final class WeathercockingCompensation {
 	private static final double MAX_STABILITY_TO_MASS_RATIO = 1.20;
 	private static final double MAX_SIGNED_LAUNCH_ANGLE_DEG = Math.toDegrees(SimulationOptions.MAX_LAUNCH_ROD_ANGLE);
 
-	private static final double DELTA_COEFF_RATIO_WIND = 2.7118;
-	private static final double DELTA_COEFF_WIND = -2.4830;
-	private static final double DELTA_COEFF_INITIAL = 0.6848;
-	private static final double DELTA_OFFSET = 9.6969;
+	private static final double DELTA_COEFF_RATIO_WIND = 2.5369;
+	private static final double DELTA_COEFF_WIND = -2.6440;
+	private static final double DELTA_COEFF_INITIAL = 0.4871;
+	private static final double DELTA_OFFSET = 16.1043;
 
 	private static final double BASE_BLEND_DURATION_S = 0.16;
 	private static final double BLEND_DURATION_CORRECTION_GAIN = 0.012;
