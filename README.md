@@ -20,6 +20,8 @@ The main objective is to introduce a fully physics based Pathline Reduced Order 
 
 Since this a work-in-progress [Technical Documentation]() will be continually updated for the under the hood math. Moreover, this README will be updated once the ROM and all other codes are verified to be accurate for predicting altitude, and the overall ascent profile.
 
+All credit goes to the original/current creators and maintainers of OpenRocket!
+
 ### ✨ OpenRocket Contributors
 - [Sampo Niskanen](https://github.com/plaa) - Original developer
 - [Doug Pedrick](https://github.com/rodinia814) - RockSim designs, printing
