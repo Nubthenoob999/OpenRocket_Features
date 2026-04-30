@@ -129,6 +129,9 @@ public class EjectionChargeDialog extends JDialog {
 	private double recommendedPressure_psi = 0.0;
 	private boolean userOverrodePressure = false;
 	private boolean updatingFromCalc = false;
+	/** Suppresses the engagement-spinner change listener while the dialog is
+	 *  programmatically updating the value from the auto-overlap calculation. */
+	private boolean updatingEngagementFromAuto = false;
 
 	public EjectionChargeDialog(Window owner, OpenRocketDocument document) {
 		super(owner, "Ejection Charge Calculator", ModalityType.APPLICATION_MODAL);
@@ -249,10 +252,15 @@ public class EjectionChargeDialog extends JDialog {
 		couplerOuterDiameterSpinner = inSpinner(3.99, 0.10, 24.0, 0.05);
 		couplerInnerDiameterSpinner = inSpinner(3.85, 0.05, 24.0, 0.05);
 		couplerEngagementSpinner    = inSpinner(3.00, 0.10, 24.0, 0.25);
-		couplerEngagementSpinner.setEnabled(false);
 		couplerEngagementSpinner.setToolTipText(
-				"Computed automatically from the axial overlap of the two "
-						+ "selected components.");
+				"<html>Auto-computed from the bridging coupler's protrusion into "
+						+ "the mating component when components are selected. "
+						+ "You may edit this value to override the auto-computed engagement.</html>");
+		couplerEngagementSpinner.addChangeListener(e -> {
+			if (updatingEngagementFromAuto) return;
+			userOverrodePressure = false;
+			runCalculation();
+		});
 		couplerMaterialSelector     = new JComboBox<>(AirframeMaterial.values());
 		couplerMaterialSelector.setSelectedItem(AirframeMaterial.FIBERGLASS);
 		interferenceSpinner         = inSpinner(0.001, 0.0, 0.020, 0.0005);
@@ -467,34 +475,41 @@ public class EjectionChargeDialog extends JDialog {
 		ComponentItem sel = (ComponentItem) componentSelector.getSelectedItem();
 		if (sel == null || sel.component == null) return;
 
-		if (sel.component instanceof BodyTube) {
-			BodyTube tube = (BodyTube) sel.component;
-			setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
-			setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
-			setSpinnerIn(bayLengthSpinner,        tube.getLength());
-
-			TubeCoupler coupler = findCouplerInside(tube);
-			if (coupler != null) {
-				setSpinnerIn(couplerOuterDiameterSpinner, coupler.getOuterRadius() * 2.0);
-				setSpinnerIn(couplerInnerDiameterSpinner, coupler.getInnerRadius() * 2.0);
-				setSpinnerIn(couplerEngagementSpinner,    coupler.getLength());
-			}
-		} else if (sel.component instanceof NoseCone) {
-			NoseCone nose = (NoseCone) sel.component;
-			double shOD = nose.getShoulderRadius() * 2.0;
-			double shThk = nose.getShoulderThickness();
-			double shID = Math.max(0.0, (nose.getShoulderRadius() - shThk) * 2.0);
-			setSpinnerIn(couplerOuterDiameterSpinner, shOD);
-			setSpinnerIn(couplerInnerDiameterSpinner, shID);
-			setSpinnerIn(couplerEngagementSpinner,    nose.getShoulderLength());
-
-			RocketComponent parent = nose.getParent();
-			if (parent instanceof BodyTube) {
-				BodyTube tube = (BodyTube) parent;
+		updatingEngagementFromAuto = true;
+		try {
+			if (sel.component instanceof BodyTube) {
+				BodyTube tube = (BodyTube) sel.component;
 				setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
 				setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
 				setSpinnerIn(bayLengthSpinner,        tube.getLength());
+
+				TubeCoupler coupler = findCouplerInside(tube);
+				if (coupler != null) {
+					setSpinnerIn(couplerOuterDiameterSpinner, coupler.getOuterRadius() * 2.0);
+					setSpinnerIn(couplerInnerDiameterSpinner, coupler.getInnerRadius() * 2.0);
+					// Default engagement to half the coupler until the user
+					// picks a mating tube; the bridging math will refine this.
+					setSpinnerIn(couplerEngagementSpinner,    coupler.getLength() * 0.5);
+				}
+			} else if (sel.component instanceof NoseCone) {
+				NoseCone nose = (NoseCone) sel.component;
+				double shOD = nose.getShoulderRadius() * 2.0;
+				double shThk = nose.getShoulderThickness();
+				double shID = Math.max(0.0, (nose.getShoulderRadius() - shThk) * 2.0);
+				setSpinnerIn(couplerOuterDiameterSpinner, shOD);
+				setSpinnerIn(couplerInnerDiameterSpinner, shID);
+				setSpinnerIn(couplerEngagementSpinner,    nose.getShoulderLength());
+
+				RocketComponent parent = nose.getParent();
+				if (parent instanceof BodyTube) {
+					BodyTube tube = (BodyTube) parent;
+					setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
+					setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
+					setSpinnerIn(bayLengthSpinner,        tube.getLength());
+				}
 			}
+		} finally {
+			updatingEngagementFromAuto = false;
 		}
 		updateComputedOverlap();
 		userOverrodePressure = false;
@@ -567,17 +582,140 @@ public class EjectionChargeDialog extends JDialog {
 			computedOverlapLabel.setText("Computed engagement (overlap): \u2014");
 			return;
 		}
-		double s1 = tubularAxialStart_m(a.component);
-		double e1 = s1 + tubularLength_m(a.component);
-		double s2 = tubularAxialStart_m(b.component);
-		double e2 = s2 + tubularLength_m(b.component);
-		double overlap_m = Math.max(0.0, Math.min(e1, e2) - Math.max(s1, s2));
-		double overlap_in = overlap_m * IN_PER_M;
+
+		// The engagement length that drives friction is the length of the
+		// bridging coupler/shoulder that lies inside the *mating* component
+		// — i.e. the portion that has actually protruded out of its parent
+		// tube and into the other tube. Picking the wrong endpoints here
+		// (e.g. intersecting two adjacent body tubes that themselves do not
+		// overlap, or counting the entire coupler when both halves sit
+		// inside the same tube) produces a hugely inflated number.
+		double engagement_m = computeEngagementLength_m(a.component, b.component);
+		if (engagement_m < 0.0) {
+			computedOverlapLabel.setText(
+					"Computed engagement (overlap): \u2014 (no bridging coupler/shoulder found)");
+			return;
+		}
+		double engagement_in = engagement_m * IN_PER_M;
 		computedOverlapLabel.setText(String.format(Locale.ROOT,
-				"Computed engagement (overlap): %.3f in (%.1f mm)",
-				overlap_in, overlap_m * 1000.0));
-		// Push into the (disabled) engagement spinner so it's visible and used.
-		setSpinnerIn(couplerEngagementSpinner, overlap_m);
+				"Computed engagement (overlap): %.3f in (%.1f mm) \u2014 editable",
+				engagement_in, engagement_m * 1000.0));
+		// Push into the engagement spinner programmatically without firing
+		// the manual-override change listener.
+		updatingEngagementFromAuto = true;
+		try {
+			setSpinnerIn(couplerEngagementSpinner, engagement_m);
+		} finally {
+			updatingEngagementFromAuto = false;
+		}
+	}
+
+	/**
+	 * Computes the engagement length (m) for the joint formed by the two
+	 * selected components. Returns -1 when no bridging element can be
+	 * identified.
+	 *
+	 * <p>The rule is: locate the coupler/shoulder that bridges the joint,
+	 * then return the portion of that coupler whose axial extent lies
+	 * inside the mating component (i.e. has protruded out of the coupler's
+	 * own parent). For a nose cone the shoulder plays the role of the
+	 * coupler. The result is clamped to the coupler's own length.
+	 */
+	private double computeEngagementLength_m(RocketComponent a, RocketComponent b) {
+		Bridge bridge = findBridge(a, b);
+		if (bridge == null) {
+			return -1.0;
+		}
+		double cs = bridge.couplerStart_m;
+		double ce = bridge.couplerEnd_m;
+		double couplerLen = ce - cs;
+		if (couplerLen <= 0.0) return 0.0;
+
+		double ms = bridge.matingStart_m;
+		double me = bridge.matingEnd_m;
+		double engagement = Math.max(0.0, Math.min(ce, me) - Math.max(cs, ms));
+
+		// If the user picked the coupler itself as one of the components and
+		// the mating tube does not yet "see" the protruding portion (e.g. the
+		// coupler is fully inside its own parent in the model), fall back to
+		// half of the coupler length — the conventional rule of thumb — so we
+		// never report an engagement larger than half of the coupler.
+		if (engagement <= 0.0) {
+			engagement = 0.5 * couplerLen;
+		}
+		// Clamp: engagement can never exceed the coupler's own length, and
+		// in practice should not exceed half of the coupler since the other
+		// half remains anchored in the bay tube.
+		engagement = Math.min(engagement, couplerLen);
+		engagement = Math.min(engagement, 0.5 * couplerLen);
+		return engagement;
+	}
+
+	/**
+	 * Identifies the bridging coupler (or nose-cone shoulder) for the joint
+	 * between {@code a} and {@code b}, plus the axial extent of the mating
+	 * component (the one that does NOT contain the coupler).
+	 */
+	private Bridge findBridge(RocketComponent a, RocketComponent b) {
+		// Case 1: one of the selections is itself a coupler.
+		if (a instanceof TubeCoupler) {
+			return bridgeFromCoupler((TubeCoupler) a, b);
+		}
+		if (b instanceof TubeCoupler) {
+			return bridgeFromCoupler((TubeCoupler) b, a);
+		}
+		// Case 2: a nose cone with a shoulder mates to a body tube.
+		if (a instanceof NoseCone && b instanceof BodyTube) {
+			return bridgeFromNoseCone((NoseCone) a, (BodyTube) b);
+		}
+		if (b instanceof NoseCone && a instanceof BodyTube) {
+			return bridgeFromNoseCone((NoseCone) b, (BodyTube) a);
+		}
+		// Case 3: two body tubes — look for a coupler child in either.
+		if (a instanceof BodyTube && b instanceof BodyTube) {
+			BodyTube ta = (BodyTube) a;
+			BodyTube tb = (BodyTube) b;
+			TubeCoupler c = findCouplerInside(ta);
+			if (c != null) {
+				return bridgeFromCoupler(c, tb);
+			}
+			c = findCouplerInside(tb);
+			if (c != null) {
+				return bridgeFromCoupler(c, ta);
+			}
+		}
+		return null;
+	}
+
+	private Bridge bridgeFromCoupler(TubeCoupler coupler, RocketComponent mating) {
+		if (mating == null) return null;
+		double cs = axialStart_m(coupler);
+		double ce = cs + coupler.getLength();
+		double ms = axialStart_m(mating);
+		double me = ms + tubularLength_m(mating);
+		return new Bridge(cs, ce, ms, me);
+	}
+
+	private Bridge bridgeFromNoseCone(NoseCone nose, BodyTube mating) {
+		double shoulderStart = axialStart_m(nose) + nose.getLength();
+		double shoulderEnd = shoulderStart + nose.getShoulderLength();
+		double ms = axialStart_m(mating);
+		double me = ms + mating.getLength();
+		return new Bridge(shoulderStart, shoulderEnd, ms, me);
+	}
+
+	/** Axial extents of the bridging coupler/shoulder and the mating tube. */
+	private static final class Bridge {
+		final double couplerStart_m;
+		final double couplerEnd_m;
+		final double matingStart_m;
+		final double matingEnd_m;
+		Bridge(double cs, double ce, double ms, double me) {
+			this.couplerStart_m = cs;
+			this.couplerEnd_m = ce;
+			this.matingStart_m = ms;
+			this.matingEnd_m = me;
+		}
 	}
 
 	private void updateComputedPackedVolume() {

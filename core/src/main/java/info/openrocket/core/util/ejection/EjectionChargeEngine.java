@@ -44,7 +44,7 @@ public final class EjectionChargeEngine {
 	 * compared with bench-pull data. We multiply the friction force by this
 	 * factor before combining it with the shear-pin force.
 	 */
-	public static final double FRICTION_DERATING_FACTOR = 0.85;
+	public static final double FRICTION_DERATING_FACTOR = 0.6;
 
 	private EjectionChargeEngine() {
 	}
