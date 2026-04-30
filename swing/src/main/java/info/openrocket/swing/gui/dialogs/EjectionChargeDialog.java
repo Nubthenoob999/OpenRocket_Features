@@ -72,6 +72,7 @@ public class EjectionChargeDialog extends JDialog {
 	private JComboBox<ComponentItem> matingComponentSelector;
 	private JComboBox<ParachuteItem> parachuteSelector;
 	private JLabel computedOverlapLabel;
+	private JLabel computedBayLengthLabel;
 	private JLabel computedPackedVolumeLabel;
 	private double computedPackedVolume_m3 = 0.0;
 
@@ -153,7 +154,7 @@ public class EjectionChargeDialog extends JDialog {
 		// scroll pane, so the user can still reach every section.
 		Dimension preferred = getPreferredSize();
 		int width = Math.max(720, preferred.width);
-		int height = Math.min(620, preferred.height);
+		int height = Math.min(480, preferred.height);
 		setMinimumSize(new Dimension(720, 480));
 		setSize(new Dimension(width, height));
 		setLocationRelativeTo(owner);
@@ -198,6 +199,9 @@ public class EjectionChargeDialog extends JDialog {
 
 		computedOverlapLabel = new JLabel("Computed engagement (overlap): \u2014");
 		p.add(computedOverlapLabel, "span 2, growx, wrap");
+
+		computedBayLengthLabel = new JLabel("Effective bay length: \u2014");
+		p.add(computedBayLengthLabel, "span 2, growx, wrap");
 
 		p.add(new JLabel("Parachute:"));
 		parachuteSelector = new JComboBox<>();
@@ -481,33 +485,18 @@ public class EjectionChargeDialog extends JDialog {
 				BodyTube tube = (BodyTube) sel.component;
 				setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
 				setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
-				setSpinnerIn(bayLengthSpinner,        tube.getLength());
-
-				TubeCoupler coupler = findCouplerInside(tube);
-				if (coupler != null) {
-					setSpinnerIn(couplerOuterDiameterSpinner, coupler.getOuterRadius() * 2.0);
-					setSpinnerIn(couplerInnerDiameterSpinner, coupler.getInnerRadius() * 2.0);
-					// Default engagement to half the coupler until the user
-					// picks a mating tube; the bridging math will refine this.
-					setSpinnerIn(couplerEngagementSpinner,    coupler.getLength() * 0.5);
-				}
+				applyEffectiveBayLength(tube);
 			} else if (sel.component instanceof NoseCone) {
 				NoseCone nose = (NoseCone) sel.component;
-				double shOD = nose.getShoulderRadius() * 2.0;
-				double shThk = nose.getShoulderThickness();
-				double shID = Math.max(0.0, (nose.getShoulderRadius() - shThk) * 2.0);
-				setSpinnerIn(couplerOuterDiameterSpinner, shOD);
-				setSpinnerIn(couplerInnerDiameterSpinner, shID);
-				setSpinnerIn(couplerEngagementSpinner,    nose.getShoulderLength());
-
 				RocketComponent parent = nose.getParent();
 				if (parent instanceof BodyTube) {
 					BodyTube tube = (BodyTube) parent;
 					setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
 					setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
-					setSpinnerIn(bayLengthSpinner,        tube.getLength());
+					applyEffectiveBayLength(tube);
 				}
 			}
+			populateCouplerFieldsFromSelection();
 		} finally {
 			updatingEngagementFromAuto = false;
 		}
@@ -525,7 +514,217 @@ public class EjectionChargeDialog extends JDialog {
 		return null;
 	}
 
+	/**
+	 * Holds the pressurized-length insets at the forward (top) and aft
+	 * (bottom) ends of a bay tube. The insets are the axial portions of
+	 * couplers and nose-cone shoulders that lie inside the tube and
+	 * therefore do not contribute to the pressurized volume.
+	 */
+	private static final class BayInsets {
+		final double topInset_m;
+		final double botInset_m;
+		BayInsets(double top, double bot) {
+			this.topInset_m = top;
+			this.botInset_m = bot;
+		}
+	}
+
+	/**
+	 * Computes the per-end pressurized-length insets for a body tube. Each
+	 * end picks the largest overlap from any of these contributors:
+	 * <ul>
+	 *   <li>Couplers that are children of this tube (typical case).</li>
+	 *   <li>Couplers that are children of an adjacent body tube and
+	 *       protrude into this tube.</li>
+	 *   <li>Couplers that are direct siblings of this tube (e.g. placed at
+	 *       the stage level between two adjacent body tubes).</li>
+	 *   <li>Nose-cone shoulders that mate into this tube.</li>
+	 * </ul>
+	 */
+	private BayInsets computeBayInsets(BodyTube tube) {
+		double tubeStart = axialStart_m(tube);
+		double tubeLen   = tube.getLength();
+		double tubeEnd   = tubeStart + tubeLen;
+		if (tubeLen <= 0.0) return new BayInsets(0.0, 0.0);
+		double tubeMid   = tubeStart + tubeLen * 0.5;
+		double[] insets = new double[] { 0.0, 0.0 };
+
+		// 1) Coupler children of this tube — the portion inside this tube.
+		for (RocketComponent child : tube.getChildren()) {
+			if (!(child instanceof TubeCoupler)) continue;
+			accumulateCouplerInset((TubeCoupler) child, tubeStart, tubeEnd, tubeMid, insets);
+		}
+
+		// 2) Sibling components — couplers and nose-cone shoulders
+		//    belonging to adjacent components in the same parent stage.
+		RocketComponent parent = tube.getParent();
+		if (parent != null) {
+			for (RocketComponent sibling : parent.getChildren()) {
+				if (sibling == tube) continue;
+				if (sibling instanceof TubeCoupler) {
+					accumulateCouplerInset((TubeCoupler) sibling,
+							tubeStart, tubeEnd, tubeMid, insets);
+				} else if (sibling instanceof BodyTube) {
+					for (RocketComponent gc : sibling.getChildren()) {
+						if (gc instanceof TubeCoupler) {
+							accumulateCouplerInset((TubeCoupler) gc,
+									tubeStart, tubeEnd, tubeMid, insets);
+						}
+					}
+				} else if (sibling instanceof NoseCone) {
+					accumulateShoulderInset((NoseCone) sibling,
+							tubeStart, tubeEnd, tubeMid, insets);
+				}
+			}
+		}
+
+		return new BayInsets(insets[0], insets[1]);
+	}
+
+	private static void accumulateCouplerInset(TubeCoupler c,
+			double tubeStart, double tubeEnd, double tubeMid, double[] insets) {
+		double cs = axialStart_m(c);
+		double ce = cs + c.getLength();
+		double inStart = Math.max(cs, tubeStart);
+		double inEnd   = Math.min(ce, tubeEnd);
+		double inLen   = Math.max(0.0, inEnd - inStart);
+		if (inLen <= 0.0) return;
+		double mid = (inStart + inEnd) * 0.5;
+		if (mid < tubeMid) insets[0] = Math.max(insets[0], inLen);
+		else               insets[1] = Math.max(insets[1], inLen);
+	}
+
+	private static void accumulateShoulderInset(NoseCone nc,
+			double tubeStart, double tubeEnd, double tubeMid, double[] insets) {
+		double shLen = nc.getShoulderLength();
+		if (shLen <= 0.0) return;
+		double ncStart = axialStart_m(nc);
+		double ncEnd   = ncStart + nc.getLength();
+		// Shoulder may protrude aft of the cone (forward-facing cone) or
+		// forward of the cone (aft-facing cone). Take whichever overlaps.
+		double aftShStart = ncEnd;
+		double aftShEnd   = aftShStart + shLen;
+		double aftIn = Math.max(0.0,
+				Math.min(aftShEnd, tubeEnd) - Math.max(aftShStart, tubeStart));
+		double fwdShEnd   = ncStart;
+		double fwdShStart = fwdShEnd - shLen;
+		double fwdIn = Math.max(0.0,
+				Math.min(fwdShEnd, tubeEnd) - Math.max(fwdShStart, tubeStart));
+		double overlap;
+		double midShoulder;
+		if (aftIn >= fwdIn) {
+			overlap = aftIn;
+			midShoulder = (Math.max(aftShStart, tubeStart)
+					+ Math.min(aftShEnd, tubeEnd)) * 0.5;
+		} else {
+			overlap = fwdIn;
+			midShoulder = (Math.max(fwdShStart, tubeStart)
+					+ Math.min(fwdShEnd, tubeEnd)) * 0.5;
+		}
+		if (overlap <= 0.0) return;
+		if (midShoulder < tubeMid) insets[0] = Math.max(insets[0], overlap);
+		else                       insets[1] = Math.max(insets[1], overlap);
+	}
+
+	/**
+	 * Returns the effective pressurized bay length (m) for the given body
+	 * tube — geometric length minus any interface insets on either end.
+	 */
+	private double effectiveBayLength_m(BodyTube tube) {
+		BayInsets bi = computeBayInsets(tube);
+		return Math.max(0.0, tube.getLength() - bi.topInset_m - bi.botInset_m);
+	}
+
+	/**
+	 * Pushes the effective bay length into the spinner and updates the
+	 * "Effective bay length" label so the user can see the breakdown of
+	 * tube length minus each interface inset.
+	 */
+	private void applyEffectiveBayLength(BodyTube tube) {
+		BayInsets bi = computeBayInsets(tube);
+		double effective_m = Math.max(0.0,
+				tube.getLength() - bi.topInset_m - bi.botInset_m);
+		setSpinnerIn(bayLengthSpinner, effective_m);
+		double tubeLen_in = tube.getLength() * IN_PER_M;
+		double topInset_in = bi.topInset_m * IN_PER_M;
+		double botInset_in = bi.botInset_m * IN_PER_M;
+		double effective_in = effective_m * IN_PER_M;
+		if (computedBayLengthLabel != null) {
+			computedBayLengthLabel.setText(String.format(Locale.ROOT,
+					"Effective bay length: %.2f in  (tube %.2f \u2212 top %.2f \u2212 bottom %.2f)",
+					effective_in, tubeLen_in, topInset_in, botInset_in));
+		}
+	}
+
+	/**
+	 * Fills the Coupler / nose-cone-shoulder spinners (OD, ID, engagement)
+	 * from whichever bridging element can be inferred from the current
+	 * primary + mating selections. Mirrors {@link #findBridge} so the
+	 * autopopulate path covers every joint shape the engagement math
+	 * already handles (coupler-as-mating, mating-tube hosting the coupler,
+	 * nose-cone shoulder mating to a body tube, etc.).
+	 *
+	 * <p>The engagement value is seeded with half the coupler / shoulder
+	 * length; {@link #updateComputedOverlap()} refines it once both
+	 * selections are present.
+	 */
+	private void populateCouplerFieldsFromSelection() {
+		ComponentItem a = (ComponentItem) componentSelector.getSelectedItem();
+		ComponentItem b = (ComponentItem) matingComponentSelector.getSelectedItem();
+		RocketComponent ca = (a == null) ? null : a.component;
+		RocketComponent cb = (b == null) ? null : b.component;
+
+		TubeCoupler coupler = findBridgeCoupler(ca, cb);
+		if (coupler != null) {
+			setSpinnerIn(couplerOuterDiameterSpinner, coupler.getOuterRadius() * 2.0);
+			setSpinnerIn(couplerInnerDiameterSpinner, coupler.getInnerRadius() * 2.0);
+			setSpinnerIn(couplerEngagementSpinner,    coupler.getLength() * 0.5);
+			return;
+		}
+		NoseCone shoulder = findBridgeShoulder(ca, cb);
+		if (shoulder != null) {
+			double shOD = shoulder.getShoulderRadius() * 2.0;
+			double shThk = shoulder.getShoulderThickness();
+			double shID = Math.max(0.0, (shoulder.getShoulderRadius() - shThk) * 2.0);
+			setSpinnerIn(couplerOuterDiameterSpinner, shOD);
+			setSpinnerIn(couplerInnerDiameterSpinner, shID);
+			setSpinnerIn(couplerEngagementSpinner,    shoulder.getShoulderLength());
+		}
+	}
+
+	/** Returns the bridging {@link TubeCoupler} for the selection pair, or null. */
+	private TubeCoupler findBridgeCoupler(RocketComponent a, RocketComponent b) {
+		if (a instanceof TubeCoupler) return (TubeCoupler) a;
+		if (b instanceof TubeCoupler) return (TubeCoupler) b;
+		if (a instanceof BodyTube) {
+			TubeCoupler c = findCouplerInside((BodyTube) a);
+			if (c != null) return c;
+		}
+		if (b instanceof BodyTube) {
+			TubeCoupler c = findCouplerInside((BodyTube) b);
+			if (c != null) return c;
+		}
+		return null;
+	}
+
+	/** Returns the bridging nose-cone shoulder for the selection pair, or null. */
+	private NoseCone findBridgeShoulder(RocketComponent a, RocketComponent b) {
+		if (a instanceof NoseCone && ((NoseCone) a).getShoulderLength() > 0.0) {
+			return (NoseCone) a;
+		}
+		if (b instanceof NoseCone && ((NoseCone) b).getShoulderLength() > 0.0) {
+			return (NoseCone) b;
+		}
+		return null;
+	}
+
 	private void onMatingComponentSelected() {
+		updatingEngagementFromAuto = true;
+		try {
+			populateCouplerFieldsFromSelection();
+		} finally {
+			updatingEngagementFromAuto = false;
+		}
 		updateComputedOverlap();
 		userOverrodePressure = false;
 		runCalculation();
