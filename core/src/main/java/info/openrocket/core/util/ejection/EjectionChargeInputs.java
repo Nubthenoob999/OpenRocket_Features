@@ -36,6 +36,9 @@ public final class EjectionChargeInputs {
 	 */
 	private double chutePackedVolume_m3 = 0.0;
 
+	/** Friction de-rating preset applied to the Lamé friction force. */
+	private FrictionDerating frictionDerating = FrictionDerating.MEDIUM;
+
 	// ----- Bay -----
 	public String getBayName() { return bayName; }
 	public void setBayName(String v) { this.bayName = v; }
@@ -87,4 +90,9 @@ public final class EjectionChargeInputs {
 
 	public double getChutePackedVolume_m3() { return chutePackedVolume_m3; }
 	public void setChutePackedVolume_m3(double v) { this.chutePackedVolume_m3 = v; }
+
+	public FrictionDerating getFrictionDerating() { return frictionDerating; }
+	public void setFrictionDerating(FrictionDerating v) {
+		this.frictionDerating = (v == null) ? FrictionDerating.MEDIUM : v;
+	}
 }

@@ -34,8 +34,12 @@ import javax.swing.UIManager;
 
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.rocketcomponent.BodyTube;
+import info.openrocket.core.rocketcomponent.Bulkhead;
+import info.openrocket.core.rocketcomponent.CenteringRing;
+import info.openrocket.core.rocketcomponent.InnerTube;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
+import info.openrocket.core.rocketcomponent.RingComponent;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
@@ -43,6 +47,8 @@ import info.openrocket.core.util.ejection.AirframeMaterial;
 import info.openrocket.core.util.ejection.EjectionChargeEngine;
 import info.openrocket.core.util.ejection.EjectionChargeInputs;
 import info.openrocket.core.util.ejection.EjectionChargeResult;
+import info.openrocket.core.util.ejection.EjectionFiringDirection;
+import info.openrocket.core.util.ejection.FrictionDerating;
 import info.openrocket.core.util.ejection.PinMaterial;
 import info.openrocket.core.util.ejection.ShearPinLookupTable;
 import info.openrocket.core.util.ejection.ShearPinSpec;
@@ -71,6 +77,7 @@ public class EjectionChargeDialog extends JDialog {
 	private JComboBox<ComponentItem> componentSelector;
 	private JComboBox<ComponentItem> matingComponentSelector;
 	private JComboBox<ParachuteItem> parachuteSelector;
+	private JComboBox<EjectionFiringDirection> firingDirectionSelector;
 	private JLabel computedOverlapLabel;
 	private JLabel computedBayLengthLabel;
 	private JLabel computedPackedVolumeLabel;
@@ -88,6 +95,7 @@ public class EjectionChargeDialog extends JDialog {
 	private JSpinner couplerEngagementSpinner;    // inches
 	private JComboBox<AirframeMaterial> couplerMaterialSelector;
 	private JSpinner interferenceSpinner;         // inches diametral
+	private JComboBox<FrictionDerating> frictionDeratingSelector;
 
 	// --- Section B: shear pins ---
 	private JComboBox<String> pinDesignationSelector;
@@ -133,6 +141,16 @@ public class EjectionChargeDialog extends JDialog {
 	/** Suppresses the engagement-spinner change listener while the dialog is
 	 *  programmatically updating the value from the auto-overlap calculation. */
 	private boolean updatingEngagementFromAuto = false;
+	/** Suppresses every input listener while the dialog is replaying values
+	 *  captured from the last open session. Cleared after the restore completes. */
+	private boolean restoringState = false;
+
+	/**
+	 * Per-JVM-session snapshot of every user choice in the dialog. Survives
+	 * dialog close/reopen but is reset when the application exits, and is
+	 * never written to the .ork file. {@code null} until the first dispose.
+	 */
+	private static SessionState savedState = null;
 
 	public EjectionChargeDialog(Window owner, OpenRocketDocument document) {
 		super(owner, "Ejection Charge Calculator", ModalityType.APPLICATION_MODAL);
@@ -147,6 +165,13 @@ public class EjectionChargeDialog extends JDialog {
 		populateComponentSelector();
 		updateRecommendedFromInputs();
 		runCalculation();
+
+		// Replay any values captured the last time the dialog was open
+		// in this JVM. The snapshot lives only in memory, so a fresh
+		// application launch starts with defaults again.
+		if (savedState != null) {
+			restoreState(savedState);
+		}
 
 		pack();
 		// Constrain initial size — keep width but cap height so the dialog
@@ -197,11 +222,44 @@ public class EjectionChargeDialog extends JDialog {
 		matingComponentSelector.addActionListener(e -> onMatingComponentSelected());
 		p.add(matingComponentSelector, "growx, wrap");
 
+		p.add(new JLabel("Charge fires:"));
+		firingDirectionSelector = new JComboBox<>(EjectionFiringDirection.values());
+		firingDirectionSelector.setSelectedItem(EjectionFiringDirection.FORWARD);
+		firingDirectionSelector.setToolTipText(
+				"<html>Direction the ejection charge pushes the chute / coupler.<br>"
+						+ "Forward: charge sits at the aft end of the bay and pushes "
+						+ "the nose / coupler off the forward end.<br>"
+						+ "Aft: charge sits at the forward end of the bay and pushes "
+						+ "the drogue / coupler off the aft end.<br>"
+						+ "This selection picks the closed end of the bay (against "
+						+ "the nearest centering ring, motor mount, or bulkhead "
+						+ "opposite the coupler joint).</html>");
+		firingDirectionSelector.addActionListener(e -> {
+			if (restoringState) return;
+			ComponentItem sel = (ComponentItem) componentSelector.getSelectedItem();
+			BodyTube tube = resolveBayTube(sel == null ? null : sel.component);
+			if (tube != null) {
+				updatingEngagementFromAuto = true;
+				try {
+					applyEffectiveBayLength(tube);
+				} finally {
+					updatingEngagementFromAuto = false;
+				}
+			}
+			userOverrodePressure = false;
+			runCalculation();
+		});
+		p.add(firingDirectionSelector, "growx, wrap");
+
 		computedOverlapLabel = new JLabel("Computed engagement (overlap): \u2014");
 		p.add(computedOverlapLabel, "span 2, growx, wrap");
 
 		computedBayLengthLabel = new JLabel("Effective bay length: \u2014");
 		p.add(computedBayLengthLabel, "span 2, growx, wrap");
+
+		p.add(new JLabel("<html><i>\u26a0 If the bay length seems unreasonable, "
+				+ "use calipers to measure and enter that length manually.</i></html>"),
+				"span 2, growx, wrap");
 
 		p.add(new JLabel("Parachute:"));
 		parachuteSelector = new JComboBox<>();
@@ -261,19 +319,32 @@ public class EjectionChargeDialog extends JDialog {
 						+ "the mating component when components are selected. "
 						+ "You may edit this value to override the auto-computed engagement.</html>");
 		couplerEngagementSpinner.addChangeListener(e -> {
-			if (updatingEngagementFromAuto) return;
+			if (updatingEngagementFromAuto || restoringState) return;
 			userOverrodePressure = false;
 			runCalculation();
 		});
 		couplerMaterialSelector     = new JComboBox<>(AirframeMaterial.values());
 		couplerMaterialSelector.setSelectedItem(AirframeMaterial.FIBERGLASS);
 		interferenceSpinner         = inSpinner(0.001, 0.0, 0.020, 0.0005);
+		frictionDeratingSelector    = new JComboBox<>(FrictionDerating.values());
+		frictionDeratingSelector.setSelectedItem(FrictionDerating.MEDIUM);
+		frictionDeratingSelector.setToolTipText(
+				"<html>Empirical de-rating applied to the Lam\u00e9 friction force.<br>"
+						+ "Low (0.4): well-lubricated / loose fits.<br>"
+						+ "Medium (0.6): default, typical bench-pull average.<br>"
+						+ "High (0.8): dry / new / tight fits.</html>");
+		frictionDeratingSelector.addActionListener(e -> {
+			if (restoringState) return;
+			userOverrodePressure = false;
+			runCalculation();
+		});
 
 		row(p, "Outer diameter:",  couplerOuterDiameterSpinner, "in");
 		row(p, "Inner diameter:",  couplerInnerDiameterSpinner, "in");
 		row(p, "Engagement (auto):", couplerEngagementSpinner,  "in");
 		row(p, "Material:",        couplerMaterialSelector,     "");
 		row(p, "Diametral δ:",     interferenceSpinner,         "in");
+		row(p, "Friction de-rating:", frictionDeratingSelector,  "");
 		return p;
 	}
 
@@ -338,6 +409,7 @@ public class EjectionChargeDialog extends JDialog {
 		safetyFactorLabel = new JLabel("1.50");
 		safetyFactorLabel.setFont(safetyFactorLabel.getFont().deriveFont(Font.BOLD));
 		safetyFactorSlider.addChangeListener(e -> {
+			if (restoringState) return;
 			safetyFactorLabel.setText(String.format(Locale.ROOT, "%.2f", currentSafetyFactor()));
 			if (!safetyFactorSlider.getValueIsAdjusting()) {
 				userOverrodePressure = false;
@@ -352,7 +424,7 @@ public class EjectionChargeDialog extends JDialog {
 
 		desiredPressureSpinner = new JSpinner(new SpinnerNumberModel(15.0, 0.5, 200.0, 0.5));
 		desiredPressureSpinner.addChangeListener(e -> {
-			if (updatingFromCalc) return;
+			if (updatingFromCalc || restoringState) return;
 			userOverrodePressure = true;
 			runCalculation();
 		});
@@ -388,6 +460,11 @@ public class EjectionChargeDialog extends JDialog {
 		p.add(bayVolumeLabel, "wrap");
 		p.add(effectiveVolumeLabel, "wrap");
 
+		p.add(new JSeparator(), "growx, gaptop 6, gapbottom 4, wrap");
+		p.add(new JLabel("<html><i>\u26a0 This is only an estimate. Ensure ground testing "
+				+ "is performed prior to flight. Proceed at your own risk.</i></html>"),
+				"growx, wrap");
+
 		return p;
 	}
 
@@ -396,6 +473,7 @@ public class EjectionChargeDialog extends JDialog {
 
 		showDetailsCheckbox = new JCheckBox("\u25B6 Show calculation details", false);
 		showDetailsCheckbox.addActionListener(e -> {
+			if (restoringState) return;
 			boolean s = showDetailsCheckbox.isSelected();
 			showDetailsCheckbox.setText(s
 					? "\u25BC Hide calculation details"
@@ -476,6 +554,7 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	private void onComponentSelected() {
+		if (restoringState) return;
 		ComponentItem sel = (ComponentItem) componentSelector.getSelectedItem();
 		if (sel == null || sel.component == null) return;
 
@@ -515,6 +594,28 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	/**
+	 * Resolves the body tube that hosts the pressurized bay for the given
+	 * primary selection. Returns the tube itself when {@code c} is a body
+	 * tube, the parent body tube when {@code c} is a nose cone, or null
+	 * otherwise.
+	 */
+	private static BodyTube resolveBayTube(RocketComponent c) {
+		if (c instanceof BodyTube) return (BodyTube) c;
+		if (c instanceof NoseCone) {
+			RocketComponent parent = c.getParent();
+			if (parent instanceof BodyTube) return (BodyTube) parent;
+		}
+		return null;
+	}
+
+	private EjectionFiringDirection currentFiringDirection() {
+		EjectionFiringDirection d = (firingDirectionSelector == null)
+				? null
+				: (EjectionFiringDirection) firingDirectionSelector.getSelectedItem();
+		return (d == null) ? EjectionFiringDirection.FORWARD : d;
+	}
+
+	/**
 	 * Holds the pressurized-length insets at the forward (top) and aft
 	 * (bottom) ends of a bay tube. The insets are the axial portions of
 	 * couplers and nose-cone shoulders that lie inside the tube and
@@ -530,55 +631,213 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	/**
-	 * Computes the per-end pressurized-length insets for a body tube. Each
-	 * end picks the largest overlap from any of these contributors:
-	 * <ul>
-	 *   <li>Couplers that are children of this tube (typical case).</li>
-	 *   <li>Couplers that are children of an adjacent body tube and
-	 *       protrude into this tube.</li>
-	 *   <li>Couplers that are direct siblings of this tube (e.g. placed at
-	 *       the stage level between two adjacent body tubes).</li>
-	 *   <li>Nose-cone shoulders that mate into this tube.</li>
-	 * </ul>
+	 * Computes the per-end pressurized-length insets for a body tube.
+	 *
+	 * <p>The algorithm has two phases:
+	 * <ol>
+	 *   <li><b>Joint insets (interface lengths):</b> couplers and nose-cone
+	 *       shoulders that protrude into either end of the tube contribute
+	 *       a per-end joint inset (the existing interference / engagement
+	 *       length). These are unconditional — both ends of the tube can
+	 *       carry a joint regardless of firing direction.</li>
+	 *   <li><b>Closed-end inset (firing direction):</b> the user picks
+	 *       which way the ejection charge fires. The end <em>opposite</em>
+	 *       the firing direction is the bay's closed end and is bounded by
+	 *       the nearest internal barrier (centering ring, motor-mount inner
+	 *       tube, bulkhead) walking inward from that end. If no barrier
+	 *       exists on the closed-end side, the closed-end inset stays at
+	 *       its joint-only value (i.e. the tube end itself bounds the bay).
+	 *       The firing-direction end keeps only its joint inset.</li>
+	 * </ol>
+	 *
+	 * <p>Concretely — if the charge fires <em>forward</em>, the coupler /
+	 * nose-cone shoulder at the forward end is the moving joint, so the
+	 * forward inset is the forward joint inset. The aft (closed) end is
+	 * bounded by the forward face of the nearest barrier inside the tube;
+	 * the aft inset spans from that face to the aft tube end. Aft firing
+	 * is the mirror image.
 	 */
 	private BayInsets computeBayInsets(BodyTube tube) {
+		return computeBayInsets(tube, currentFiringDirection());
+	}
+
+	private BayInsets computeBayInsets(BodyTube tube, EjectionFiringDirection direction) {
 		double tubeStart = axialStart_m(tube);
 		double tubeLen   = tube.getLength();
 		double tubeEnd   = tubeStart + tubeLen;
 		if (tubeLen <= 0.0) return new BayInsets(0.0, 0.0);
 		double tubeMid   = tubeStart + tubeLen * 0.5;
-		double[] insets = new double[] { 0.0, 0.0 };
 
-		// 1) Coupler children of this tube — the portion inside this tube.
+		// Phase 1 — joint insets (per end). Couplers and nose-cone
+		// shoulders are joints, not transverse caps, so each end picks
+		// up the largest overlap from any joint that protrudes into it.
+		double[] jointInsets = new double[] { 0.0, 0.0 };
+
 		for (RocketComponent child : tube.getChildren()) {
-			if (!(child instanceof TubeCoupler)) continue;
-			accumulateCouplerInset((TubeCoupler) child, tubeStart, tubeEnd, tubeMid, insets);
+			if (child instanceof TubeCoupler) {
+				accumulateCouplerInset((TubeCoupler) child,
+						tubeStart, tubeEnd, tubeMid, jointInsets);
+			}
 		}
-
-		// 2) Sibling components — couplers and nose-cone shoulders
-		//    belonging to adjacent components in the same parent stage.
 		RocketComponent parent = tube.getParent();
 		if (parent != null) {
 			for (RocketComponent sibling : parent.getChildren()) {
 				if (sibling == tube) continue;
 				if (sibling instanceof TubeCoupler) {
 					accumulateCouplerInset((TubeCoupler) sibling,
-							tubeStart, tubeEnd, tubeMid, insets);
+							tubeStart, tubeEnd, tubeMid, jointInsets);
 				} else if (sibling instanceof BodyTube) {
 					for (RocketComponent gc : sibling.getChildren()) {
 						if (gc instanceof TubeCoupler) {
 							accumulateCouplerInset((TubeCoupler) gc,
-									tubeStart, tubeEnd, tubeMid, insets);
+									tubeStart, tubeEnd, tubeMid, jointInsets);
 						}
 					}
 				} else if (sibling instanceof NoseCone) {
 					accumulateShoulderInset((NoseCone) sibling,
-							tubeStart, tubeEnd, tubeMid, insets);
+							tubeStart, tubeEnd, tubeMid, jointInsets);
 				}
 			}
 		}
 
-		return new BayInsets(insets[0], insets[1]);
+		double topJointInset = jointInsets[0];
+		double botJointInset = jointInsets[1];
+
+		// Phase 2 — barrier search. Walk every transverse barrier inside
+		// (or projected into) this tube and locate the nearest one to
+		// the closed end of the bay, ignoring barriers that fall inside a
+		// joint inset (those are already part of the joint, e.g. a
+		// centering ring sitting at the inboard face of a coupler).
+		double openCouplerFace = tubeStart + topJointInset;        // bay-side face of top joint
+		double openCouplerFaceAft = tubeEnd - botJointInset;       // bay-side face of bot joint
+
+		// Identify the bridge coupler from the UI so that any barriers
+		// nested directly inside it (e.g. a bulkhead the user attached to
+		// the coupler for a harness anchor) are excluded from the bay
+		// barrier search. Such a bulkhead is part of the coupler joint
+		// assembly and must not define the closed end of the pressurized bay.
+		ComponentItem _uiA = (ComponentItem) componentSelector.getSelectedItem();
+		ComponentItem _uiB = (ComponentItem) matingComponentSelector.getSelectedItem();
+		TubeCoupler bridgeCoupler = findBridgeCoupler(
+				(_uiA == null) ? null : _uiA.component,
+				(_uiB == null) ? null : _uiB.component);
+
+		// Closed-end search bound:
+		//  FORWARD firing: closed end is aft; we want the smallest
+		//                  barrier-forward-face that is >= openCouplerFace
+		//                  and <= openCouplerFaceAft. If we find one, the
+		//                  aft inset becomes (tubeEnd - barrier-forward-face).
+		//  AFT firing:     closed end is forward; we want the largest
+		//                  barrier-aft-face that is <= openCouplerFaceAft
+		//                  and >= openCouplerFace. If we find one, the
+		//                  forward inset becomes (barrier-aft-face - tubeStart).
+		double nearestBarrierFwdFace = Double.POSITIVE_INFINITY;   // for FORWARD firing
+		double nearestBarrierAftFace = Double.NEGATIVE_INFINITY;   // for AFT firing
+
+		// Children of this tube (direct barriers)
+		for (RocketComponent child : tube.getChildren()) {
+			if (child instanceof InnerTube
+					|| child instanceof CenteringRing
+					|| child instanceof Bulkhead
+					|| child instanceof RingComponent) {
+				double[] face = barrierFacesInside((RingComponent) child,
+						openCouplerFace, openCouplerFaceAft);
+				if (face == null) continue;
+				if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
+				if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
+			}
+		}
+		// Children of TubeCouplers inside this tube.
+		// A bulkhead (or ring) nested directly under the bridge coupler is
+		// part of the coupler/joint assembly — skip it and find the next
+		// real barrier deeper in the bay. Barriers under a non-bridge
+		// coupler (unusual, but possible) are included normally.
+		for (RocketComponent child : tube.getChildren()) {
+			if (!(child instanceof TubeCoupler)) continue;
+			if (child == bridgeCoupler) continue;   // all children are joint components
+			for (RocketComponent gc : child.getChildren()) {
+				if (gc instanceof InnerTube
+						|| gc instanceof CenteringRing
+						|| gc instanceof Bulkhead
+						|| gc instanceof RingComponent) {
+					double[] face = barrierFacesInside((RingComponent) gc,
+							openCouplerFace, openCouplerFaceAft);
+					if (face == null) continue;
+					if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
+					if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
+				}
+			}
+		}
+		// Adjacent body tubes' children projected by absolute axial position
+		// — catches a motor mount that lives in the next-stage tube but
+		// whose forward face still bounds this bay.
+		if (parent != null) {
+			for (RocketComponent sibling : parent.getChildren()) {
+				if (sibling == tube) continue;
+				if (!(sibling instanceof BodyTube)) continue;
+				for (RocketComponent gc : sibling.getChildren()) {
+					if (gc instanceof InnerTube
+							|| gc instanceof CenteringRing
+							|| gc instanceof Bulkhead
+							|| gc instanceof RingComponent) {
+						double[] face = barrierFacesInside((RingComponent) gc,
+								openCouplerFace, openCouplerFaceAft);
+						if (face == null) continue;
+						if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
+						if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
+					}
+				}
+				// Also scan children of TubeCouplers inside adjacent sibling
+				// tubes. A bulkhead under the bridge coupler is joint-assembly
+				// only; skip it just as above.
+				for (RocketComponent gc : sibling.getChildren()) {
+					if (!(gc instanceof TubeCoupler)) continue;
+					if (gc == bridgeCoupler) continue;
+					for (RocketComponent ggc : gc.getChildren()) {
+						if (ggc instanceof InnerTube
+								|| ggc instanceof CenteringRing
+								|| ggc instanceof Bulkhead
+								|| ggc instanceof RingComponent) {
+							double[] face = barrierFacesInside((RingComponent) ggc,
+									openCouplerFace, openCouplerFaceAft);
+							if (face == null) continue;
+							if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
+							if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
+						}
+					}
+				}
+			}
+		}
+
+		double topInset = topJointInset;
+		double botInset = botJointInset;
+
+		if (direction == EjectionFiringDirection.FORWARD) {
+			// Forward firing → forward end is the open joint, aft end is
+			// closed against the nearest aftward barrier (if any).
+			if (Double.isFinite(nearestBarrierFwdFace)) {
+				double aftInset = Math.max(botJointInset,
+						tubeEnd - nearestBarrierFwdFace);
+				botInset = Math.min(tubeLen, Math.max(0.0, aftInset));
+			}
+		} else {
+			// Aft firing → aft end is the open joint, forward end is
+			// closed against the nearest forward barrier (if any).
+			if (Double.isFinite(nearestBarrierAftFace)) {
+				double fwdInset = Math.max(topJointInset,
+						nearestBarrierAftFace - tubeStart);
+				topInset = Math.min(tubeLen, Math.max(0.0, fwdInset));
+			}
+		}
+
+		// Defensive: keep the two insets from overlapping past each other.
+		if (topInset + botInset > tubeLen) {
+			double scale = tubeLen / (topInset + botInset);
+			topInset *= scale;
+			botInset *= scale;
+		}
+
+		return new BayInsets(topInset, botInset);
 	}
 
 	private static void accumulateCouplerInset(TubeCoupler c,
@@ -592,6 +851,22 @@ public class EjectionChargeDialog extends JDialog {
 		double mid = (inStart + inEnd) * 0.5;
 		if (mid < tubeMid) insets[0] = Math.max(insets[0], inLen);
 		else               insets[1] = Math.max(insets[1], inLen);
+	}
+
+	/**
+	 * Returns the [forwardFace, aftFace] axial positions of an internal
+	 * barrier component clipped to the bay's open span [bayFwd, bayAft].
+	 * Returns {@code null} if the barrier does not project into the bay
+	 * span at all (e.g. it sits entirely behind a joint inset).
+	 */
+	private static double[] barrierFacesInside(RingComponent r,
+			double bayFwd, double bayAft) {
+		double bs = axialStart_m(r);
+		double be = bs + r.getLength();
+		double inStart = Math.max(bs, bayFwd);
+		double inEnd   = Math.min(be, bayAft);
+		if (inEnd <= inStart) return null;
+		return new double[] { inStart, inEnd };
 	}
 
 	private static void accumulateShoulderInset(NoseCone nc,
@@ -627,15 +902,6 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	/**
-	 * Returns the effective pressurized bay length (m) for the given body
-	 * tube — geometric length minus any interface insets on either end.
-	 */
-	private double effectiveBayLength_m(BodyTube tube) {
-		BayInsets bi = computeBayInsets(tube);
-		return Math.max(0.0, tube.getLength() - bi.topInset_m - bi.botInset_m);
-	}
-
-	/**
 	 * Pushes the effective bay length into the spinner and updates the
 	 * "Effective bay length" label so the user can see the breakdown of
 	 * tube length minus each interface inset.
@@ -651,8 +917,9 @@ public class EjectionChargeDialog extends JDialog {
 		double effective_in = effective_m * IN_PER_M;
 		if (computedBayLengthLabel != null) {
 			computedBayLengthLabel.setText(String.format(Locale.ROOT,
-					"Effective bay length: %.2f in  (tube %.2f \u2212 top %.2f \u2212 bottom %.2f)",
-					effective_in, tubeLen_in, topInset_in, botInset_in));
+					"Effective bay length: %.2f in  (tube %.2f \u2212 fwd %.2f \u2212 aft %.2f, %s firing)",
+					effective_in, tubeLen_in, topInset_in, botInset_in,
+					currentFiringDirection().getDisplayName()));
 		}
 	}
 
@@ -719,6 +986,7 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	private void onMatingComponentSelected() {
+		if (restoringState) return;
 		updatingEngagementFromAuto = true;
 		try {
 			populateCouplerFieldsFromSelection();
@@ -731,6 +999,7 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	private void onParachuteSelected() {
+		if (restoringState) return;
 		updateComputedPackedVolume();
 		userOverrodePressure = false;
 		runCalculation();
@@ -1003,6 +1272,8 @@ public class EjectionChargeDialog extends JDialog {
 		in.setSafetyFactor(currentSafetyFactor());
 		in.setChuteVolumeFraction(((Number) chuteVolumeFractionSpinner.getValue()).doubleValue());
 		in.setChutePackedVolume_m3(computedPackedVolume_m3);
+		FrictionDerating fd = (FrictionDerating) frictionDeratingSelector.getSelectedItem();
+		in.setFrictionDerating(fd == null ? FrictionDerating.MEDIUM : fd);
 		return in;
 	}
 
@@ -1139,6 +1410,204 @@ public class EjectionChargeDialog extends JDialog {
 
 	private static String escape(String s) {
 		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+	}
+
+	// =====================================================================
+	// In-memory session persistence
+	// =====================================================================
+
+	@Override
+	public void dispose() {
+		// Snapshot every user-controlled field before tearing the dialog
+		// down, so a subsequent open in the same JVM session restores them.
+		// The snapshot lives only in memory — application exit clears it,
+		// and nothing here is written to the .ork file.
+		try {
+			savedState = captureState();
+		} catch (RuntimeException ex) {
+			// Never let a snapshot failure block dialog closure.
+			savedState = null;
+		}
+		super.dispose();
+	}
+
+	private SessionState captureState() {
+		SessionState s = new SessionState();
+
+		ComponentItem comp = (ComponentItem) componentSelector.getSelectedItem();
+		s.bayComponentName = (comp == null || comp.component == null)
+				? null : comp.component.getName();
+
+		ComponentItem mate = (ComponentItem) matingComponentSelector.getSelectedItem();
+		s.matingComponentName = (mate == null || mate.component == null)
+				? null : mate.component.getName();
+
+		ParachuteItem par = (ParachuteItem) parachuteSelector.getSelectedItem();
+		s.parachuteName = (par == null || par.parachute == null)
+				? null : par.parachute.getName();
+
+		s.firingDirection = (EjectionFiringDirection) firingDirectionSelector.getSelectedItem();
+
+		s.bayInnerD_in    = ((Number) bayInnerDiameterSpinner.getValue()).doubleValue();
+		s.bayOuterD_in    = ((Number) bayOuterDiameterSpinner.getValue()).doubleValue();
+		s.bayLength_in    = ((Number) bayLengthSpinner.getValue()).doubleValue();
+		s.bayMaterial     = (AirframeMaterial) bayMaterialSelector.getSelectedItem();
+
+		s.couplerOuterD_in    = ((Number) couplerOuterDiameterSpinner.getValue()).doubleValue();
+		s.couplerInnerD_in    = ((Number) couplerInnerDiameterSpinner.getValue()).doubleValue();
+		s.couplerEngagement_in = ((Number) couplerEngagementSpinner.getValue()).doubleValue();
+		s.couplerMaterial     = (AirframeMaterial) couplerMaterialSelector.getSelectedItem();
+		s.interference_in     = ((Number) interferenceSpinner.getValue()).doubleValue();
+		s.frictionDerating    = (FrictionDerating) frictionDeratingSelector.getSelectedItem();
+
+		s.pinDesignation = (String) pinDesignationSelector.getSelectedItem();
+		s.pinCount       = ((Number) pinCountSpinner.getValue()).intValue();
+		s.strengthSource = (StrengthSource) strengthSourceSelector.getSelectedItem();
+
+		s.chuteVolumeFraction = ((Number) chuteVolumeFractionSpinner.getValue()).doubleValue();
+
+		s.safetyFactorSliderValue = safetyFactorSlider.getValue();
+		s.desiredPressure_psi     = ((Number) desiredPressureSpinner.getValue()).doubleValue();
+		s.userOverrodePressure    = userOverrodePressure;
+
+		s.showDetails = showDetailsCheckbox.isSelected();
+		return s;
+	}
+
+	private void restoreState(SessionState s) {
+		if (s == null) return;
+		restoringState = true;
+		try {
+			// --- Component selectors (match by component name) ---
+			selectComponentByName(componentSelector, s.bayComponentName);
+			selectComponentByName(matingComponentSelector, s.matingComponentName);
+			selectParachuteByName(parachuteSelector, s.parachuteName);
+
+			if (s.firingDirection != null) {
+				firingDirectionSelector.setSelectedItem(s.firingDirection);
+			}
+
+			// --- Numeric inputs ---
+			setSpinnerSafe(bayInnerDiameterSpinner,    s.bayInnerD_in);
+			setSpinnerSafe(bayOuterDiameterSpinner,    s.bayOuterD_in);
+			setSpinnerSafe(bayLengthSpinner,           s.bayLength_in);
+			if (s.bayMaterial != null) bayMaterialSelector.setSelectedItem(s.bayMaterial);
+
+			setSpinnerSafe(couplerOuterDiameterSpinner, s.couplerOuterD_in);
+			setSpinnerSafe(couplerInnerDiameterSpinner, s.couplerInnerD_in);
+			setSpinnerSafe(couplerEngagementSpinner,    s.couplerEngagement_in);
+			if (s.couplerMaterial != null) couplerMaterialSelector.setSelectedItem(s.couplerMaterial);
+			setSpinnerSafe(interferenceSpinner,         s.interference_in);
+			if (s.frictionDerating != null) frictionDeratingSelector.setSelectedItem(s.frictionDerating);
+
+			if (s.pinDesignation != null) pinDesignationSelector.setSelectedItem(s.pinDesignation);
+			setSpinnerSafe(pinCountSpinner, s.pinCount);
+			if (s.strengthSource != null) strengthSourceSelector.setSelectedItem(s.strengthSource);
+
+			setSpinnerSafe(chuteVolumeFractionSpinner, s.chuteVolumeFraction);
+
+			// --- Pressure / SF block ---
+			int sliderMin = safetyFactorSlider.getMinimum();
+			int sliderMax = safetyFactorSlider.getMaximum();
+			safetyFactorSlider.setValue(
+					Math.max(sliderMin, Math.min(sliderMax, s.safetyFactorSliderValue)));
+			safetyFactorLabel.setText(String.format(Locale.ROOT, "%.2f", currentSafetyFactor()));
+			setSpinnerSafe(desiredPressureSpinner, s.desiredPressure_psi);
+			userOverrodePressure = s.userOverrodePressure;
+
+			// --- Details checkbox ---
+			showDetailsCheckbox.setSelected(s.showDetails);
+			showDetailsCheckbox.setText(s.showDetails
+					? "\u25BC Hide calculation details"
+					: "\u25B6 Show calculation details");
+			detailsPanel.setVisible(s.showDetails);
+		} finally {
+			restoringState = false;
+		}
+
+		// Refresh all derived labels and the calculation now that the
+		// listeners are live again. The calculation will respect the
+		// restored userOverrodePressure flag.
+		updateComputedOverlap();
+		updateComputedPackedVolume();
+		runCalculation();
+	}
+
+	private static void selectComponentByName(JComboBox<ComponentItem> combo, String name) {
+		if (name == null) {
+			if (combo.getItemCount() > 0) combo.setSelectedIndex(0);
+			return;
+		}
+		for (int i = 0; i < combo.getItemCount(); i++) {
+			ComponentItem item = combo.getItemAt(i);
+			if (item != null && item.component != null
+					&& name.equals(item.component.getName())) {
+				combo.setSelectedIndex(i);
+				return;
+			}
+		}
+		// No match — leave at default (index 0 / "-- Manual entry --" / "-- None --").
+	}
+
+	private static void selectParachuteByName(JComboBox<ParachuteItem> combo, String name) {
+		if (name == null) {
+			if (combo.getItemCount() > 0) combo.setSelectedIndex(0);
+			return;
+		}
+		for (int i = 0; i < combo.getItemCount(); i++) {
+			ParachuteItem item = combo.getItemAt(i);
+			if (item != null && item.parachute != null
+					&& name.equals(item.parachute.getName())) {
+				combo.setSelectedIndex(i);
+				return;
+			}
+		}
+	}
+
+	private static void setSpinnerSafe(JSpinner spinner, double value) {
+		SpinnerNumberModel m = (SpinnerNumberModel) spinner.getModel();
+		double min = ((Number) m.getMinimum()).doubleValue();
+		double max = ((Number) m.getMaximum()).doubleValue();
+		spinner.setValue(Math.max(min, Math.min(max, value)));
+	}
+
+	private static void setSpinnerSafe(JSpinner spinner, int value) {
+		SpinnerNumberModel m = (SpinnerNumberModel) spinner.getModel();
+		int min = ((Number) m.getMinimum()).intValue();
+		int max = ((Number) m.getMaximum()).intValue();
+		spinner.setValue(Math.max(min, Math.min(max, value)));
+	}
+
+	/** In-memory snapshot of every user choice in the dialog. */
+	private static final class SessionState {
+		String bayComponentName;
+		String matingComponentName;
+		String parachuteName;
+		EjectionFiringDirection firingDirection;
+
+		double bayInnerD_in;
+		double bayOuterD_in;
+		double bayLength_in;
+		AirframeMaterial bayMaterial;
+
+		double couplerOuterD_in;
+		double couplerInnerD_in;
+		double couplerEngagement_in;
+		AirframeMaterial couplerMaterial;
+		double interference_in;
+		FrictionDerating frictionDerating;
+
+		String pinDesignation;
+		int pinCount;
+		StrengthSource strengthSource;
+
+		double chuteVolumeFraction;
+
+		int safetyFactorSliderValue;
+		double desiredPressure_psi;
+		boolean userOverrodePressure;
+
+		boolean showDetails;
 	}
 
 	// --- Inner classes ---

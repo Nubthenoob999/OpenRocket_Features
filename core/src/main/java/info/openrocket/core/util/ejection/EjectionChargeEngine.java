@@ -44,7 +44,7 @@ public final class EjectionChargeEngine {
 	 * compared with bench-pull data. We multiply the friction force by this
 	 * factor before combining it with the shear-pin force.
 	 */
-	public static final double FRICTION_DERATING_FACTOR = 0.6;
+	public static final double FRICTION_DERATING_FACTOR = FrictionDerating.MEDIUM.getFactor();
 
 	private EjectionChargeEngine() {
 	}
@@ -150,6 +150,11 @@ public final class EjectionChargeEngine {
 				&& couplerL_m > 0.0
 				&& bayOD_m > bayInnerD_m;
 
+		FrictionDerating deratingPreset = inputs.getFrictionDerating();
+		double deratingFactor = (deratingPreset == null)
+				? FRICTION_DERATING_FACTOR
+				: deratingPreset.getFactor();
+
 		if (haveCouplerGeometry) {
 			double mu_s = FrictionCoefficientLookupTable.getCOF(
 					inputs.getBayMaterial(), inputs.getCouplerMaterial())
@@ -166,12 +171,12 @@ public final class EjectionChargeEngine {
 					delta_m / M_PER_IN,
 					mu_s);
 
-			fricForce_N = fr.getFrictionForce_lbs() * N_PER_LBF * FRICTION_DERATING_FACTOR;
+			fricForce_N = fr.getFrictionForce_lbs() * N_PER_LBF * deratingFactor;
 			P_contact_psi = fr.getContactPressure_psi();
 			C_outer = fr.getLameFactorOuter();
 			C_inner = fr.getLameFactorInner();
 
-			double fricForce_lbs_derated = fr.getFrictionForce_lbs() * FRICTION_DERATING_FACTOR;
+			double fricForce_lbs_derated = fr.getFrictionForce_lbs() * deratingFactor;
 			if (fricForce_lbs_derated > shearForce_lbs && shearForce_lbs > 0.0) {
 				result.addWarning(WarningLevel.CAUTION, String.format(Locale.ROOT,
 						"Coupler interference friction (%.1f lbs) exceeds shear pin "
