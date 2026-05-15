@@ -5,7 +5,9 @@ import java.util.Collections;
 import java.util.List;
 
 import info.openrocket.core.aerodynamics.AerodynamicForces;
+import info.openrocket.core.aerodynamics.rom.bl.BoundaryLayerState;
 import info.openrocket.core.aerodynamics.rom.control.AerodynamicConfidence;
+import info.openrocket.core.aerodynamics.rom.flow.EdgeState;
 import info.openrocket.core.aerodynamics.rom.flow.FlowRegime;
 import info.openrocket.core.aerodynamics.rom.flow.FlowState;
 import info.openrocket.core.aerodynamics.rom.geometry.GeometryFeatures;
@@ -19,6 +21,8 @@ public class RomResult {
 	private final FlowRegime regime;
 	private final AerodynamicConfidence confidence;
 	private final List<PathlineSeed> seeds;
+	private final List<EdgeState> edgeStates;
+	private final List<BoundaryLayerState> boundaryLayerStates;
 	private final int marchingSteps;
 	private final double separationFraction;
 	private final double fallbackWeight;
@@ -29,6 +33,17 @@ public class RomResult {
 			GeometryFeatures geometryFeatures, FlowState flowState, FlowRegime regime,
 			AerodynamicConfidence confidence, List<PathlineSeed> seeds, int marchingSteps,
 			double separationFraction, double fallbackWeight, boolean fallbackUsed, String notes) {
+		this(romForces, blendedForces, geometryFeatures, flowState, regime, confidence, seeds,
+				Collections.emptyList(), Collections.emptyList(), marchingSteps, separationFraction,
+				fallbackWeight, fallbackUsed, notes);
+	}
+
+	public RomResult(AerodynamicForces romForces, AerodynamicForces blendedForces,
+			GeometryFeatures geometryFeatures, FlowState flowState, FlowRegime regime,
+			AerodynamicConfidence confidence, List<PathlineSeed> seeds,
+			List<EdgeState> edgeStates, List<BoundaryLayerState> boundaryLayerStates,
+			int marchingSteps, double separationFraction, double fallbackWeight,
+			boolean fallbackUsed, String notes) {
 		this.romForces = romForces;
 		this.blendedForces = blendedForces;
 		this.geometryFeatures = geometryFeatures;
@@ -36,11 +51,25 @@ public class RomResult {
 		this.regime = regime;
 		this.confidence = confidence;
 		this.seeds = Collections.unmodifiableList(new ArrayList<>(seeds));
+		this.edgeStates = edgeStates != null
+				? Collections.unmodifiableList(new ArrayList<>(edgeStates))
+				: Collections.emptyList();
+		this.boundaryLayerStates = boundaryLayerStates != null
+				? Collections.unmodifiableList(new ArrayList<>(boundaryLayerStates))
+				: Collections.emptyList();
 		this.marchingSteps = marchingSteps;
 		this.separationFraction = separationFraction;
 		this.fallbackWeight = fallbackWeight;
 		this.fallbackUsed = fallbackUsed;
 		this.notes = notes != null ? notes : "";
+	}
+
+	public List<EdgeState> getEdgeStates() {
+		return edgeStates;
+	}
+
+	public List<BoundaryLayerState> getBoundaryLayerStates() {
+		return boundaryLayerStates;
 	}
 
 	public AerodynamicForces getRomForces() {

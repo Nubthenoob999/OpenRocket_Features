@@ -876,6 +876,15 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("romprestepaoadeg", settings.getPrestepAngleOfAttackDeg());
 		writeElement("romprestepthetadeg", settings.getPrestepThetaDeg());
 		writeElement("romprestepplumestate", settings.getPrestepPlumeState());
+		writeElement("rompreviewmachmin", settings.getPreviewMachMin());
+		writeElement("rompreviewmachmax", settings.getPreviewMachMax());
+		writeElement("rompreviewmachstep", settings.getPreviewMachStep());
+		writeElement("rompreviewaoadegmin", settings.getPreviewAoADegMin());
+		writeElement("rompreviewaoadegmax", settings.getPreviewAoADegMax());
+		writeElement("rompreviewaoadegstep", settings.getPreviewAoADegStep());
+		writeElement("rompreviewthetadeg", settings.getPreviewThetaDeg());
+		writeElement("rompreviewplumestate", settings.getPreviewPlumeState());
+		writeElement("rompreviewmaxrows", settings.getPreviewMaxRows());
 	}
 	
 	

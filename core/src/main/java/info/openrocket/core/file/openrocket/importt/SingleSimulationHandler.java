@@ -5,7 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
-import com.airbrakesplugin.AirbrakeExtension;
+import info.openrocket.core.airbrakesplugin.AirbrakeExtension;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;

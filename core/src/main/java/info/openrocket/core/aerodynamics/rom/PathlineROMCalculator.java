@@ -19,8 +19,10 @@ import info.openrocket.core.aerodynamics.rom.flow.EdgeState;
 import info.openrocket.core.aerodynamics.rom.flow.FlowRegime;
 import info.openrocket.core.aerodynamics.rom.flow.FlowState;
 import info.openrocket.core.aerodynamics.rom.flow.FlowStateExtractor;
+import info.openrocket.core.aerodynamics.rom.flow.MachTransitionMap;
 import info.openrocket.core.aerodynamics.rom.flow.RegimeSelector;
 import info.openrocket.core.aerodynamics.rom.force.AerodynamicCoefficientAssembler;
+import info.openrocket.core.aerodynamics.rom.force.CrossflowNormalForceModel;
 import info.openrocket.core.aerodynamics.rom.force.ForceIntegrator;
 import info.openrocket.core.aerodynamics.rom.geometry.GeometryFeatureExtractor;
 import info.openrocket.core.aerodynamics.rom.geometry.GeometryFeatures;
@@ -364,10 +366,10 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		FallbackBlender.BlendResult blendResult = fallbackBlender.blend(legacyForces, romForces, confidence,
 				settings.getFallbackMode());
 
-		String notes = buildNotes(regime, confidence, geometry, seeds);
+		String notes = buildNotes(regime, flowState, confidence, geometry, seeds);
 		RomResult result = new RomResult(romForces, blendResult.forces(), geometry, flowState, regime,
-				confidence, seeds, marchingSteps, separationFraction, blendResult.fallbackWeight(),
-				blendResult.fallbackUsed(), notes);
+				confidence, seeds, edgeStates, boundaryLayerStates, marchingSteps, separationFraction,
+				blendResult.fallbackWeight(), blendResult.fallbackUsed(), notes);
 		lastResult = result;
 
 		if (settings.isDiagnosticsEnabled()) {
@@ -395,6 +397,7 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		double finAreaRatio = geometry.getTotalFinPlanformArea() / refArea;
 		double slopeMetric = maxAbs(geometry.getAreaSlope()) / refArea;
 		double mach = flowState.getMach();
+		MachTransitionMap.RegimeBand band = MachTransitionMap.band(mach);
 		double alphaDeg = Math.abs(flowState.getAngleOfAttackDeg());
 		double plumeBlend = clamp01(flowState.getPlumeState());
 		double coastBlend = 1.0 - plumeBlend;
@@ -433,8 +436,12 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		double baseLegacyWeight = clamp(
 				1.0 - 0.32 * plumeBlend - 0.20 * earlyBoostRelief + 0.18 * coastRecovery,
 				0.45, 1.35);
+		double presonicPressureRise = 1.0;
+		if (band == MachTransitionMap.RegimeBand.PRESONIC_TRANSONIC) {
+			presonicPressureRise += 0.32 * MachTransitionMap.presonicWeight(mach);
+		}
 		double pressureContribution = (regimeDragGain * assembler.getPressureCA() + 0.018 * slopeMetric)
-				* separationDragBoost * pressurePhaseScale;
+				* separationDragBoost * pressurePhaseScale * presonicPressureRise;
 		double frictionContribution = (assembler.getFrictionCA() + 0.006 * (1.0 + finAreaRatio))
 				* frictionPhaseScale * (1.0 + 0.08 * (separationDragBoost - 1.0));
 		double baseContribution = BaseDragClosures.coastBaseDrag(mach, geometry.getBaseArea(), refArea, 1.4)
@@ -450,12 +457,20 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 		double overrideCD = legacyForces.getOverrideCD();
 		double totalCDRaw = pressureCD + frictionCD + baseCD + overrideCD;
 		double legacyCD = Math.max(legacyForces.getCD(), 1e-6);
-		double maxCdFactor = switch (regime) {
-			case SUBSONIC -> 1.45;
-			case TRANSONIC -> 1.65;
-			case SUPERSONIC -> 1.85;
-			case HYPERSONIC_LEANING -> 2.05;
-		};
+		double maxCdFactor;
+		if (band == MachTransitionMap.RegimeBand.INCOMPRESSIBLE
+				|| band == MachTransitionMap.RegimeBand.COMPRESSIBLE_SUBSONIC) {
+			maxCdFactor = 1.45;
+		} else if (band == MachTransitionMap.RegimeBand.PRESONIC_TRANSONIC) {
+			maxCdFactor = 1.75;
+		} else {
+			maxCdFactor = switch (regime) {
+				case SUBSONIC -> 1.45;
+				case TRANSONIC -> 1.65;
+				case SUPERSONIC -> 1.85;
+				case HYPERSONIC_LEANING -> 2.05;
+			};
+		}
 		double minCdFactor = clamp(
 				0.96 + 0.04 * romDeltaBlend + 0.05 * coastRecovery - 0.28 * earlyBoostRelief,
 				0.60, 1.05);
@@ -476,13 +491,17 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 				* (0.72 + 0.28 * romDeltaBlend);
 		double cn = legacyForces.getCN() * (0.82 + 0.18 * normalScale)
 				+ cnDelta + geometryBias * flowState.getAngleOfAttackRad();
+		CrossflowNormalForceModel.Result crossflow = CrossflowNormalForceModel.evaluate(geometry, flowState,
+				legacyForces.getCP().getX());
+		cn += crossflow.deltaCN();
 		double maxCnMagnitude = Math.max(
 				Math.abs(legacyForces.getCN()) * (1.20 + 0.60 * romDeltaBlend),
-				2.0 + 0.12 * alphaDeg);
+				2.0 + 0.12 * alphaDeg + Math.abs(crossflow.deltaCN()) * 1.05);
 		cn = clamp(cn, -maxCnMagnitude, maxCnMagnitude);
 		double cm = legacyForces.getCm() * (0.82 + 0.18 * normalScale)
 				+ cmDelta + 0.03 * (cpX - legacyForces.getCP().getX()) / Math.max(geometry.getReferenceLength(), 1e-6)
 				* flowState.getAngleOfAttackRad();
+		cm += crossflow.deltaCm();
 
 		romForces.setPressureCD(pressureCD);
 		romForces.setFrictionCD(frictionCD);
@@ -526,12 +545,22 @@ public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 				stiffnessPenalty, reasons);
 	}
 
-	private static String buildNotes(FlowRegime regime, AerodynamicConfidence confidence, GeometryFeatures geometry,
+	private static String buildNotes(FlowRegime regime, FlowState flowState, AerodynamicConfidence confidence,
+			GeometryFeatures geometry,
 			List<PathlineSeed> seeds) {
 		StringBuilder builder = new StringBuilder();
 		builder.append("regime=").append(regime.name().toLowerCase());
+		MachTransitionMap.RegimeBand band = MachTransitionMap.band(flowState.getMach());
+		builder.append(", machBand=").append(band.name().toLowerCase());
 		builder.append(", seeds=").append(seeds.size());
 		builder.append(", shoulders=").append(geometry.getShoulderCount());
+		if (band == MachTransitionMap.RegimeBand.PRESONIC_TRANSONIC) {
+			builder.append(", presonicBlend=").append(String.format(java.util.Locale.ROOT, "%.3f",
+					MachTransitionMap.presonicWeight(flowState.getMach())));
+		}
+		if (CrossflowNormalForceModel.isActive(geometry, flowState)) {
+			builder.append(", crossflow=active");
+		}
 		if (!confidence.getReasons().isEmpty()) {
 			builder.append(", flags=").append(String.join("; ", confidence.getReasons()));
 		}

@@ -339,6 +339,69 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 					updateRomSettings(settings -> settings.setPrestepPlumeState(parsedValue));
 				}
 			}
+			case "rompreviewmachmin" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview Mach min defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewMachMin(parsedValue));
+				}
+			}
+			case "rompreviewmachmax" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview Mach max defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewMachMax(parsedValue));
+				}
+			}
+			case "rompreviewmachstep" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview Mach step defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewMachStep(parsedValue));
+				}
+			}
+			case "rompreviewaoadegmin" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview AoA min defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewAoADegMin(parsedValue));
+				}
+			}
+			case "rompreviewaoadegmax" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview AoA max defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewAoADegMax(parsedValue));
+				}
+			}
+			case "rompreviewaoadegstep" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview AoA step defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewAoADegStep(parsedValue));
+				}
+			}
+			case "rompreviewthetadeg" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview theta defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewThetaDeg(parsedValue));
+				}
+			}
+			case "rompreviewplumestate" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview plume state defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewPlumeState(parsedValue));
+				}
+			}
+			case "rompreviewmaxrows" -> {
+				if (Double.isNaN(parsedValue)) {
+					warnings.add("Illegal ROM preview row cap defined, ignoring.");
+				} else {
+					updateRomSettings(settings -> settings.setPreviewMaxRows((int) Math.round(parsedValue)));
+				}
+			}
 			case "atmosphere" -> atmosphereHandler.storeSettings(options, warnings);
 			case "gravity" -> {
 				if (gravityHandler != null) {

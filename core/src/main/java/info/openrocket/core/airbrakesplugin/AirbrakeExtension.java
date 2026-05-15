@@ -1,4 +1,4 @@
-package com.airbrakesplugin;
+package info.openrocket.core.airbrakesplugin;
 
 import info.openrocket.core.simulation.SimulationConditions;
 import info.openrocket.core.simulation.exception.SimulationException;

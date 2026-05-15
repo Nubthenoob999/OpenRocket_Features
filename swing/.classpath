@@ -33,6 +33,6 @@
 			<attribute name="gradle.buildServer" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="lib" path="C:/Users/Opteron92/Projects/OpenRocket_Features/core/build/libs/core-26.xx-SNAPSHOT.jar"/>
+	<classpathentry kind="lib" path="D:/Projects/OpenRocket_Features/core/build/libs/core-26.xx-SNAPSHOT.jar"/>
 	<classpathentry kind="output" path="bin/default"/>
 </classpath>

@@ -1,4 +1,4 @@
-package com.airbrakesplugin; 
+package info.openrocket.core.airbrakesplugin;
 
 import info.openrocket.core.plugin.Plugin;
 import info.openrocket.core.simulation.extension.AbstractSimulationExtensionProvider;

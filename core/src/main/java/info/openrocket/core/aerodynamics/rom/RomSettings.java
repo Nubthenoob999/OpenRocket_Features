@@ -16,6 +16,15 @@ public class RomSettings implements Cloneable {
 	private double prestepAngleOfAttackDeg = 5.0;
 	private double prestepThetaDeg = 0.0;
 	private double prestepPlumeState = 0.0;
+	private double previewMachMin = 0.20;
+	private double previewMachMax = 1.40;
+	private double previewMachStep = 0.10;
+	private double previewAoADegMin = 0.0;
+	private double previewAoADegMax = 12.0;
+	private double previewAoADegStep = 2.0;
+	private double previewThetaDeg = 0.0;
+	private double previewPlumeState = 0.0;
+	private int previewMaxRows = 250;
 
 	public static RomSettings defaults() {
 		return new RomSettings();
@@ -145,6 +154,151 @@ public class RomSettings implements Cloneable {
 		this.prestepPlumeState = clamp(prestepPlumeState, 0.0, 1.0);
 	}
 
+	public double getPreviewMachMin() {
+		return clamp(previewMachMin, 0.0, 8.0);
+	}
+
+	public void setPreviewMachMin(double previewMachMin) {
+		this.previewMachMin = clamp(previewMachMin, 0.0, 8.0);
+	}
+
+	public RomSettings withPreviewMachMin(double v) {
+		RomSettings c = copy();
+		c.setPreviewMachMin(v);
+		return c;
+	}
+
+	public double getPreviewMachMax() {
+		return clamp(previewMachMax, 0.0, 8.0);
+	}
+
+	public void setPreviewMachMax(double previewMachMax) {
+		this.previewMachMax = clamp(previewMachMax, 0.0, 8.0);
+	}
+
+	public RomSettings withPreviewMachMax(double v) {
+		RomSettings c = copy();
+		c.setPreviewMachMax(v);
+		return c;
+	}
+
+	public double getPreviewMachStep() {
+		return Math.max(0.001, previewMachStep);
+	}
+
+	public void setPreviewMachStep(double previewMachStep) {
+		this.previewMachStep = Math.max(0.001, previewMachStep);
+	}
+
+	public RomSettings withPreviewMachStep(double v) {
+		RomSettings c = copy();
+		c.setPreviewMachStep(v);
+		return c;
+	}
+
+	public double getPreviewAoADegMin() {
+		return clamp(previewAoADegMin, 0.0, 45.0);
+	}
+
+	public void setPreviewAoADegMin(double previewAoADegMin) {
+		this.previewAoADegMin = clamp(previewAoADegMin, 0.0, 45.0);
+	}
+
+	public RomSettings withPreviewAoADegMin(double v) {
+		RomSettings c = copy();
+		c.setPreviewAoADegMin(v);
+		return c;
+	}
+
+	public double getPreviewAoADegMax() {
+		return clamp(previewAoADegMax, 0.0, 45.0);
+	}
+
+	public void setPreviewAoADegMax(double previewAoADegMax) {
+		this.previewAoADegMax = clamp(previewAoADegMax, 0.0, 45.0);
+	}
+
+	public RomSettings withPreviewAoADegMax(double v) {
+		RomSettings c = copy();
+		c.setPreviewAoADegMax(v);
+		return c;
+	}
+
+	public double getPreviewAoADegStep() {
+		return Math.max(0.001, previewAoADegStep);
+	}
+
+	public void setPreviewAoADegStep(double previewAoADegStep) {
+		this.previewAoADegStep = Math.max(0.001, previewAoADegStep);
+	}
+
+	public RomSettings withPreviewAoADegStep(double v) {
+		RomSettings c = copy();
+		c.setPreviewAoADegStep(v);
+		return c;
+	}
+
+	public double getPreviewThetaDeg() {
+		return clamp(previewThetaDeg, -180.0, 180.0);
+	}
+
+	public void setPreviewThetaDeg(double previewThetaDeg) {
+		this.previewThetaDeg = clamp(previewThetaDeg, -180.0, 180.0);
+	}
+
+	public RomSettings withPreviewThetaDeg(double v) {
+		RomSettings c = copy();
+		c.setPreviewThetaDeg(v);
+		return c;
+	}
+
+	public double getPreviewPlumeState() {
+		return clamp(previewPlumeState, 0.0, 1.0);
+	}
+
+	public void setPreviewPlumeState(double previewPlumeState) {
+		this.previewPlumeState = clamp(previewPlumeState, 0.0, 1.0);
+	}
+
+	public RomSettings withPreviewPlumeState(double v) {
+		RomSettings c = copy();
+		c.setPreviewPlumeState(v);
+		return c;
+	}
+
+	public int getPreviewMaxRows() {
+		return Math.max(1, previewMaxRows);
+	}
+
+	public void setPreviewMaxRows(int previewMaxRows) {
+		this.previewMaxRows = Math.max(1, previewMaxRows);
+	}
+
+	public RomSettings withPreviewMaxRows(int v) {
+		RomSettings c = copy();
+		c.setPreviewMaxRows(v);
+		return c;
+	}
+
+	/**
+	 * Normalize the preview sweep range fields: if min &gt; max, swap them.
+	 * Returns a copy if any swap occurs; otherwise returns this.
+	 */
+	public RomSettings normalizedPreviewRanges() {
+		RomSettings c = copy();
+		if (c.previewMachMin > c.previewMachMax) {
+			double t = c.previewMachMin;
+			c.previewMachMin = c.previewMachMax;
+			c.previewMachMax = t;
+		}
+		if (c.previewAoADegMin > c.previewAoADegMax) {
+			double t = c.previewAoADegMin;
+			c.previewAoADegMin = c.previewAoADegMax;
+			c.previewAoADegMax = t;
+		}
+		return c;
+	}
+
 	private static double clamp(double value, double min, double max) {
 		return Math.max(min, Math.min(max, value));
 	}
@@ -168,6 +322,15 @@ public class RomSettings implements Cloneable {
 				&& Double.compare(prestepAngleOfAttackDeg, that.prestepAngleOfAttackDeg) == 0
 				&& Double.compare(prestepThetaDeg, that.prestepThetaDeg) == 0
 				&& Double.compare(prestepPlumeState, that.prestepPlumeState) == 0
+				&& Double.compare(previewMachMin, that.previewMachMin) == 0
+				&& Double.compare(previewMachMax, that.previewMachMax) == 0
+				&& Double.compare(previewMachStep, that.previewMachStep) == 0
+				&& Double.compare(previewAoADegMin, that.previewAoADegMin) == 0
+				&& Double.compare(previewAoADegMax, that.previewAoADegMax) == 0
+				&& Double.compare(previewAoADegStep, that.previewAoADegStep) == 0
+				&& Double.compare(previewThetaDeg, that.previewThetaDeg) == 0
+				&& Double.compare(previewPlumeState, that.previewPlumeState) == 0
+				&& previewMaxRows == that.previewMaxRows
 				&& mode == that.mode
 				&& fallbackMode == that.fallbackMode;
 	}
@@ -176,6 +339,8 @@ public class RomSettings implements Cloneable {
 	public int hashCode() {
 		return Objects.hash(enabled, mode, fallbackMode, diagnosticsEnabled, bodyMeridianSeedCount,
 				finSurfaceSeedCount, transonicBandHalfWidth, highAngleDeg, maxTrustedSeparationFraction,
-				prestepMach, prestepAngleOfAttackDeg, prestepThetaDeg, prestepPlumeState);
+				prestepMach, prestepAngleOfAttackDeg, prestepThetaDeg, prestepPlumeState,
+				previewMachMin, previewMachMax, previewMachStep, previewAoADegMin, previewAoADegMax,
+				previewAoADegStep, previewThetaDeg, previewPlumeState, previewMaxRows);
 	}
 }

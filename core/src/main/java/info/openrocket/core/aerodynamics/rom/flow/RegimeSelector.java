@@ -15,6 +15,10 @@ public class RegimeSelector {
 		return FlowRegime.HYPERSONIC_LEANING;
 	}
 
+	public MachTransitionMap.RegimeBand selectBand(FlowState flowState) {
+		return MachTransitionMap.band(flowState != null ? flowState.getMach() : 0.0);
+	}
+
 	public double transonicProximity(FlowState flowState, double bandHalfWidth) {
 		double distance = Math.abs(flowState.getMach() - 1.0);
 		if (distance >= bandHalfWidth) {

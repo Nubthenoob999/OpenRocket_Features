@@ -1,0 +1,32 @@
+OpenRocket / Project Imperia JAR and jpackage app-image rebuild commands
+Date run: 2026-05-15
+Working directory: D:\Projects\OpenRocket_Features
+
+The local JAVA_HOME environment variable pointed at the JDK bin directory, so
+each command set JAVA_HOME to the JDK root for the current PowerShell process.
+
+1. Rebuild the runnable shadow JAR:
+
+   $env:JAVA_HOME='C:\Program Files\Java\jdk-17'; .\gradlew.bat shadowJar
+
+2. Rebuild the jpackage app image:
+
+   $env:JAVA_HOME='C:\Program Files\Java\jdk-17'; .\gradlew.bat jpackageAppImage
+
+Generated outputs:
+
+- Runnable JAR:
+  D:\Projects\OpenRocket_Features\build\libs\Project-Imperia-26.xx-SNAPSHOT.jar
+
+- jpackage input JAR copy:
+  D:\Projects\OpenRocket_Features\build\jpackage\input\Project Imperia.jar
+
+- jpackage app image:
+  D:\Projects\OpenRocket_Features\build\jpackage\app-image\Project Imperia
+
+Notes:
+
+- `jpackageAppImage` also runs `prepareJpackageInput` and
+  `resolveJpackageModules`.
+- The module resolver emitted a jdeps split-package warning for `javax.script`;
+  the app-image task still completed successfully.

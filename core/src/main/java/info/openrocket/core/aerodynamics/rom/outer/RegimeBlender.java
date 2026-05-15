@@ -15,6 +15,9 @@ public class RegimeBlender implements OuterFlowReconstructor {
 
 	@Override
 	public EdgeState reconstruct(PathlineSeed seed, GeometryFeatures geometry, FlowState flowState) {
+		if (flowState.getMach() < 1.0) {
+			return subsonic.reconstruct(seed, geometry, flowState);
+		}
 		FlowRegime regime = regimeSelector.select(flowState);
 		if (regime == FlowRegime.SUBSONIC) {
 			return subsonic.reconstruct(seed, geometry, flowState);

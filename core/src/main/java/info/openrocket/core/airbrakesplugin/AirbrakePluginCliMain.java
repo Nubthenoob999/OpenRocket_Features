@@ -1,4 +1,4 @@
-package com.airbrakesplugin;
+package info.openrocket.core.airbrakesplugin;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

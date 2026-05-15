@@ -19,6 +19,16 @@ public class RegimeSelectorTest {
 	}
 
 	@Test
+	public void dispatchesDetailedMachBands() {
+		assertEquals(MachTransitionMap.RegimeBand.INCOMPRESSIBLE, selector.selectBand(flowState(0.29)));
+		assertEquals(MachTransitionMap.RegimeBand.COMPRESSIBLE_SUBSONIC, selector.selectBand(flowState(0.30)));
+		assertEquals(MachTransitionMap.RegimeBand.COMPRESSIBLE_SUBSONIC, selector.selectBand(flowState(0.79)));
+		assertEquals(MachTransitionMap.RegimeBand.PRESONIC_TRANSONIC, selector.selectBand(flowState(0.80)));
+		assertEquals(MachTransitionMap.RegimeBand.PRESONIC_TRANSONIC, selector.selectBand(flowState(0.99)));
+		assertEquals(MachTransitionMap.RegimeBand.SUPERSONIC, selector.selectBand(flowState(1.00)));
+	}
+
+	@Test
 	public void transonicProximityPeaksAtMachOneAndFallsOffSmoothly() {
 		double peak = selector.transonicProximity(flowState(1.00), 0.20);
 		double shoulder = selector.transonicProximity(flowState(0.90), 0.20);
