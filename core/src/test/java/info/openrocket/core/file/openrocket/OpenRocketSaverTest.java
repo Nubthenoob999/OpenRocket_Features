@@ -19,7 +19,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import info.openrocket.core.airbrakesplugin.AirbrakeExtension;
 import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
@@ -56,8 +55,11 @@ import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.InnerTube;
 import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.Rocket;
+import info.openrocket.core.simulation.SimulationConditions;
+import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.extension.impl.ScriptingExtension;
 import info.openrocket.core.simulation.extension.impl.ScriptingUtil;
+import info.openrocket.core.simulation.extension.AbstractSimulationExtension;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
@@ -619,7 +621,7 @@ public class OpenRocketSaverTest {
 		OpenRocketDocument rocketDoc = OpenRocketDocumentFactory.createDocumentFromRocket(rocket);
 
 		Simulation sim = new Simulation(rocket);
-		AirbrakeExtension extension = new AirbrakeExtension();
+		LegacyAirbrakeExtension extension = new LegacyAirbrakeExtension();
 		extension.setCfdDataFilePath("C:/legacy/airbrakes.csv");
 		extension.setReferenceArea(0.011);
 		extension.setReferenceLength(0.22);
@@ -644,6 +646,49 @@ public class OpenRocketSaverTest {
 		assertEquals(0.8, loadedSim.getOptions().getDeployAfterBurnoutDelayS(), 1e-12);
 		assertTrue(loadedSim.getOptions().isDebugEnabled());
 		assertEquals(0, loadedSim.getSimulationExtensions().size(), "Legacy airbrake extension should be migrated out");
+	}
+
+	private static final class LegacyAirbrakeExtension extends AbstractSimulationExtension {
+		@Override
+		public String getId() {
+			return "info.openrocket.core.airbrakesplugin.AirbrakeExtension";
+		}
+
+		@Override
+		public void initialize(SimulationConditions conditions) throws SimulationException {
+		}
+
+		void setCfdDataFilePath(String value) {
+			config.put("airbrakes.cfdDataFilePath", value);
+		}
+
+		void setReferenceArea(double value) {
+			config.put("airbrakes.referenceArea", value);
+		}
+
+		void setReferenceLength(double value) {
+			config.put("airbrakes.referenceLength", value);
+		}
+
+		void setTargetApogee(double value) {
+			config.put("airbrakes.targetApogee", value);
+		}
+
+		void setMaxMachForDeployment(double value) {
+			config.put("airbrakes.maxMachForDeployment", value);
+		}
+
+		void setDeployAfterBurnoutOnly(boolean value) {
+			config.put("airbrakes.deployAfterBurnoutOnly", value);
+		}
+
+		void setDeployAfterBurnoutDelayS(double value) {
+			config.put("airbrakes.deployAfterBurnoutDelayS", value);
+		}
+
+		void setDebugEnabled(boolean value) {
+			config.put("airbrakes.debugEnabled", value);
+		}
 	}
 	
 	////////////////////////////////

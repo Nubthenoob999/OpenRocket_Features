@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
-import info.openrocket.core.airbrakesplugin.AirbrakeExtension;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
@@ -29,11 +28,16 @@ import info.openrocket.core.simulation.extension.SimulationExtension;
 import info.openrocket.core.simulation.extension.SimulationExtensionProvider;
 import info.openrocket.core.simulation.extension.impl.JavaCode;
 import info.openrocket.core.startup.Application;
+import info.openrocket.core.util.Config;
 import info.openrocket.core.util.StringUtils;
 
 import com.google.inject.Key;
 
 class SingleSimulationHandler extends AbstractElementHandler {
+	private static final String AIRBRAKE_EXTENSION_ID = "info.openrocket.core.airbrakesplugin.AirbrakeExtension";
+	private static final String LEGACY_AIRBRAKE_EXTENSION_ID = "com.airbrakesplugin.AirbrakeExtension";
+	private static final String AIRBRAKE_CONFIG_PREFIX = "airbrakes.";
+
 	private final DocumentLoadingContext context;
 
 	private final OpenRocketDocument doc;
@@ -155,6 +159,9 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			String id = attributes.get("extensionid");
 			id = id.replace("net.sf.openrocket", "info.openrocket.core");
 			id = id.replace("com.hprc.montecarlo", "info.openrocket.core.montecarlo");
+			if (migrateAirbrakesExtension(id, configHandler.getConfig())) {
+				return;
+			}
 			SimulationExtension extension = null;
 			Set<SimulationExtensionProvider> extensionProviders = Application.getInjector()
 					.getInstance(new Key<>() {
@@ -166,9 +173,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			}
 			if (extension != null) {
 				extension.setConfig(configHandler.getConfig());
-				if (!migrateAirbrakesExtension(extension)) {
-					extensions.add(extension);
-				}
+				extensions.add(extension);
 			} else {
 				warnings.add("Simulation extension with id '" + id + "' not found.");
 			}
@@ -274,8 +279,8 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		return extension;
 	}
 
-	private boolean migrateAirbrakesExtension(SimulationExtension extension) {
-		if (!(extension instanceof AirbrakeExtension airbrakeExtension)) {
+	private boolean migrateAirbrakesExtension(String extensionId, Config config) {
+		if (!AIRBRAKE_EXTENSION_ID.equals(extensionId) && !LEGACY_AIRBRAKE_EXTENSION_ID.equals(extensionId)) {
 			return false;
 		}
 		if (conditionHandler == null) {
@@ -284,26 +289,45 @@ class SingleSimulationHandler extends AbstractElementHandler {
 
 		SimulationOptions options = conditionHandler.getConditions();
 		options.setAirbrakesEnabled(true);
-		options.setCfdDataFilePath(airbrakeExtension.getCfdDataFilePath());
-		options.setReferenceArea(airbrakeExtension.getReferenceArea());
-		options.setReferenceLength(airbrakeExtension.getReferenceLength());
-		options.setMaxDeploymentRate(airbrakeExtension.getMaxDeploymentRate());
-		options.setTargetApogee(airbrakeExtension.getTargetApogee());
-		options.setMaxMachForDeployment(airbrakeExtension.getMaxMachForDeployment());
-		options.setAlwaysOpenMode(airbrakeExtension.isAlwaysOpenMode());
-		options.setAlwaysOpenPercentage(airbrakeExtension.getAlwaysOpenPercentage());
-		options.setApogeeToleranceMeters(airbrakeExtension.getApogeeToleranceMeters());
-		options.setDeployAfterBurnoutOnly(airbrakeExtension.isDeployAfterBurnoutOnly());
-		options.setDeployAfterBurnoutDelayS(airbrakeExtension.getDeployAfterBurnoutDelayS());
-		options.setDebugEnabled(airbrakeExtension.isDebugEnabled());
-		options.setDbgAlwaysOpen(airbrakeExtension.isDbgAlwaysOpen());
-		options.setDbgForcedDeployFrac(airbrakeExtension.getDbgForcedDeployFrac());
-		options.setDbgTracePredictor(airbrakeExtension.isDbgTracePredictor());
-		options.setDbgTraceController(airbrakeExtension.isDbgTraceController());
-		options.setDbgWriteCsv(airbrakeExtension.isDbgWriteCsv());
-		options.setDbgCsvDir(airbrakeExtension.getDbgCsvDir());
-		options.setDbgShowConsole(airbrakeExtension.isDbgShowConsole());
+		options.setCfdDataFilePath(getString(config, "cfdDataFilePath", ""));
+		options.setReferenceArea(getDouble(config, "referenceArea", 0.0));
+		options.setReferenceLength(getDouble(config, "referenceLength", 0.0));
+		options.setMaxDeploymentRate(getDouble(config, "maxDeploymentRate", 40.0));
+		options.setTargetApogee(getDouble(config, "targetApogee", 0.0));
+		options.setMaxMachForDeployment(getDouble(config, "maxMachForDeployment", 1.0));
+		options.setAlwaysOpenMode(getBoolean(config, "alwaysOpenMode", false));
+		options.setAlwaysOpenPercentage(clamp01(getDouble(config, "alwaysOpenPercentage", 1.0)));
+		options.setApogeeToleranceMeters(getDouble(config, "apogeeToleranceMeters", 5.0));
+		options.setDeployAfterBurnoutOnly(getBoolean(config, "deployAfterBurnoutOnly", false));
+		options.setDeployAfterBurnoutDelayS(Math.max(0.0, getDouble(config, "deployAfterBurnoutDelayS", 0.0)));
+		options.setDebugEnabled(getBoolean(config, "debugEnabled", false));
+		options.setDbgAlwaysOpen(getBoolean(config, "dbgAlwaysOpen", false));
+		options.setDbgForcedDeployFrac(clamp01(getDouble(config, "dbgForcedDeployFrac", 1.0)));
+		options.setDbgTracePredictor(getBoolean(config, "dbgTracePredictor", true));
+		options.setDbgTraceController(getBoolean(config, "dbgTraceController", true));
+		options.setDbgWriteCsv(getBoolean(config, "dbgWriteCsv", true));
+		options.setDbgCsvDir(getString(config, "dbgCsvDir", ""));
+		options.setDbgShowConsole(getBoolean(config, "dbgShowConsole", false));
 		return true;
+	}
+
+	private static String getString(Config config, String key, String defaultValue) {
+		return config.getString(AIRBRAKE_CONFIG_PREFIX + key, config.getString(key, defaultValue));
+	}
+
+	private static double getDouble(Config config, String key, double defaultValue) {
+		return config.getDouble(AIRBRAKE_CONFIG_PREFIX + key, config.getDouble(key, defaultValue));
+	}
+
+	private static boolean getBoolean(Config config, String key, boolean defaultValue) {
+		return config.getBoolean(AIRBRAKE_CONFIG_PREFIX + key, config.getBoolean(key, defaultValue));
+	}
+
+	private static double clamp01(double value) {
+		if (!Double.isFinite(value)) {
+			return 0.0;
+		}
+		return Math.max(0.0, Math.min(1.0, value));
 	}
 
 }
