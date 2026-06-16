@@ -1,62 +1,62 @@
-# OpenRocket Installer Files
-Originally a separate repository of Justin Hanna's, now a directory
-with its own commit history in the openrocket repository.
+![OpenRocket banner](.github/banner.png)
 
-# OpenRocket Supported Installers
-The [OpenRocket](http://www.openrocket.info) project will do its best
-to publish installers for the following platforms.
+**Vanilla OpenRocket** -->
 
-* Windows, 64-bit
-* macOS, 64-bit (Intel & Apple Silicon)
-* Linux, 64-bit
+![Build Status](https://github.com/openrocket/openrocket/actions/workflows/build.yml/badge.svg)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+![GitHub release](https://img.shields.io/github/release/openrocket/openrocket.svg)
+[![Github Releases (by release)](https://img.shields.io/github/downloads/openrocket/openrocket/latest/total.svg)](https://GitHub.com/openrocket/openrocket/releases/)
+[![Read the Docs](https://readthedocs.org/projects/openrocket/badge/?version=latest)](https://openrocket.readthedocs.io/en/latest/)
+[![snap release](https://snapcraft.io/openrocket/badge.svg)](https://snapcraft.io/openrocket)
+![Chocolatey release](https://img.shields.io/chocolatey/v/openrocket)
+[![Crowdin](https://badges.crowdin.net/openrocket/localized.svg)](https://crowdin.com/project/openrocket)
+[![Join our Discord server!](https://img.shields.io/discord/1073297014814691328?logo=discord)](https://discord.gg/qD2G5v2FAw)
 
-# Maintainers
-* Neil Weinstock 
-* Justin Hanney
-* Joe Pfeiffer
-* Sibo Van Gool
+This fork is dedicated to Project Imperia. It aims to reconcile some known and personal gripes with base OpenRocket from the lack of a native Monte Carlo Simulations as well as simulation accuracy. 
 
-# Instructions on updating the macOS drag-and-drop installer
+First a custom Monte Carlo wrapper was implemented to nativley interface with the simulation tab. The regular plugin can be found at: [Plugin Link](https://github.com/NCSU-High-Powered-Rocketry-Club/OpenRocket-Monte-Carlo)
 
-Either run "update_ds_store.sh" or follow the instructions below.
+The main objective is to introduce a fully physics based Pathline Reduced Order Model to better calculate various coefficents for a given vehicle configuration. A high level overview is that a ray is shot through the given fluid domain in which the base OpenRocket Configuration is placed in. Then using physics based equations, expereimental derived equations and correlations, and other techniques, the fluid properties are intergated along that ray. 
 
-This is an example of updating the installer from 22.02 to 23.09.beta.01:
+Since this a work-in-progress [Technical Documentation]() will be continually updated for the under the hood math. Moreover, this README will be updated once the ROM and all other codes are verified to be accurate for predicting altitude, and the overall ascent profile.
 
-If you use the `macOS_resources/template_dmg_rw.dmg` file, you can skip to step 4
+All credit goes to the original/current creators and maintainers of OpenRocket!
 
-1. Make sure install4j is not opened
-2. Download the OpenRocket-22.02-macOS.dmg file 
-3. Make a read/write .dmg file using the terminal command `hdiutil convert OpenRocket-22.02-macOS.dmg -format UDRW -o 22.02.beta.05_rw.dmg`
+### ✨ OpenRocket Contributors
+- [Sampo Niskanen](https://github.com/plaa) - Original developer
+- [Doug Pedrick](https://github.com/rodinia814) - RockSim designs, printing
+- [Kevin Ruland](https://github.com/kruland2607) - Android version
+- [Bill Kuker](https://github.com/bkuker) - 3D visualization
+- [Richard Graham](https://github.com/rdgraham) - Geodetic computations
+- Jason Blood - Freeform fin set import
+- [Boris du Reau](https://github.com/bdureau) - Internationalization
+- [Daniel Williams](https://github.com/teyrana) - Pod support, maintainer
+- [Joe Pfeiffer](https://github.com/JoePfeiffer) - Maintainer
+- [Billy Olsen](https://github.com/wolsen) - Maintainer
+- [Sibo Van Gool](https://github.com/SiboVG) - RASAero file format, 3D OBJ export, dark theme, maintainer
+- [Neil Weinstock](https://github.com/neilweinstock) - Tester, icons, forum support
+- [H. Craig Miller](https://github.com/hcraigmiller) - Tester
 
-4. Enlarge the writable DMG, by first checking the current size: `hdiutil resize template_dmg_rw.dmg`, e.g. you get 430000 in the 'cur' column, then just resize it to e.g. 500000: `hdiutil resize -sectors 500000 template_dmg_rw.dmg`
-5. Mount the DMG: `hdiutil attach template_dmg_rw.dmg`
-6. Open the OpenRocket-disk from your desktop and change the app name from 22.02 to 23.09 
-7. Copy the .DS_Store to `openrocket/install4j/23.09/macOS_resources` by running the command `cp /Volumes/OpenRocket/.DS_Store openrocket/install4j/23.09/macOS_resources/DS_Store`
-8. Eject the OpenRocket DMG disk from your desktop (important step)
-9. (optional) Delete `template_dmg_rw.dmg`
-10. You're all done!
+You can view the full list of contributors [here](https://github.com/openrocket/openrocket/graphs/contributors).
 
-# Whitelisting OpenRocket on Windows
-Even when you've code signed the Windows installer, Microsoft Defender Smart Screen can still give warnings that the installer is from an unknown publisher. This warning will go away after a couple of months or after the installer has been downloaded enough times. However, you can also whitelist the installer by submitting it to Microsoft for malware analysis.
+### 🌍Translators
+- Tripoli France
+- Tripoli Spain
+- Stefan Lobas / ERIG
+- Mauro Biasutti
+- Sky Dart Team / Ruslan V. Uss
+- Vladimir Beran
+- Polish Rocketry Society / Łukasz & Alex Kazanski
+- Sibo Van Gool
+- Mohamed Amin Elkebsi
+- Oleksandr Hladin
 
-You can do so through the following link: https://www.microsoft.com/en-us/wdsi/filesubmission
+## 📜 License
 
-Select 'Software developer' and use the following settings:
-- Select the Microsoft security product used to scan the file
-  - Microsoft Defender SmartScreen
-- Company name
-  - OpenRocket
-- Do you have a Microsoft support case number?
-  - No
-- Software Assurance ID
-  - Don't fill this stuff in
-- Select the file
-  - Upload the .exe installer
-- Should this file be removed from our database at a certain date?
-  - No
-- What do you believe this file is?
-  - Incorrectly detected as PUA (potentially unwanted application)
-- Detection name
-  - Unknown Publisher Security Warning
-- Additional information
-  - Hello, I am a software developer for the open-source program OpenRocket. We are about to release a new version of our program, and have already code-signed it, but Windows SmartScreen still marks the software as an unrecognized app. I think this has to do with building trust because the program isn't downloaded enough yet. However, for our last release, which was published in February of this year, one of our team members contacted Microsoft Support to ask for an acceleration of the trust program, which was successful; you generously whitelisted us. My question now is: is it possible to do this again for our new release?
+OpenRocket is proudly open-source under the [GNU GPL](https://www.gnu.org/licenses/gpl-3.0.en.html) license. Feel free to use, study, and extend.
+
+---
+ 
+⭐ Please give OpenRocket a star if you find OpenRocket useful, and spread the word! ⭐
+
+[![Star History Chart](https://api.star-history.com/svg?repos=openrocket/openrocket&type=Date)](https://star-history.com/#openrocket/openrocket&Date)
