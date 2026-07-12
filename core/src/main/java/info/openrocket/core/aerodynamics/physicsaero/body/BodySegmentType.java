@@ -1,0 +1,7 @@
+package info.openrocket.core.aerodynamics.physicsaero.body;
+
+public enum BodySegmentType {
+	NOSE_STAGNATION_REGION, TRUE_CONE, SMOOTH_COMPRESSION, CYLINDER,
+	DISCRETE_COMPRESSION_CORNER, SMOOTH_EXPANSION, DISCRETE_EXPANSION_CORNER,
+	BOATTAIL, BASE
+}

@@ -1,0 +1,29 @@
+flight_id,vehicle_name,motor,diameter_in,peak_mach,launch_site_alt_ft,apogee_real_ft,apogee_rasaero_ft,apogee_thiswork_ft,err_rasaero_pct,err_thiswork_pct,abs_err_delta_pp,flight_data_type,data_source
+1,Thunder & Lightning,I284W (AT),3.10,0.54,2750,3577,3989,3877,11.52,8.4,3.12,Barometric Altimeter,Rogers RASAero II Comparisons
+2,Gibb,I284W (AT),3.00,0.55,2750,3913,4310,3989,10.15,1.9,8.25,Barometric Altimeter,Rogers RASAero II Comparisons
+3,Cancer Descending,M1297W (AT),6.00,0.56,2750,6188,6328,6044,2.26,-2.3,-0.04,Barometric Altimeter,Rogers RASAero II Comparisons
+4,EZI-65 J450ST,J450ST (AMW),4.00,0.60,2750,3965,4214,4158,6.28,4.9,1.38,Barometric Altimeter,Rogers RASAero II Comparisons
+5,Caliber Isp 04 AVTC Team 2,I205 (CTI),3.10,0.64,2302,3710,3871,3890,4.34,4.9,-0.56,Barometric Altimeter,Rogers RASAero II Comparisons
+6,Caliber Isp 04 AVTC Team 3,I205 (CTI),3.10,0.64,2302,3964,3871,3889,-2.35,-1.9,0.45,Barometric Altimeter,Rogers RASAero II Comparisons
+7,Caliber Isp 04 AVTC Team 1,I205 (CTI),3.10,0.66,2302,3837,3943,3960,2.76,3.2,-0.44,Barometric Altimeter,Rogers RASAero II Comparisons
+8,Byrum,J570W (AT),3.00,0.75,2750,5732,5280,6161,-7.89,7.5,0.39,Barometric Altimeter,Rogers RASAero II Comparisons
+9,Ion Drive,K550W (AT),4.00,0.79,2750,8027,8642,7730,7.66,-3.7,3.96,Barometric Altimeter,Rogers RASAero II Comparisons
+10,Caliber Isp 05 ARO-414 (Discovery),I285 (CTI),3.10,0.81,2848,4930,4831,4772,-2.01,-3.2,-1.19,Barometric Altimeter,Rogers RASAero II Comparisons
+11,Blister,K1075GG (AMW),3.00,0.83,2400,9026,8347,8268,-7.52,-8.4,-0.88,Barometric Altimeter,Rogers RASAero II Comparisons
+12,Caliber Isp 05 ARO-414 (Columbia),I285 (CTI),3.10,0.84,2848,5085,4842,4777,-4.78,-6.1,-1.32,Barometric Altimeter,Rogers RASAero II Comparisons
+13,Rabia - Short Fin Can,L730 (CTI),3.13,0.86,3400,10584,10376,9916,-1.97,-6.3,-4.33,Barometric Altimeter,Rogers RASAero II Comparisons
+14,Raven,J570W (AT),1.75,1.07,2750,8815,9288,9489,5.37,7.6,-2.23,Barometric Altimeter,Rogers RASAero II Comparisons
+15,Rabia,L1080BB (AMW),3.00,1.14,2400,12745,12777,11913,0.25,-6.5,-6.25,Barometric Altimeter,Rogers RASAero II Comparisons
+16,Torrent,M1850GG (AMW),4.00,1.22,2400,12807,13852,12455,8.16,-2.8,5.36,Barometric Altimeter,Rogers RASAero II Comparisons
+17,Kline-Rogers L500,L500 (Ace),2.26,1.98,2848,24771,26485,24179,6.92,-2.4,4.52,Optical Track,Rogers RASAero II Comparisons
+18,A-601 Kinsel,P4935,6.13,2.19,3933,42771,41086,46499,-3.94,8.7,-4.76,GPS,Rogers RASAero II Comparisons
+19,Full Metal Jacket - BALLS 005,O10000 (Kosdon),4.00,2.31,3933,37981,38820,37256,2.21,-1.9,0.31,Optical Track,Rogers RASAero II Comparisons
+20,Full Metal Jacket - Black Rock 6,O10000 (Kosdon),4.00,2.46,3933,30038,32646,29239,8.68,-2.7,5.98,Optical Track,Rogers RASAero II Comparisons
+21,Proteus 6,P9381 (Loki-EX),6.00,2.87,3933,85067,86799,91339,2.04,7.4,-5.36,Integrated Accelerometer,Rogers RASAero II Comparisons
+22,AeroPac 104K Two-Stage,N1048 / M685W (AT),4.05/3.08,3.04,3750,104659,113786,103602,8.72,-1.0,7.72,GPS,Rogers RASAero II Comparisons
+23,Don't Debate This,N5800 (CTI),3.92,3.04,3750,56573,62308,53150,10.14,-6.1,4.04,Barometric Altimeter,Rogers RASAero II Comparisons
+24,Qu8k,Q18000 (Deville-EX),8.00,3.46,3750,121478,116254,119187,-4.30,-1.9,2.40,Integrated Accelerometer,Rogers RASAero II Comparisons
+25,MESOS 293K,O4374 / M787 (KIP-EX),4.68/3.15,4.33,3910,293488,289789,273070,-1.26,-7.0,-5.74,GPS,Rogers RASAero II Comparisons
+26,Black Brant V VB (AAF-VB-32),26KS20000 (Bristol),16.93,7.22,98,897638,,835071,,-6.97,,Radar Track,DTIC AD0733141 (Bristol/NRC Churchill 1971)
+27,Nike-Deacon flight 1,Nike M5 / Deacon ABL,16.5/6.5,4.96,0,356000,,352210,,-1.06,,Radar Beacon Track (precision ~+/-1k ft),NACA TN 3739 p.5-6 (Heitkotter 1956 Wallops 1955)
+28,Nike-Deacon flight 2,Nike M5 / Deacon ABL,16.5/6.5,5.08,0,350000,,346902,,-0.89,,Radar Beacon Track (intermittent ~+/-5k ft),NACA TN 3739 p.5-6 (Heitkotter 1956 Wallops 1955)

@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.blending;
+public final class PhysicsValidityWeight {public double weight(boolean valid,double coverage,double residual,double separationSeverity,double sourceQuality){if(!valid)return 0;if(coverage<0||coverage>1||residual<0||separationSeverity<0||separationSeverity>1||sourceQuality<0||sourceQuality>1)throw new IllegalArgumentException();return Math.max(0,coverage*sourceQuality*Math.exp(-5*residual)*(1-.8*separationSeverity));}}

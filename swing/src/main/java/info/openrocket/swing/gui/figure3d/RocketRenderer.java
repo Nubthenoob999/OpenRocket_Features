@@ -265,12 +265,23 @@ public abstract class RocketRenderer {
 	}
 	
 	public void render(GLAutoDrawable drawable, FlightConfiguration configuration, Set<RocketComponent> selection) {
+		render(drawable, configuration, selection, java.util.Collections.emptySet());
+	}
+
+	/**
+	 * Render the configuration, skipping any component in {@code ignore}.
+	 */
+	public void render(GLAutoDrawable drawable, FlightConfiguration configuration,
+			Set<RocketComponent> selection, Set<RocketComponent> ignore) {
 		
 		if (cr == null)
 			throw new IllegalStateException(this + " Not Initialized");
 		
 
         Collection<Geometry> geometry = getTreeGeometry( configuration);
+		if (ignore != null && !ignore.isEmpty()) {
+			geometry.removeIf(g -> ignore.contains(g.getComponent()));
+		}
         
 		GL2 gl = drawable.getGL().getGL2();
 		

@@ -1,0 +1,1 @@
+# The Java test builds delimiter, BOM, quote, whitespace, case, reorder, missing, and duplicate variants from the canonical legend.

@@ -89,11 +89,15 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		this.document = document;
 		this.simulation = simulation;
 
+		referenceField.setColumns(1);
+		configField.setColumns(1);
+		reportsField.setColumns(1);
+
 		configureDefaults();
 		configureLogsView();
 
-		add(buildCurrentSimulationPanel(), "growx");
-		add(buildRunnerPanel(), "growx");
+		add(buildCurrentSimulationPanel(), "growx, wmin 0");
+		add(buildRunnerPanel(), "growx, wmin 0");
 
 		addOrReplaceTab("Summary", buildCsvPanel(getReportsPath().resolve(SUMMARY)));
 		addOrReplaceTab("Quantities", buildCsvPanel(getReportsPath().resolve(QUANTITIES)));
@@ -101,9 +105,9 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		addOrReplaceTab("Analysis", buildCsvPanel(getReportsPath().resolve(ANALYSIS)));
 		addOrReplaceTab("Residuals", buildCsvPanel(getReportsPath().resolve(RESIDUALS)));
 		addOrReplaceTab("Logs", buildLogsPanel());
-		add(resultsTabs, "grow, push");
+		add(resultsTabs, "grow, push, wmin 0");
 
-		add(statusLabel, "growx");
+		add(statusLabel, "growx, wmin 0");
 
 		wireEvents();
 		refreshCurrentSimulationState();
@@ -111,53 +115,54 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	}
 
 	private JPanel buildCurrentSimulationPanel() {
-		JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow][right][grow]", ""));
+		JPanel panel = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow,fill]", ""));
 		panel.setBorder(BorderFactory.createTitledBorder("Pathline ROM Analysis"));
 
 		panel.add(new JLabel("Document:"));
-		panel.add(documentValue);
+		panel.add(documentValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Simulation:"));
-		panel.add(simulationValue, "wrap");
+		panel.add(simulationValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("ROM state:"));
-		panel.add(romStateValue);
+		panel.add(romStateValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Mode:"));
-		panel.add(romModeValue, "wrap");
+		panel.add(romModeValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Fallback:"));
-		panel.add(fallbackValue);
+		panel.add(fallbackValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Diagnostics:"));
-		panel.add(diagnosticsValue, "wrap");
+		panel.add(diagnosticsValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Seed plan:"));
-		panel.add(seedPlanValue);
+		panel.add(seedPlanValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Trusted envelope:"));
-		panel.add(trustedEnvelopeValue, "wrap");
+		panel.add(trustedEnvelopeValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Runtime:"));
-		panel.add(runtimeValue);
+		panel.add(runtimeValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Max Mach:"));
-		panel.add(machValue, "wrap");
+		panel.add(machValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Dataset class:"));
-		panel.add(datasetClassValue);
+		panel.add(datasetClassValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Aligned dt(apogee):"));
-		panel.add(alignedTimingValue, "wrap");
+		panel.add(alignedTimingValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Truth source:"));
-		panel.add(truthSourceValue);
+		panel.add(truthSourceValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Alignment channel:"));
-		panel.add(alignmentChannelValue, "wrap");
+		panel.add(alignmentChannelValue, "growx, wmin 0, wrap");
 
 		panel.add(new JLabel("Alignment lag:"));
-		panel.add(alignmentLagValue);
+		panel.add(alignmentLagValue, "growx, wmin 0, wrap");
 		panel.add(new JLabel("Alignment quality:"));
-		panel.add(alignmentQualityValue, "wrap");
+		panel.add(alignmentQualityValue, "growx, wmin 0, wrap");
 
-		JLabel note = new JLabel("<html>This analysis compares only the current simulation against one reference CSV "
-				+ "while forcing the pathline ROM runtime for this test flow. "
-				+ "It runs in-process inside OpenRocket, so it works in the packaged app without Gradle.</html>");
-		panel.add(note, "span 4, growx");
+		JTextArea note = SimulationTabLayoutUtils.createWrappingDisplayText(
+				"This analysis compares only the current simulation against one reference CSV "
+						+ "while forcing the pathline ROM runtime for this test flow. "
+						+ "It runs in-process inside OpenRocket, so it works in the packaged app without Gradle.");
+		panel.add(note, "span 2, growx, wmin 0");
 		return panel;
 	}
 
@@ -167,28 +172,28 @@ class RomTuningPanel extends SimulationScrollablePanel {
 
 		JPanel form = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 6", "[right][grow,fill][]", ""));
 		form.add(new JLabel("Reference CSV:"));
-		form.add(referenceField, "growx");
+		form.add(referenceField, "growx, wmin 0");
 		JButton browseReferenceButton = new JButton("Browse");
 		browseReferenceButton.addActionListener(e -> browseForFile(referenceField));
 		form.add(browseReferenceButton, "wrap");
 
 		form.add(new JLabel("Batch config:"));
-		form.add(configField, "growx");
+		form.add(configField, "growx, wmin 0");
 		JButton browseConfigButton = new JButton("Browse");
 		browseConfigButton.addActionListener(e -> browseForFile(configField));
 		form.add(browseConfigButton, "wrap");
 
 		form.add(new JLabel("Reports dir:"));
-		form.add(reportsField, "growx");
+		form.add(reportsField, "growx, wmin 0");
 		JButton browseReportsButton = new JButton("Browse");
 		browseReportsButton.addActionListener(e -> browseForDirectory(reportsField));
 		form.add(browseReportsButton, "wrap");
 
-		JPanel buttons = new JPanel(new MigLayout("insets 0, gapx 6", "[][][]", ""));
-		buttons.add(runButton);
-		buttons.add(runBatchButton);
-		buttons.add(refreshButton);
-		buttons.add(openFolderButton);
+		JPanel buttons = new JPanel(new MigLayout("insets 0, gap 6 6, wrap 2", "[grow,fill][grow,fill]", ""));
+		buttons.add(runButton, "growx");
+		buttons.add(runBatchButton, "growx");
+		buttons.add(refreshButton, "growx");
+		buttons.add(openFolderButton, "growx");
 
 		outer.add(form, BorderLayout.CENTER);
 		outer.add(buttons, BorderLayout.SOUTH);
@@ -208,7 +213,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		reportsField.setText(seed.reports().toString());
 		Path defaultConfig = PhaseThreeTuningPaths.findDefaultConfig();
 		configField.setText(defaultConfig != null ? defaultConfig.toString() : seed.reference().toString());
-		documentValue.setText(document != null && document.getFile() != null
+		setValue(documentValue, document != null && document.getFile() != null
 				? document.getFile().getAbsolutePath()
 				: "Unsaved document");
 	}
@@ -241,20 +246,20 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	}
 
 	private void refreshCurrentSimulationState() {
-		simulationValue.setText(simulation.getName());
+		setValue(simulationValue, simulation.getName());
 		RomSettings settings = simulation.getOptions().getRomSettings();
-		romStateValue.setText(settings.isEnabled() ? "Enabled" : "Disabled");
-		romModeValue.setText(formatRomMode(settings.getMode()));
-		fallbackValue.setText(formatRomFallbackMode(settings.getFallbackMode()));
-		diagnosticsValue.setText(settings.isDiagnosticsEnabled() ? "Snapshot logging enabled" : "Snapshot logging disabled");
-		seedPlanValue.setText(settings.getBodyMeridianSeedCount() + " body meridian, "
+		setValue(romStateValue, settings.isEnabled() ? "Enabled" : "Disabled");
+		setValue(romModeValue, formatRomMode(settings.getMode()));
+		setValue(fallbackValue, formatRomFallbackMode(settings.getFallbackMode()));
+		setValue(diagnosticsValue, settings.isDiagnosticsEnabled() ? "Snapshot logging enabled" : "Snapshot logging disabled");
+		setValue(seedPlanValue, settings.getBodyMeridianSeedCount() + " body meridian, "
 				+ settings.getFinSurfaceSeedCount() + " per fin surface");
-		trustedEnvelopeValue.setText(String.format(Locale.ROOT,
+		setValue(trustedEnvelopeValue, String.format(Locale.ROOT,
 				"Mach 1 +/- %.2f, high-angle %.1f deg, separation %.0f%%",
 				settings.getTransonicBandHalfWidth(),
 				settings.getHighAngleDeg(),
 				100.0 * settings.getMaxTrustedSeparationFraction()));
-		runtimeValue.setText(buildRuntimeSummary());
+		setValue(runtimeValue, buildRuntimeSummary());
 	}
 
 	private String buildRuntimeSummary() {
@@ -270,13 +275,13 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		Path referenceCsv = getReferencePath();
 		Path reportsDir = getReportsPath();
 		if (!Files.exists(referenceCsv)) {
-			statusLabel.setText("Reference CSV not found: " + referenceCsv);
+			setStatusText("Reference CSV not found: " + referenceCsv);
 			return;
 		}
 
 		executionLogArea.setText("");
 		setControlsEnabled(false);
-		statusLabel.setText("Running pathline comparison...");
+		setStatusText("Running pathline comparison...");
 		runWorker = new SwingWorker<>() {
 			@Override
 			protected PhaseTwoBatchResult doInBackground() throws Exception {
@@ -300,10 +305,10 @@ class RomTuningPanel extends SimulationScrollablePanel {
 					get();
 					publishLine("Pathline comparison completed successfully.");
 					refreshResults();
-					statusLabel.setText("Pathline comparison completed successfully.");
+					setStatusText("Pathline comparison completed successfully.");
 				} catch (Exception ex) {
 					publishLine("Pathline comparison failed: " + ex.getMessage());
-					statusLabel.setText("Pathline comparison failed: " + ex.getMessage());
+					setStatusText("Pathline comparison failed: " + ex.getMessage());
 					resultsTabs.setSelectedIndex(resultsTabs.indexOfTab("Logs"));
 				} finally {
 					runWorker = null;
@@ -317,13 +322,13 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		Path configPath = getConfigPath();
 		Path reportsDir = getReportsPath();
 		if (!Files.exists(configPath)) {
-			statusLabel.setText("Batch config not found: " + configPath);
+			setStatusText("Batch config not found: " + configPath);
 			return;
 		}
 
 		executionLogArea.setText("");
 		setControlsEnabled(false);
-		statusLabel.setText("Running pathline batch...");
+		setStatusText("Running pathline batch...");
 		runWorker = new SwingWorker<>() {
 			@Override
 			protected PhaseTwoBatchResult doInBackground() throws Exception {
@@ -348,10 +353,10 @@ class RomTuningPanel extends SimulationScrollablePanel {
 					publishLine("Pathline batch completed successfully.");
 					publishLine("Datasets processed: " + result.getDatasets().size());
 					refreshResults();
-					statusLabel.setText("Pathline batch completed successfully.");
+					setStatusText("Pathline batch completed successfully.");
 				} catch (Exception ex) {
 					publishLine("Pathline batch failed: " + ex.getMessage());
-					statusLabel.setText("Pathline batch failed: " + ex.getMessage());
+					setStatusText("Pathline batch failed: " + ex.getMessage());
 					resultsTabs.setSelectedIndex(resultsTabs.indexOfTab("Logs"));
 				} finally {
 					runWorker = null;
@@ -377,17 +382,17 @@ class RomTuningPanel extends SimulationScrollablePanel {
 		addOrReplaceTab("Residuals", buildCsvPanel(reportsDir.resolve(RESIDUALS)));
 		addOrReplaceTab("Logs", buildLogsPanel());
 		refreshOverview(reportsDir.resolve(ANALYSIS));
-		statusLabel.setText("Loaded reports from " + reportsDir);
+		setStatusText("Loaded reports from " + reportsDir);
 	}
 
 	private void refreshOverview(Path analysisPath) {
-		datasetClassValue.setText("-");
-		alignedTimingValue.setText("-");
-		truthSourceValue.setText("-");
-		alignmentChannelValue.setText("-");
-		alignmentLagValue.setText("-");
-		alignmentQualityValue.setText("-");
-		machValue.setText("-");
+		setValue(datasetClassValue, "-");
+		setValue(alignedTimingValue, "-");
+		setValue(truthSourceValue, "-");
+		setValue(alignmentChannelValue, "-");
+		setValue(alignmentLagValue, "-");
+		setValue(alignmentQualityValue, "-");
+		setValue(machValue, "-");
 		if (!Files.exists(analysisPath)) {
 			return;
 		}
@@ -405,28 +410,28 @@ class RomTuningPanel extends SimulationScrollablePanel {
 						.filter(Double::isFinite)
 						.max(Double::compareTo)
 						.orElse(Double.NaN);
-				datasetClassValue.setText(analysis.rows().size() + " datasets (" + brokenCount + " broken)");
-				truthSourceValue.setText("Batch config");
-				alignmentChannelValue.setText("Mixed");
-				alignmentLagValue.setText("Mixed");
-				alignmentQualityValue.setText("Mixed");
-				alignedTimingValue.setText("Batch summary");
-				machValue.setText(Double.isFinite(maxMach) ? String.format(Locale.ROOT, "%.3f", maxMach) : "-");
+				setValue(datasetClassValue, analysis.rows().size() + " datasets (" + brokenCount + " broken)");
+				setValue(truthSourceValue, "Batch config");
+				setValue(alignmentChannelValue, "Mixed");
+				setValue(alignmentLagValue, "Mixed");
+				setValue(alignmentQualityValue, "Mixed");
+				setValue(alignedTimingValue, "Batch summary");
+				setValue(machValue, Double.isFinite(maxMach) ? String.format(Locale.ROOT, "%.3f", maxMach) : "-");
 				return;
 			}
 			List<String> row = analysis.rows().get(0);
-			datasetClassValue.setText(csvValue(analysis, row, "datasetClass"));
+			setValue(datasetClassValue, csvValue(analysis, row, "datasetClass"));
 			String dt = csvValue(analysis, row, "alignedApogeeTimeDeltaSec");
-			alignedTimingValue.setText(dt.isBlank() ? "-" : dt + " s");
-			truthSourceValue.setText(blankDash(csvValue(analysis, row, "truthSource")));
-			alignmentChannelValue.setText(blankDash(csvValue(analysis, row, "alignmentChannel")));
+			setValue(alignedTimingValue, dt.isBlank() ? "-" : dt + " s");
+			setValue(truthSourceValue, blankDash(csvValue(analysis, row, "truthSource")));
+			setValue(alignmentChannelValue, blankDash(csvValue(analysis, row, "alignmentChannel")));
 			String lag = csvValue(analysis, row, "alignmentLagSec");
-			alignmentLagValue.setText(lag.isBlank() ? "-" : lag + " s");
-			alignmentQualityValue.setText(blankDash(csvValue(analysis, row, "alignmentQuality")));
+			setValue(alignmentLagValue, lag.isBlank() ? "-" : lag + " s");
+			setValue(alignmentQualityValue, blankDash(csvValue(analysis, row, "alignmentQuality")));
 			String mach = csvValue(analysis, row, "candidateMaxMach");
-			machValue.setText(mach.isBlank() ? "-" : mach);
+			setValue(machValue, mach.isBlank() ? "-" : mach);
 		} catch (IOException ex) {
-			datasetClassValue.setText("Failed to load");
+			setValue(datasetClassValue, "Failed to load");
 		}
 	}
 
@@ -446,7 +451,7 @@ class RomTuningPanel extends SimulationScrollablePanel {
 	private JPanel buildCsvPanel(Path csvPath) {
 		JPanel panel = new JPanel(new BorderLayout());
 		if (!Files.exists(csvPath)) {
-			panel.add(new JLabel("File not found: " + csvPath), BorderLayout.NORTH);
+			panel.add(SimulationTabLayoutUtils.createWrappingDisplayText("File not found: " + csvPath), BorderLayout.NORTH);
 			return panel;
 		}
 
@@ -468,7 +473,8 @@ class RomTuningPanel extends SimulationScrollablePanel {
 				model.addRow(row.toArray());
 			}
 		} catch (IOException ex) {
-			panel.add(new JLabel("Failed to load " + csvPath.getFileName() + ": " + ex.getMessage()), BorderLayout.NORTH);
+			panel.add(SimulationTabLayoutUtils.createWrappingDisplayText(
+					"Failed to load " + csvPath.getFileName() + ": " + ex.getMessage()), BorderLayout.NORTH);
 			return panel;
 		}
 
@@ -511,12 +517,12 @@ class RomTuningPanel extends SimulationScrollablePanel {
 			Files.createDirectories(reportsDir);
 			if (Desktop.isDesktopSupported()) {
 				Desktop.getDesktop().open(reportsDir.toFile());
-				statusLabel.setText("Opened reports folder.");
+				setStatusText("Opened reports folder.");
 			} else {
-				statusLabel.setText("Desktop integration is not supported on this environment.");
+				setStatusText("Desktop integration is not supported on this environment.");
 			}
 		} catch (IOException ex) {
-			statusLabel.setText("Failed to open reports folder: " + ex.getMessage());
+			setStatusText("Failed to open reports folder: " + ex.getMessage());
 		}
 	}
 
@@ -664,6 +670,14 @@ class RomTuningPanel extends SimulationScrollablePanel {
 			case BARROWMAN_ONLY -> "Legacy only";
 			case FORCE_ROM -> "Force ROM";
 		};
+	}
+
+	private static void setValue(JLabel label, String value) {
+		SimulationTabLayoutUtils.setCompactValueLabel(label, value);
+	}
+
+	private void setStatusText(String value) {
+		SimulationTabLayoutUtils.setCompactValueLabel(statusLabel, value);
 	}
 
 	private record CsvTable(List<String> headers, List<List<String>> rows) {

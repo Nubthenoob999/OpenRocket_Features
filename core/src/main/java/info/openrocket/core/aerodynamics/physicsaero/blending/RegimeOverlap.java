@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.blending;
+public record RegimeOverlap(double startMach,double endMach,String leftMethod,String rightMethod){public RegimeOverlap{if(startMach<0||endMach<=startMach||leftMethod==null||rightMethod==null)throw new IllegalArgumentException();}public double smoothWeight(double mach){double x=Math.max(0,Math.min(1,(mach-startMach)/(endMach-startMach)));return x*x*(3-2*x);}}

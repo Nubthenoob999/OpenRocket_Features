@@ -169,6 +169,13 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 	private String name;
 	private double density;
 	private double inPlaneShearModulus;
+	// Structural properties are optional because old designs and non-structural
+	// materials do not provide them.  They are stored on the Material instance
+	// selected by a component, never inferred from its name.
+	private double youngsModulus = Double.NaN;
+	private double tensileStrength = Double.NaN;
+	private double compressiveStrength = Double.NaN;
+	private double poissonRatio = Double.NaN;
 	private boolean userDefined;
 	private boolean documentMaterial;
 	private MaterialGroup group;
@@ -224,6 +231,38 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 	 */
 	public double getInPlaneShearModulus() {
 		return inPlaneShearModulus;
+	}
+
+	/**
+	 * Get Young's modulus E in Pascals, or {@link Double#NaN} when it has not
+	 * been specified for this material.
+	 */
+	public double getYoungsModulus() {
+		return youngsModulus;
+	}
+
+	/**
+	 * Get the tensile allowable in Pascals, or {@link Double#NaN} when it has
+	 * not been specified for this material.
+	 */
+	public double getTensileStrength() {
+		return tensileStrength;
+	}
+
+	/**
+	 * Get the compressive allowable in Pascals, or {@link Double#NaN} when it
+	 * has not been specified for this material.
+	 */
+	public double getCompressiveStrength() {
+		return compressiveStrength;
+	}
+
+	/**
+	 * Get Poisson's ratio, or {@link Double#NaN} when it has not been specified
+	 * for this material.
+	 */
+	public double getPoissonRatio() {
+		return poissonRatio;
 	}
 	
 	public String getName() {
@@ -295,8 +334,16 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		if (this.getClass() != o.getClass())
 			return false;
 		Material m = (Material) o;
-		return ((m.name.equals(this.name)) && MathUtil.equals(m.density, this.density) 
-				&& MathUtil.equals(m.inPlaneShearModulus, this.inPlaneShearModulus)) && groupsEqual(m);
+		return ((m.name.equals(this.name)) && MathUtil.equals(m.density, this.density)
+				&& MathUtil.equals(m.inPlaneShearModulus, this.inPlaneShearModulus)
+				&& sameProperty(m.youngsModulus, this.youngsModulus)
+				&& sameProperty(m.tensileStrength, this.tensileStrength)
+				&& sameProperty(m.compressiveStrength, this.compressiveStrength)
+				&& sameProperty(m.poissonRatio, this.poissonRatio)) && groupsEqual(m);
+	}
+
+	private static boolean sameProperty(double first, double second) {
+		return Double.doubleToLongBits(first) == Double.doubleToLongBits(second);
 	}
 
 	private boolean groupsEqual(Material m) {
@@ -312,7 +359,11 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 	 */
 	@Override
 	public int hashCode() {
-		return name.hashCode() + (int) (density * 1000) + (int) (inPlaneShearModulus * 1e-9);
+		int result = name.hashCode() + (int) (density * 1000) + (int) (inPlaneShearModulus * 1e-9);
+		result = 31 * result + Double.hashCode(youngsModulus);
+		result = 31 * result + Double.hashCode(tensileStrength);
+		result = 31 * result + Double.hashCode(compressiveStrength);
+		return 31 * result + Double.hashCode(poissonRatio);
 	}
 	
 	
@@ -352,6 +403,30 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		};
 	}
 
+	/**
+	 * Return a material with structural properties explicitly assigned to the
+	 * component material record.  Values may be {@link Double#NaN} when the
+	 * property is intentionally unavailable.
+	 */
+	public static Material newMaterial(Type type, String name, double density, double inPlaneShearModulus,
+			double youngsModulus, double tensileStrength, double compressiveStrength, double poissonRatio,
+			MaterialGroup group, boolean userDefined, boolean documentMaterial) {
+		Material material = newMaterial(type, name, density, inPlaneShearModulus, group, userDefined, documentMaterial);
+		material.youngsModulus = optionalPositive(youngsModulus);
+		material.tensileStrength = optionalPositive(tensileStrength);
+		material.compressiveStrength = optionalPositive(compressiveStrength);
+		material.poissonRatio = optionalPoissonRatio(poissonRatio);
+		return material;
+	}
+
+	private static double optionalPositive(double value) {
+		return Double.isFinite(value) && value > 0 ? value : Double.NaN;
+	}
+
+	private static double optionalPoissonRatio(double value) {
+		return Double.isFinite(value) && value > 0 && value < 0.5 ? value : Double.NaN;
+	}
+
 	public static Material newMaterial(Type type, String name, double density, MaterialGroup group, boolean userDefined,
 									   boolean documentMaterial) {
 		return newMaterial(type, name, density, 0.0, group, userDefined, documentMaterial);
@@ -387,20 +462,35 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		name = m.name;
 		density = m.density;
 		inPlaneShearModulus = m.inPlaneShearModulus;
+		youngsModulus = m.youngsModulus;
+		tensileStrength = m.tensileStrength;
+		compressiveStrength = m.compressiveStrength;
+		poissonRatio = m.poissonRatio;
 		group = m.group;
 		userDefined = m.userDefined;
 		documentMaterial = m.documentMaterial;
 	}
 	
 	public String toStorableString() {
+		if (hasStructuralProperties()) {
+			return getType().name() + "|" + name.replace('|', ' ') + '|' + density + '|' + inPlaneShearModulus + '|'
+					+ youngsModulus + '|' + tensileStrength + '|' + compressiveStrength + '|' + poissonRatio + '|'
+					+ group.getDatabaseString();
+		}
 		return getType().name() + "|" + name.replace('|', ' ') + '|' + density + '|' + inPlaneShearModulus + '|' + group.getDatabaseString();
+	}
+
+	private boolean hasStructuralProperties() {
+		return Double.isFinite(youngsModulus) || Double.isFinite(tensileStrength)
+				|| Double.isFinite(compressiveStrength) || Double.isFinite(poissonRatio);
 	}
 
 	
 	/**
 	 * Return a material defined by the provided string.
 	 * 
-	 * @param str			the material storage string, formatted as "{type}|{name}|{density}|{inPlaneShearModulus}|{group}".
+	 * @param str			the material storage string, formatted as "{type}|{name}|{density}|{inPlaneShearModulus}|{group}",
+	 * 						or with structural properties between the shear modulus and group.
 	 * 						For backward compatibility, the format "{type}|{name}|{density}|{group}" is also supported.
 	 * @param userDefined	whether the created material is user-defined.
 	 * @return				a new <code>Material</code> object.
@@ -410,7 +500,7 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		if (str == null)
 			throw new IllegalArgumentException("Material string is null");
 		
-		String[] split = str.split("\\|", 5);
+		String[] split = str.split("\\|", 9);
 		if (split.length < 3)
 			throw new IllegalArgumentException("Illegal material string: " + str);
 		
@@ -418,6 +508,10 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		String name;
 		double density;
 		double inPlaneShearModulus = 0.0;
+		double youngsModulus = Double.NaN;
+		double tensileStrength = Double.NaN;
+		double compressiveStrength = Double.NaN;
+		double poissonRatio = Double.NaN;
 		MaterialGroup group = null;
 		
 		try {
@@ -435,13 +529,18 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 		}
 
 		// Handle backward compatibility: old format has 4 fields (type|name|density|group)
-		// new format has 5 fields (type|name|density|inPlaneShearModulus|group)
+		// and the previous format has 5 fields (type|name|density|inPlaneShearModulus|group).
 		if (split.length >= 4) {
 			try {
 				// Try to parse the 4th field as a double (shear modulus)
 				inPlaneShearModulus = Double.parseDouble(split[3]);
-				// If successful and there's a 5th field, it's the group
-				if (split.length == 5) {
+				if (split.length == 9) {
+					youngsModulus = Double.parseDouble(split[4]);
+					tensileStrength = Double.parseDouble(split[5]);
+					compressiveStrength = Double.parseDouble(split[6]);
+					poissonRatio = Double.parseDouble(split[7]);
+					group = MaterialGroup.loadFromDatabaseStringWithBackwardCompatibility(split[8], type, name, density);
+				} else if (split.length == 5) {
 					try {
 						group = MaterialGroup.loadFromDatabaseStringWithBackwardCompatibility(split[4], type, name, density);
 					} catch (IllegalArgumentException e) {
@@ -458,12 +557,11 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 			}
 		}
 
-		return switch (type) {
-			case BULK -> new Bulk(name, density, inPlaneShearModulus, group, userDefined);
-			case SURFACE -> new Surface(name, density, inPlaneShearModulus, group, userDefined);
-			case LINE -> new Line(name, density, inPlaneShearModulus, group, userDefined);
-			default -> throw new IllegalArgumentException("Illegal material string: " + str);
-		};
+		if (type == Type.CUSTOM) {
+			throw new IllegalArgumentException("Illegal material string: " + str);
+		}
+		return newMaterial(type, name, density, inPlaneShearModulus, youngsModulus, tensileStrength,
+				compressiveStrength, poissonRatio, group, userDefined, false);
 	}
 	
 }

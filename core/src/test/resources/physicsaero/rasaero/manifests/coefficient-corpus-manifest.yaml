@@ -1,0 +1,13 @@
+schema_version: 1
+case_id: SYNTHETIC-AEROPLOT-001
+reference_software: RASAero II schema-compatible synthetic fixture
+reference_version: 1.0.2.0
+raw_export: raw-aeroplots/phase3/SYNTHETIC-AEROPLOT-001.csv
+raw_sha256: 2a99d5ee4ae366b448528f335d3a08ec11b84663ff3d6ccdf9d3af30279f8b3e
+normalized_export: normalized/whole-vehicle/SYNTHETIC-AEROPLOT-001.normalized.csv
+normalized_sha256: 43402f9444443e86f9fb904a93212daf718ff457d39f371e9f71f3c649e3312f
+units: RASAero-native-to-SI
+cp_origin: nose_tip
+reference_diameter_m: 0.1016
+reference_length_m: 1.6256
+altitude_m: 0.0

@@ -1,0 +1,9 @@
+schema_version: 1
+case_id: PUBLIC-FLIGHT-CORPUS-001
+source_file: upstream/flight_comparison.csv
+source_repository: AidanSYu/rocket-flight-database
+source_commit: cfbfc37d0d4db9a88de8f525041ccdfe458c904c
+source_sha256: 2b499df46b51c71ce7a820ad6ef690c017cc60e8445f68526e9fd6600a7aef40
+license: CC-BY-4.0
+expected_rows: 28
+expected_rasaero_rows: 25

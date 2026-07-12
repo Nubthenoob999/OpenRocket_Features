@@ -1,0 +1,9 @@
+case_id: P2-RAS-002
+classification: PRESSURE_INTEGRATION_ERROR
+status: EXPECTED_MODEL_LIMITATION
+quantity: CA
+target_200_to_400_relative: 0.0025
+accepted_characterization_ceiling: 0.0040
+owner: TANGENT_CONE_LOCAL_SLOPE_V1
+reason: Current tangent-cone station quadrature converges monotonically but remains slightly above the initial 0.25 percent gate for the smooth sine-profile fixture.
+resolution: Replace station quadrature with adaptive pressure-area integration; do not tune a drag multiplier.

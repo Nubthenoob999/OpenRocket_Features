@@ -61,6 +61,11 @@ class MaterialSetter implements Setter {
 			}
 		}
 
+		Double youngsModulus = parseOptionalProperty(attributes, "youngsModulus", "Young's modulus", warnings);
+		Double tensileStrength = parseOptionalProperty(attributes, "tensileStrength", "Tensile strength", warnings);
+		Double compressiveStrength = parseOptionalProperty(attributes, "compressiveStrength", "Compressive strength", warnings);
+		Double poissonRatio = parseOptionalProperty(attributes, "poissonRatio", "Poisson ratio", warnings);
+
 		// Parse thickness
 		// double thickness = 0;
 		// str = attributes.remove("thickness");
@@ -91,12 +96,32 @@ class MaterialSetter implements Setter {
 			}
 		}
 
-		if (shearModulus == null) {
+		if (youngsModulus != null || tensileStrength != null || compressiveStrength != null || poissonRatio != null) {
+			mat = Databases.findMaterial(type, name, density, shearModulus == null ? 0.0 : shearModulus,
+					youngsModulus == null ? Double.NaN : youngsModulus,
+					tensileStrength == null ? Double.NaN : tensileStrength,
+					compressiveStrength == null ? Double.NaN : compressiveStrength,
+					poissonRatio == null ? Double.NaN : poissonRatio, group);
+		} else if (shearModulus == null) {
 			mat = Databases.findMaterial(type, name, density, group);
 		} else {
 			mat = Databases.findMaterial(type, name, density, shearModulus, group);
 		}
 
 		setMethod.invoke(c, mat);
+	}
+
+	private static Double parseOptionalProperty(HashMap<String, String> attributes, String attributeName,
+			String displayName, WarningSet warnings) {
+		String value = attributes.remove(attributeName);
+		if (value == null) {
+			return null;
+		}
+		try {
+			return Double.parseDouble(value);
+		} catch (NumberFormatException e) {
+			warnings.add(Warning.fromString("Illegal " + displayName + " value, omitting it."));
+			return null;
+		}
 	}
 }

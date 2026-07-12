@@ -66,7 +66,7 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
     private final JComboBox<String> presetCombo = new JComboBox<>(PRESET_NAMES);
     private final JLabel confidenceLabel  = new JLabel("-");
     private final JLabel estimateLabel    = new JLabel("-");
-    private final JTextArea warningArea   = new JTextArea(4, 40);
+    private final JTextArea warningArea   = new JTextArea(4, 1);
     private final JButton buildCacheBtn   = new JButton("Build Cache");
     private final JProgressBar buildProgress = new JProgressBar(0, 100);
 
@@ -79,7 +79,7 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
     private final JButton importCsvBtn       = new JButton("Import CSV");
     private final JButton importOfBtn        = new JButton("Import OpenFOAM");
     private final JButton runValidationBtn   = new JButton("Run Validation Report");
-    private final JTextArea validationArea   = new JTextArea(3, 40);
+    private final JTextArea validationArea   = new JTextArea(3, 1);
 
     // Advanced controls (initially hidden)
     private final JPanel advancedPanel;
@@ -87,7 +87,7 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
     private final JTextField pathlineCountField   = new JTextField("16", 6);
     private final JTextField toleranceField       = new JTextField("1e-5", 8);
     private final JCheckBox fallbackToggle        = new JCheckBox("Allow ROM fallback to Barrowman");
-    private final JCheckBox greenLagCheckBox      = new JCheckBox("Enable Green lag-entrainment (non-equilibrium BL)");
+    private final JCheckBox greenLagCheckBox      = new JCheckBox("Enable Green lag-entrainment");
     private final JButton exportDiagnosticsBtn    = new JButton("Export Diagnostics CSV");
 
     RomAdvancedPanel(Simulation simulation) {
@@ -104,6 +104,8 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
         validationArea.setEditable(false);
         validationArea.setLineWrap(true);
         validationArea.setWrapStyleWord(true);
+
+        greenLagCheckBox.setToolTipText("Enable Green lag-entrainment (non-equilibrium boundary layer).");
 
         advancedPanel = buildAdvancedPanel();
         advancedPanel.setVisible(false);
@@ -126,13 +128,13 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
 
         p.add(romEnableCheckBox, "wrap");
 
-        JPanel presetRow = new JPanel(new MigLayout("insets 0", "[]8[]8[grow]", ""));
+        JPanel presetRow = new JPanel(new MigLayout("insets 0, wrap 1", "[grow,fill]", ""));
         presetRow.add(new JLabel("Performance preset:"));
-        presetRow.add(presetCombo);
+        presetRow.add(presetCombo, "growx");
         presetRow.add(estimateLabel, "growx");
         p.add(presetRow, "growx, wrap");
 
-        JPanel confRow = new JPanel(new MigLayout("insets 0", "[]8[grow]", ""));
+        JPanel confRow = new JPanel(new MigLayout("insets 0", "[][grow]", ""));
         confRow.add(new JLabel("Confidence:"));
         confRow.add(confidenceLabel, "growx");
         p.add(confRow, "growx, wrap");
@@ -144,38 +146,36 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
     }
 
     private JPanel buildCachePanel() {
-        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapy 6", "[][grow][]", ""));
+        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow,fill]", ""));
         p.setBorder(BorderFactory.createTitledBorder("Cache Management"));
 
         p.add(new JLabel("Status:"));
-        p.add(cacheStatusLabel, "growx");
-        p.add(invalidateCacheBtn, "wrap");
+        p.add(cacheStatusLabel, "growx, wrap");
 
-        p.add(buildCacheBtn, "");
-        p.add(buildProgress, "growx");
-        p.add(new JLabel(""), "wrap");
+        p.add(buildCacheBtn, "span 2, growx, wrap");
+        p.add(invalidateCacheBtn, "span 2, growx, wrap");
+        p.add(buildProgress, "span 2, growx, wrap");
 
         return p;
     }
 
     private JPanel buildOverlayPanel() {
-        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapy 6", "[]8[grow]8[]8[]", ""));
+        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow,fill]", ""));
         p.setBorder(BorderFactory.createTitledBorder("CFD Calibration Overlay"));
 
         p.add(new JLabel("Status:"));
-        p.add(overlayStatusLabel, "growx");
-        p.add(importCsvBtn, "");
-        p.add(importOfBtn, "wrap");
+        p.add(overlayStatusLabel, "growx, wrap");
 
-        p.add(runValidationBtn, "span 2");
-        p.add(new JLabel(""), "span 2, wrap");
+        p.add(importCsvBtn, "span 2, growx, wrap");
+        p.add(importOfBtn, "span 2, growx, wrap");
+        p.add(runValidationBtn, "span 2, growx, wrap");
 
-        p.add(new JScrollPane(validationArea), "span 4, growx, h 60!, wrap");
+        p.add(new JScrollPane(validationArea), "span 2, growx, h 60!, wrap");
         return p;
     }
 
     private JPanel buildAdvancedPanel() {
-        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapy 6", "[]8[grow]8[]", ""));
+        JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6", "[right][grow,fill]", ""));
         p.setBorder(BorderFactory.createTitledBorder("Advanced Controls"));
 
         p.add(new JLabel("Pathline count:"));
@@ -184,10 +184,10 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
         p.add(new JLabel("Convergence tolerance:"));
         p.add(toleranceField, "wrap");
 
-        p.add(fallbackToggle, "span 3, wrap");
-        p.add(greenLagCheckBox, "span 3, wrap");
+        p.add(fallbackToggle, "span 2, wrap");
+        p.add(greenLagCheckBox, "span 2, wrap");
 
-        p.add(exportDiagnosticsBtn, "wrap");
+        p.add(exportDiagnosticsBtn, "span 2, growx, wrap");
 
         return p;
     }
@@ -223,7 +223,7 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
         buildCacheBtn.setEnabled(false);
         buildProgress.setValue(0);
         buildProgress.setVisible(true);
-        cacheStatusLabel.setText("Building…");
+        setValue(cacheStatusLabel, "Building...");
 
         int idx = presetCombo.getSelectedIndex();
         int nMach  = PRESET_GRIDS[idx][0];
@@ -252,14 +252,14 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
             @Override
             protected void done() {
                 buildProgress.setValue(100);
-                cacheStatusLabel.setText("Valid");
+                setValue(cacheStatusLabel, "Valid");
                 buildCacheBtn.setEnabled(true);
             }
         }.execute();
     }
 
     private void invalidateCache() {
-        cacheStatusLabel.setText("Invalidated");
+        setValue(cacheStatusLabel, "Invalidated");
         buildProgress.setValue(0);
     }
 
@@ -270,10 +270,10 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
             File f = fc.getSelectedFile();
             try {
                 calibrationOverlay.loadFromCSV(f);
-                overlayStatusLabel.setText("Loaded: " + f.getName());
+                setValue(overlayStatusLabel, "Loaded: " + f.getName());
                 refreshConfidenceIndicator(ConfidenceLevel.HIGH); // overlay loaded
             } catch (Exception ex) {
-                overlayStatusLabel.setText("Error: " + ex.getMessage());
+                setValue(overlayStatusLabel, "Error: " + ex.getMessage());
             }
         }
     }
@@ -286,9 +286,9 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
                 double bodyLength = simulation.getRocket().getLength();
                 if (bodyLength <= 0.0) bodyLength = 1.0; // fallback
                 calibrationOverlay.importOpenFOAMSurface(fc.getSelectedFile(), 0.95, 0.0, bodyLength);
-                overlayStatusLabel.setText("Loaded (OpenFOAM): " + fc.getSelectedFile().getName());
+                setValue(overlayStatusLabel, "Loaded (OpenFOAM): " + fc.getSelectedFile().getName());
             } catch (Exception ex) {
-                overlayStatusLabel.setText("Error: " + ex.getMessage());
+                setValue(overlayStatusLabel, "Error: " + ex.getMessage());
             }
         }
     }
@@ -309,6 +309,10 @@ class RomAdvancedPanel extends SimulationScrollablePanel {
             // Diagnostics export hook - integrates with RomSimulationLogExporter
             warningArea.append("\nDiagnostics exported to: " + fc.getSelectedFile().getName());
         }
+    }
+
+    private static void setValue(JLabel label, String value) {
+        SimulationTabLayoutUtils.setCompactValueLabel(label, value);
     }
 
     // --- Model helpers ---

@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.runtime;
+public record ReynoldsSensitivitySurface(double referenceReynolds,double minimumRatio,double maximumRatio,double[] derivatives,String sourceId,boolean topologySensitive){public ReynoldsSensitivitySurface{derivatives=derivatives.clone();if(referenceReynolds<=0||minimumRatio<=0||maximumRatio<=minimumRatio||derivatives.length!=6||sourceId==null)throw new IllegalArgumentException();}@Override public double[] derivatives(){return derivatives.clone();}}

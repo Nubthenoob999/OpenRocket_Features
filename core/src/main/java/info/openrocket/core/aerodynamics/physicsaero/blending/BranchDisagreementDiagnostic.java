@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.blending;
+public final class BranchDisagreementDiagnostic {public record Result(double absolute,double relative,boolean material,String flag){}public Result compare(double a,double b,double tolerance){double abs=Math.abs(a-b),rel=abs/Math.max(1e-9,Math.max(Math.abs(a),Math.abs(b)));return new Result(abs,rel,abs>tolerance,"BRANCH_DISAGREEMENT");}}

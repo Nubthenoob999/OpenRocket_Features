@@ -126,11 +126,11 @@ public class SimulationConfigDialog extends JDialog {
 		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"),
 				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
 
-		//// Phase I ROM diagnostics
+		//// Physics-Based Aerodynamics experimental integration
 		tabbedPane.addTab("Aerodynamics",
-				SimulationTabLayoutUtils.wrapFormScrollable(new RomPrestepPanel(simulationList[0])));
+				SimulationTabLayoutUtils.wrapFormScrollable(new PhysicsAeroExperimentalPanel(simulationList[0])));
 		tabbedPane.setToolTipTextAt(AERODYNAMICS_IDX,
-				"Developer diagnostics and readiness preview for the Phase I pathline ROM.");
+				"Build and validate deterministic Mach 0–7 Physics-Based Aerodynamics tables (Experimental).");
 
 		//// ROM analysis
 		tabbedPane.addTab("ROM Analysis & Batch",
@@ -231,7 +231,7 @@ public class SimulationConfigDialog extends JDialog {
 		this.add(bottomPanel, BorderLayout.SOUTH);
 		this.validate();
 		this.pack();
-		this.setMinimumSize(new Dimension(980, 700));
+		SimulationTabLayoutUtils.constrainDialogToScreen(this, new Dimension(980, 700));
 
 		this.setLocationByPlatform(true);
 
@@ -246,6 +246,7 @@ public class SimulationConfigDialog extends JDialog {
 		GUIUtil.setDisposableDialogOptions(this, null);
 		GUIUtil.rememberWindowPosition(this);
 		GUIUtil.rememberWindowSize(this);
+		SimulationTabLayoutUtils.constrainDialogToScreen(this, new Dimension(980, 700));
 	}
 
 	private static void initColors() {

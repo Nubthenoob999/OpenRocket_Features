@@ -30,6 +30,14 @@ public class MaterialDTO {
 	private String uom;
 	@XmlElement(name = "ShearModulus")
 	private Double inPlaneShearModulus;
+	@XmlElement(name = "YoungsModulus")
+	private Double youngsModulus;
+	@XmlElement(name = "TensileStrength")
+	private Double tensileStrength;
+	@XmlElement(name = "CompressiveStrength")
+	private Double compressiveStrength;
+	@XmlElement(name = "PoissonRatio")
+	private Double poissonRatio;
 	@XmlElement(name = "Group")
 	private MaterialGroupDTO group;
 
@@ -41,21 +49,38 @@ public class MaterialDTO {
 
 	public MaterialDTO(final Material theMaterial) {
 		this(theMaterial.getName(), theMaterial.getDensity(), theMaterial.getInPlaneShearModulus(),
+				optionalProperty(theMaterial.getYoungsModulus()), optionalProperty(theMaterial.getTensileStrength()),
+				optionalProperty(theMaterial.getCompressiveStrength()), optionalProperty(theMaterial.getPoissonRatio()),
 				MaterialTypeDTO.asDTO(theMaterial.getType()),
 				theMaterial.getType().getUnitGroup().getDefaultUnit().toString(),
 				MaterialGroupDTO.asDTO(theMaterial.getGroup()));
 	}
 
+	private static Double optionalProperty(double value) {
+		return Double.isFinite(value) ? value : null;
+	}
+
 	public MaterialDTO(final String theName, final double theDensity, final MaterialTypeDTO theType,
 			final String theUom, final MaterialGroupDTO theGroup) {
-		this(theName, theDensity, null, theType, theUom, theGroup);
+		this(theName, theDensity, null, null, null, null, null, theType, theUom, theGroup);
 	}
 
 	public MaterialDTO(final String theName, final double theDensity, final Double theInPlaneShearModulus,
 			final MaterialTypeDTO theType, final String theUom, final MaterialGroupDTO theGroup) {
+		this(theName, theDensity, theInPlaneShearModulus, null, null, null, null, theType, theUom, theGroup);
+	}
+
+	public MaterialDTO(final String theName, final double theDensity, final Double theInPlaneShearModulus,
+			final Double theYoungsModulus, final Double theTensileStrength, final Double theCompressiveStrength,
+			final Double thePoissonRatio, final MaterialTypeDTO theType, final String theUom,
+			final MaterialGroupDTO theGroup) {
 		name = theName;
 		density = theDensity;
 		inPlaneShearModulus = theInPlaneShearModulus;
+		youngsModulus = theYoungsModulus;
+		tensileStrength = theTensileStrength;
+		compressiveStrength = theCompressiveStrength;
+		poissonRatio = thePoissonRatio;
 		type = theType;
 		uom = theUom;
 		group = theGroup;
@@ -104,6 +129,38 @@ public class MaterialDTO {
 		inPlaneShearModulus = theInPlaneShearModulus;
 	}
 
+	public Double getYoungsModulus() {
+		return youngsModulus;
+	}
+
+	public void setYoungsModulus(Double youngsModulus) {
+		this.youngsModulus = youngsModulus;
+	}
+
+	public Double getTensileStrength() {
+		return tensileStrength;
+	}
+
+	public void setTensileStrength(Double tensileStrength) {
+		this.tensileStrength = tensileStrength;
+	}
+
+	public Double getCompressiveStrength() {
+		return compressiveStrength;
+	}
+
+	public void setCompressiveStrength(Double compressiveStrength) {
+		this.compressiveStrength = compressiveStrength;
+	}
+
+	public Double getPoissonRatio() {
+		return poissonRatio;
+	}
+
+	public void setPoissonRatio(Double poissonRatio) {
+		this.poissonRatio = poissonRatio;
+	}
+
 	public MaterialGroupDTO getGroup() {
 		return group;
 	}
@@ -115,6 +172,14 @@ public class MaterialDTO {
 	Material asMaterial() {
 		if (group == null) {
 			group = MaterialGroupDTO.OTHER;
+		}
+		if (youngsModulus != null || tensileStrength != null || compressiveStrength != null || poissonRatio != null) {
+			return Databases.findMaterial(type.getORMaterialType(), name, density,
+					inPlaneShearModulus == null ? 0.0 : inPlaneShearModulus,
+					youngsModulus == null ? Double.NaN : youngsModulus,
+					tensileStrength == null ? Double.NaN : tensileStrength,
+					compressiveStrength == null ? Double.NaN : compressiveStrength,
+					poissonRatio == null ? Double.NaN : poissonRatio, group.getORMaterialGroup());
 		}
 		if (inPlaneShearModulus == null) {
 			return Databases.findMaterial(type.getORMaterialType(), name, density, group.getORMaterialGroup());

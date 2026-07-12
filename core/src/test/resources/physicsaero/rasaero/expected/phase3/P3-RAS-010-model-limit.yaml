@@ -1,0 +1,7 @@
+case_id: P3-RAS-010
+classification: EXPECTED_MODEL_LIMITATION
+owner: FIN_TRANSONIC_DRAG
+status: EXPLICIT_INVALID
+range_mach: 0.80,1.20
+reason: Phase 3 solver declares a validated lower Mach boundary of 1.20 and does not extrapolate Ackeret or DATCOM through Mach 1.
+resolution: Add a separately sourced transonic fin-drag correlation before enabling this range.

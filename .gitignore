@@ -125,6 +125,12 @@ docs/build
 **/*.json
 **/*.zip
 
+# Redistributable, pinned Physics Aero benchmark fixtures.
+!core/src/test/resources/physicsaero/rasaero/**/*.csv
+!core/src/test/resources/physicsaero/rasaero/**/*.json
+core/src/test/resources/physicsaero/rasaero/cdx1-local/*
+!core/src/test/resources/physicsaero/rasaero/cdx1-local/.gitkeep
+
 **/.claude
 
 # Environment files

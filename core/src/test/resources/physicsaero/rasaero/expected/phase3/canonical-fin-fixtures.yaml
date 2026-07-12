@@ -1,0 +1,19 @@
+schema_version: 1
+units: SI
+base_body: BODY-01
+root_chord_m: 0.2032
+tip_chord_m: 0.1016
+exposed_span_m: 0.1016
+leading_edge_sweep_offset_m: 0.0762
+thickness_m: 0.003175
+FIN-01: three-fin set
+FIN-02: four-fin set
+FIN-03: unswept
+FIN-04: moderate sweep
+FIN-05: high sweep
+FIN-06: thin flat plate
+FIN-07: single wedge
+FIN-08: symmetric diamond
+FIN-09: rounded leading edge
+FIN-10: short fin can
+FIN-11: long fin can

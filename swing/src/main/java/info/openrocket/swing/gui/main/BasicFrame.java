@@ -133,6 +133,7 @@ import info.openrocket.swing.gui.figure3d.photo.PhotoFrame;
 import info.openrocket.swing.gui.help.tours.GuidedTourSelectionDialog;
 import info.openrocket.swing.gui.main.componenttree.ComponentTree;
 import info.openrocket.swing.gui.scalefigure.RocketPanel;
+import info.openrocket.swing.gui.structures.StructuresToolDialog;
 import info.openrocket.swing.gui.util.DummyFrameMenuOSX;
 import info.openrocket.swing.gui.util.FileHelper;
 import info.openrocket.swing.gui.util.GUIUtil;
@@ -846,6 +847,17 @@ private static final Translator trans = Application.getTranslator();
 			public void actionPerformed(ActionEvent e) {
 				log.info(Markers.USER_MARKER, "Component analysis selected");
 				ComponentAnalysisDialog.showDialog(document, rocketpanel);
+			}
+		});
+		toolsMenu.add(item);
+
+		////	Structures Tool
+		item = new JMenuItem(trans.get("main.menu.tools.structuresTool"), KeyEvent.VK_S);
+		item.getAccessibleContext().setAccessibleDescription(trans.get("main.menu.tools.structuresTool.desc"));
+		item.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				exportStructuresToolAction();
 			}
 		});
 		toolsMenu.add(item);
@@ -2293,6 +2305,11 @@ private static final Translator trans = Application.getTranslator();
 		new EjectionChargeDialog(BasicFrame.this, document).setVisible(true);
 	}
 
+	public void exportStructuresToolAction() {
+		log.info(Markers.USER_MARKER, "Structures Tool selected");
+		new StructuresToolDialog(BasicFrame.this, document).setVisible(true);
+	}
+
 	public void exportFlightAnimationAction() {
 		log.info(Markers.USER_MARKER, "Flight animation selected");
 		Simulation simulation = getSelectedSimulationForFlightAnimation();
@@ -2313,7 +2330,7 @@ private static final Translator trans = Application.getTranslator();
 			return;
 		}
 
-		new FlightAnimationDialog(BasicFrame.this, simulation).setVisible(true);
+		new FlightAnimationDialog(BasicFrame.this, document, simulation).setVisible(true);
 	}
 
 	private Simulation getSelectedSimulationForFlightAnimation() {

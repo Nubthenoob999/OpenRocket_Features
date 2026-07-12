@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.transonic;
+public final class TransonicMethodSelector {public enum Method{SUBSONIC_DIAGNOSTIC,TRANSONIC_CORRELATION,SUPERSONIC_DIAGNOSTIC,RELIABILITY_OVERLAP}public Method select(double mach,boolean supersonicValid){if(mach<1)return Method.TRANSONIC_CORRELATION;if(mach<1.05)return Method.SUPERSONIC_DIAGNOSTIC;if(mach<1.2&&supersonicValid)return Method.RELIABILITY_OVERLAP;return supersonicValid?Method.RELIABILITY_OVERLAP:Method.TRANSONIC_CORRELATION;}}

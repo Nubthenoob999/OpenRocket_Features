@@ -7,16 +7,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Dimension;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.border.Border;
+import javax.swing.border.TitledBorder;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -41,6 +49,7 @@ import info.openrocket.core.aerodynamics.rom.RomMode;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.TestRockets;
 import info.openrocket.swing.ServicesForTesting;
+import info.openrocket.swing.gui.components.DescriptionArea;
 
 public class SimulationOptionsPanelTest {
 
@@ -156,6 +165,83 @@ public class SimulationOptionsPanelTest {
 		assertFalse(simulation.getOptions().isWeathercockingCompensationEnabled());
 	}
 
+	@Test
+	public void testSimulationOptionsPanelTracksNarrowViewportWidth() throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] panelHolder = new SimulationOptionsPanel[1];
+		final JScrollPane[] scrollHolder = new JScrollPane[1];
+		SwingUtilities.invokeAndWait(() -> {
+			panelHolder[0] = new SimulationOptionsPanel(document, simulation);
+			scrollHolder[0] = SimulationTabLayoutUtils.wrapFormScrollable(panelHolder[0]);
+			scrollHolder[0].setSize(new Dimension(800, 600));
+			layoutTree(scrollHolder[0]);
+		});
+
+		SimulationOptionsPanel panel = panelHolder[0];
+		JScrollPane scroll = scrollHolder[0];
+		assertEquals(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER, scroll.getHorizontalScrollBarPolicy());
+		assertTrue(panel instanceof Scrollable);
+		assertTrue(panel.getScrollableTracksViewportWidth());
+		assertTrue(panel.getWidth() <= scroll.getViewport().getExtentSize().width,
+				"Simulation options panel should track the viewport width");
+	}
+
+	@Test
+	public void testExtensionDescriptionDoesNotForceWidePreferredSize() throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] panelHolder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> {
+			panelHolder[0] = new SimulationOptionsPanel(document, simulation);
+			panelHolder[0].setSize(new Dimension(320, 600));
+			layoutTree(panelHolder[0]);
+		});
+
+		SimulationOptionsPanel panel = panelHolder[0];
+		JPanel extensionsPanel = findTitledPanel(panel, "SimExt");
+		assertNotNull(extensionsPanel);
+		assertTrue(extensionsPanel.getPreferredSize().width <= 360,
+				"Simulation extensions tile should not publish a wide preferred width");
+		assertFalse(containsDirectChild(panel, DescriptionArea.class),
+				"Static Simulation extensions copy should not use DescriptionArea");
+	}
+
+	@Test
+	public void testCompactValueLabelDoesNotExposeLongPathAsPreferredText() {
+		String longPath = "/Users/opteron92/Projects/OpenRocket_Features/build/reports/phase-three/phase-three-analysis.csv";
+		JLabel label = SimulationTabLayoutUtils.createCompactValueLabel(longPath);
+
+		assertTrue(label.getText().length() < longPath.length());
+		assertEquals(longPath, label.getToolTipText());
+	}
+
+	@Test
+	public void testAirbrakePathFieldDoesNotForceWidePreferredSize() throws Exception {
+		String longPath = "H:\\Shared drives\\HPRC\\1_NASA SL 2025-2026\\Senior Design\\Subteams\\Aerodynamics\\CDR\\Thingstodo-2\\Openrocket\\Drag Curve CDR.csv";
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		simulation.getOptions().setAirbrakesEnabled(true);
+		simulation.getOptions().setCfdDataFilePath(longPath);
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> holder[0] = new SimulationOptionsPanel(document, simulation));
+		AirbrakeSettingsPanel airbrakePanel = findComponent(holder[0], AirbrakeSettingsPanel.class);
+		assertNotNull(airbrakePanel);
+
+		JTextField pathField = findComponent(airbrakePanel, JTextField.class, field -> longPath.equals(field.getText()));
+		assertNotNull(pathField);
+		assertEquals(1, pathField.getColumns());
+		assertTrue(pathField.getPreferredSize().width < 260,
+				"Airbrake CSV path field should not publish the full path as preferred width");
+		assertEquals(longPath, pathField.getToolTipText());
+	}
+
 	private static JCheckBox findCheckBox(Container root, String text) {
 		return findComponent(root, JCheckBox.class, component -> text.equals(component.getText()));
 	}
@@ -204,5 +290,34 @@ public class SimulationOptionsPanelTest {
 			}
 		}
 		return null;
+	}
+
+	private static JPanel findTitledPanel(Container root, String titleFragment) {
+		return findComponent(root, JPanel.class, panel -> {
+			Border border = panel.getBorder();
+			if (border instanceof TitledBorder titledBorder) {
+				String title = titledBorder.getTitle();
+				return title != null && title.contains(titleFragment);
+			}
+			return false;
+		});
+	}
+
+	private static boolean containsDirectChild(Container root, Class<? extends Component> type) {
+		for (Component child : root.getComponents()) {
+			if (type.isInstance(child)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static void layoutTree(Container container) {
+		container.doLayout();
+		for (Component child : container.getComponents()) {
+			if (child instanceof Container childContainer) {
+				layoutTree(childContainer);
+			}
+		}
 	}
 }

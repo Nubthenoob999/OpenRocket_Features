@@ -48,6 +48,18 @@ public class CustomMaterialDialog extends JDialog {
 	private DoubleModel shearModulus;
 	private final JSpinner shearModulusSpinner;
 	private final UnitSelector shearModulusUnit;
+	private DoubleModel youngsModulus;
+	private final JSpinner youngsModulusSpinner;
+	private final UnitSelector youngsModulusUnit;
+	private DoubleModel tensileStrength;
+	private final JSpinner tensileStrengthSpinner;
+	private final UnitSelector tensileStrengthUnit;
+	private DoubleModel compressiveStrength;
+	private final JSpinner compressiveStrengthSpinner;
+	private final UnitSelector compressiveStrengthUnit;
+	private DoubleModel poissonRatio;
+	private final JSpinner poissonRatioSpinner;
+	private final UnitSelector poissonRatioUnit;
 	private JComboBox<MaterialGroup> groupBox;
 	private JCheckBox addBox;
 
@@ -145,6 +157,40 @@ public class CustomMaterialDialog extends JDialog {
 		panel.add(new JPanel(), "growx, wrap");
 		updateShearModulusModel();
 
+		// Structural values are stored on the material selected by a component.
+		// Zero leaves an optional property unspecified for older/non-structural materials.
+		panel.add(new JLabel("Young's modulus (E)"));
+		youngsModulusSpinner = new JSpinner();
+		panel.add(youngsModulusSpinner, "w 70lp");
+		youngsModulusUnit = new UnitSelector((DoubleModel) null);
+		panel.add(youngsModulusUnit, "w 30lp");
+		panel.add(new JPanel(), "growx, wrap");
+		updateYoungsModulusModel();
+
+		panel.add(new JLabel("Tensile allowable"));
+		tensileStrengthSpinner = new JSpinner();
+		panel.add(tensileStrengthSpinner, "w 70lp");
+		tensileStrengthUnit = new UnitSelector((DoubleModel) null);
+		panel.add(tensileStrengthUnit, "w 30lp");
+		panel.add(new JPanel(), "growx, wrap");
+		updateTensileStrengthModel();
+
+		panel.add(new JLabel("Compressive allowable"));
+		compressiveStrengthSpinner = new JSpinner();
+		panel.add(compressiveStrengthSpinner, "w 70lp");
+		compressiveStrengthUnit = new UnitSelector((DoubleModel) null);
+		panel.add(compressiveStrengthUnit, "w 30lp");
+		panel.add(new JPanel(), "growx, wrap");
+		updateCompressiveStrengthModel();
+
+		panel.add(new JLabel("Poisson ratio"));
+		poissonRatioSpinner = new JSpinner();
+		panel.add(poissonRatioSpinner, "w 70lp");
+		poissonRatioUnit = new UnitSelector((DoubleModel) null);
+		panel.add(poissonRatioUnit, "w 30lp");
+		panel.add(new JPanel(), "growx, wrap");
+		updatePoissonRatioModel();
+
 
 		// Material group
 		panel.add(new JLabel(trans.get("custmatdlg.lbl.MaterialGroup")));
@@ -215,6 +261,10 @@ public class CustomMaterialDialog extends JDialog {
 		String name;
 		double materialDensity;
 		double materialShearModulus;
+		double materialYoungsModulus;
+		double materialTensileStrength;
+		double materialCompressiveStrength;
+		double materialPoissonRatio;
 		MaterialGroup group;
 		
 		if (typeBox != null) {
@@ -226,9 +276,14 @@ public class CustomMaterialDialog extends JDialog {
 		name = nameField.getText().trim();
 		materialDensity = this.density.getValue();
 		materialShearModulus = this.shearModulus != null ? this.shearModulus.getValue() : 0.0;
+		materialYoungsModulus = this.youngsModulus.getValue();
+		materialTensileStrength = this.tensileStrength.getValue();
+		materialCompressiveStrength = this.compressiveStrength.getValue();
+		materialPoissonRatio = this.poissonRatio.getValue();
 		group = (MaterialGroup) groupBox.getSelectedItem();
 		
-		return Databases.findMaterial(type, name, materialDensity, materialShearModulus, group);
+		return Databases.findMaterial(type, name, materialDensity, materialShearModulus,
+				materialYoungsModulus, materialTensileStrength, materialCompressiveStrength, materialPoissonRatio, group);
 	}
 	
 	
@@ -277,6 +332,45 @@ public class CustomMaterialDialog extends JDialog {
 			shearModulusSpinner.setModel(shearModulus.getSpinnerModel());
 			shearModulusSpinner.setEditor(new SpinnerEditor(shearModulusSpinner));
 			shearModulusUnit.setModel(shearModulus);
+		}
+	}
+
+	private void updateYoungsModulusModel() {
+		youngsModulus = createStructuralModel(youngsModulusSpinner, youngsModulusUnit,
+				originalMaterial == null ? Double.NaN : originalMaterial.getYoungsModulus(), UnitGroup.UNITS_SHEAR_MODULUS);
+	}
+
+	private void updateTensileStrengthModel() {
+		tensileStrength = createStructuralModel(tensileStrengthSpinner, tensileStrengthUnit,
+				originalMaterial == null ? Double.NaN : originalMaterial.getTensileStrength(), UnitGroup.UNITS_SHEAR_MODULUS);
+	}
+
+	private void updateCompressiveStrengthModel() {
+		compressiveStrength = createStructuralModel(compressiveStrengthSpinner, compressiveStrengthUnit,
+				originalMaterial == null ? Double.NaN : originalMaterial.getCompressiveStrength(), UnitGroup.UNITS_SHEAR_MODULUS);
+	}
+
+	private void updatePoissonRatioModel() {
+		poissonRatio = createStructuralModel(poissonRatioSpinner, poissonRatioUnit,
+				originalMaterial == null ? Double.NaN : originalMaterial.getPoissonRatio(), UnitGroup.UNITS_NONE);
+	}
+
+	private DoubleModel createStructuralModel(JSpinner spinner, UnitSelector unitSelector, double value, UnitGroup unitGroup) {
+		double modelValue = onlyCopyTypeFromMaterial || !Double.isFinite(value) ? 0.0 : value;
+		int unitIndex = unitGroup == UnitGroup.UNITS_SHEAR_MODULUS ? shearModulusUnitIndex() : 0;
+		DoubleModel model = new DoubleModel(modelValue, unitGroup, unitIndex);
+		spinner.setModel(model.getSpinnerModel());
+		spinner.setEditor(new SpinnerEditor(spinner));
+		unitSelector.setModel(model);
+		return model;
+	}
+
+	private static int shearModulusUnitIndex() {
+		try {
+			Unit gpaUnit = UnitGroup.UNITS_SHEAR_MODULUS.getUnit("GPa");
+			return UnitGroup.UNITS_SHEAR_MODULUS.getUnitIndex(gpaUnit);
+		} catch (IllegalArgumentException e) {
+			return 0;
 		}
 	}
 }

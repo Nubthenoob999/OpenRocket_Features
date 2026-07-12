@@ -7,6 +7,7 @@ import info.openrocket.core.aerodynamics.rom.RomSettings;
  * Compatibility wrapper that preserves the historical runtime integration point while
  * delegating to the Phase I pathline ROM implementation.
  */
+@Deprecated(forRemoval = true)
 public class RomAerodynamicCalculator extends PathlineROMCalculator {
 	public RomAerodynamicCalculator() {
 		super();

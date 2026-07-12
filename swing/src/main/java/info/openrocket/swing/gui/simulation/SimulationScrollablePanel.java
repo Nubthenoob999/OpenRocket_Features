@@ -10,13 +10,21 @@ import javax.swing.SwingConstants;
 
 class SimulationScrollablePanel extends JPanel implements Scrollable {
 	private static final int SCROLL_INCREMENT = 16;
+	private final boolean tracksViewportWidth;
 
 	SimulationScrollablePanel() {
 		super();
+		this.tracksViewportWidth = true;
 	}
 
 	SimulationScrollablePanel(LayoutManager layout) {
 		super(layout);
+		this.tracksViewportWidth = true;
+	}
+
+	SimulationScrollablePanel(LayoutManager layout, boolean tracksViewportWidth) {
+		super(layout);
+		this.tracksViewportWidth = tracksViewportWidth;
 	}
 
 	@Override
@@ -39,7 +47,7 @@ class SimulationScrollablePanel extends JPanel implements Scrollable {
 
 	@Override
 	public boolean getScrollableTracksViewportWidth() {
-		return true;
+		return tracksViewportWidth;
 	}
 
 	@Override

@@ -1,0 +1,182 @@
+Refined RASAero II Benchmark Source Catalog
+Executive summary
+Starting from the RASAero II comparisons page, I verified a strong public-source benchmark spine for rocket and missile aerodynamics built around NACA RM A53D02, NASA TR R-100, the matched ARCAS pair NASA TN D-4013 and NASA TN D-4014, the contractor Aerobee 150A handbook AST/E1R-13319, NASA TN D-2163 by Suttles, NACA RM L52D15a, NACA RM L53D14a, NACA RM L54D27, NASA TN D-4064, NASA TR R-474, and NACA RM L55G06a. Most of those are on official NTRS pages; two of the RASAero-linked primaries that surfaced cleanly in this tool pass were mirrored PDFs on the RASAero site rather than NTRS search results. [1]
+For immediate benchmark construction, the most valuable sources are not all equivalent. NASA TR R-100 is the strongest high-volume official source for zero-lift drag plus geometry metadata across many fin-stabilized bodies. NASA TN D-4013 and NASA TN D-4014 are the strongest matched transonic-to-supersonic static-stability pair in the verified set. NASA TN D-2163 is the strongest whole-vehicle source for component deltas, including fins removed, auxiliary rockets removed, and fairing changes over Mach 0.22–4.65. NACA RM L53D14a is the clearest verified three-fin drag family. NACA RM L54D27 and NASA TN D-4064 are the most useful verified powered-flow sources for base, boattail, and plume interaction. NACA RM L52D15a is the strongest clean component-isolation source for fin planform and fin-body interaction, even though it uses two horizontal fins and is therefore better suited to submodel validation than direct whole-vehicle acceptance testing. [2]
+The main gaps after this pass are also clear. Dense, conventional rocket experimental coverage below about Mach 0.22 is still thin in the verified set. In addition, two user-prioritized targets remain on the carry-forward verification queue for a subsequent pass because I did not obtain authoritative browser-accessible source pages or PDFs for them here: NASA TN D-2042 and NACA RM SL55F15. I therefore do not assert their titles, metadata, or ranges below.
+Master dataset table
+The table below is organized around material that is either a directly usable benchmark source or a high-value discovery source. “READY” is reserved for cases where the core benchmark values are already in machine-readable or tabular form. In this pass, most high-value sources are still DIGITIZATION_REQUIRED, because the aerodynamic data are presented primarily in plots, even when geometry tables are present. Every row includes a clickable source citation pointing to the PDF or source page.
+Core verified datasets
+Dataset ID	Source link	Host quality	Short citation	Verified envelope and configuration	Available outputs	Numerical form	Status	Tier	First recommended extraction anchor
+A53D02	PDF / RASAero comparison page [3]
+Secondary mirror of primary NACA report	James & Carros, NACA RM A53D02 (1953)	Cruciform-finned body of fineness ratio 10; Mach 0.6–10; Reynolds 0.9–16 million; main focus is zero-lift drag, with some angle-of-attack drag behavior and Reynolds/fin-leading-edge effects. [4]
+Primarily CD; plus Reynolds sensitivity, theory-vs-experiment drag comparison, and limited angle-of-attack drag plots. [4]
+Plot-based; no core raw table for aerodynamic curves surfaced in parsed text.	DIGITIZATION_REQUIRED	Tier 1	Start with Figures 10–17 on the report’s results pages, especially experimental drag-vs-Mach, theory comparison, Reynolds dependence, and fin-leading-edge-shape effects. [5]
+R100	NTRS entry / PDF [6]
+Official NASA/NTRS	Stoney, NASA TR R-100 (1961)	Compilation of 177 fin-stabilized bodies of revolution from free-flight investigations; Mach range stated as 0.6 to approximately 2.0 in the summary, with source tests in the collection extending to much higher values for some rocket models; Reynolds based on body length 2×10⁶ to 100×10⁶. [7]
+Total zero-lift drag, geometry, supplementary material for body pressure-drag estimation, Reynolds-number curves, friction/base/step/fin-drag support curves. [8]
+Geometry in Tables I–II; aerodynamic data largely in appendix plots.	DIGITIZATION_REQUIRED	Tier 1	Extract Tables I–II first for geometry, then the appendix configuration plots and summary Figures 6–15. [9]
+D4013	PDF / RASAero comparison page [10]
+Secondary mirror of primary NASA TN	Ferris, NASA TN D-4013 (1967)	ARCAS family, short and long bodies; transonic test range Mach 0.60–1.20 at constant Reynolds 9.8×10⁶ per meter; angle of attack -3° to 21°; roll angles 0°, 22.5°, 45°; fin cant 0° and 2°. The geometry figure shows a cruciform arrangement. [11]
+CA, CA,corr, Cl, Cm, CN, Cn, CY, base-pressure coefficient, Mach, angle variables, and summary center-of-pressure location versus Mach. The report gives explicit measurement accuracies. [12]
+Plot-based.	DIGITIZATION_REQUIRED	Tier 1	Start with Figures 11–12 for Mach-sweep summaries and Figures 7–10 for angle sweeps; preserve the report’s stated uncertainties. [13]
+D4014	NTRS entry [14]
+Official NASA/NTRS entry verified; PDF preview unavailable in this pass	Babb & Fuller, NASA TN D-4014 (1967)	ARCAS supersonic companion to D-4013. Verified from the NTRS entry and D-4013’s internal reference as a sounding-rocket static-stability investigation over Mach 1.50–4.63, with α = -4° to 20°, β = -4° to 8°, and Reynolds about 9.8×10⁶ per meter. [14]
+Static-stability dataset is verified; detailed coefficient list was not re-verified from the PDF in this pass because the preview did not render. [14]
+Download link exists, but parsed PDF content was not available here.	PARTIAL	Tier 1	Pull the PDF directly from the NTRS record in the next ingestion step and align its figures with D-4013 for a matched ARCAS pair. [15]
+AST-E1R-13319	PDF [16]
+Secondary host; contractor report	Vought Astronautics, AST/E1R-13319 (1961)	Aerobee 150A sounding-rocket handbook. Parsed text verifies an aerodynamics section with basic aerodynamic data at zero angle of attack, a figure containing lift, CP, and drag, and qualitative notes on angle-of-attack CP shift and drag growth. Exact Mach sweep exists graphically in Figure 22, but the numerical range was not text-parsed here. [17]
+CL, CD, CP in a basic aerodynamic figure, plus qualitative α-effects and flight/environment context. [17]
+Graphical, handbook style; not a clean raw benchmark table.	PARTIAL	Tier 2	Digitize Figure 22 only after the core NASA/NACA datasets; use mainly as a flight-level or sanity-check source. [17]
+D2163	NTRS entry / PDF [18]
+Official NASA/NTRS	Suttles, NASA TN D-2163 (1964)	Two-stage rocket with unusual nose shape; Mach 0.22–4.65; subsonic α ≈ -20° to 95° at β = 0; transonic/supersonic α and β ≈ -8° to 8°; four-fin cruciform first stage; auxiliary rockets and fairings can be added/removed; body-alone and fin-removed supersonic cases are included. [19]
+CA, Cl, Cm, CN, CY, Cn, CP, plus component deltas for auxiliary rockets, fairings, and body-vs-fin contributions. The report provides regime-dependent accuracy estimates. [19]
+Plot-based.	DIGITIZATION_REQUIRED	Tier 1	Begin with Figures 4–9 listed in the report’s presentation-of-results section. [20]
+L53D14a	NTRS entry / PDF [21]
+Official NASA/NTRS	Walisko & Hart, NACA RM L53D14a (1953)	Free-flight drag family for three-fin bodies with spherical, parabolic, flat, and conical noses; Mach 0.6–2.3; Reynolds 10×10⁶ to 80×10⁶; multiple bluntness variations derived from common body families. [22]
+Primarily CD(M), geometric definitions, and bluntness increments; equations of parabolic profiles are given in Table I. The report states probable errors of ±0.008 in CD and ±0.010 in M. [23]
+Mixed: geometry support in text/table, aerodynamic curves in plots.	DIGITIZATION_REQUIRED	Tier 1	Extract Table I, Figure 3 for Reynolds map, and Figures 5–6 for the drag families and bluntness increments. [23]
+L52D15a	NTRS entry / PDF [24]
+Official NASA/NTRS	Ulmann & Dunning, NACA RM L52D15a (1952)	Fineness-ratio-9 and -12 bodies, with and without two horizontal tail fins of rectangular, half-delta, and trapezoidal planform, at Mach 4.06; Reynolds 16.8×10⁶ and 22.3×10⁶ based on body length; α up to 10° for most cases and 7° for one subset. [25]
+CN, Cm, center of pressure, body-alone vs finned comparisons, and explicit decomposition language for body, fins, and fin-body interaction. Probable uncertainties are given. [26]
+Plot-based.	DIGITIZATION_REQUIRED	Tier 1	Start with Figure 1 comparisons and Figure 8 CP-vs-fin-centroid relation. [27]
+L54D27	NTRS entry / PDF [28]
+Official NASA/NTRS	deMoraes, NACA RM L54D27 (1954)	Rocket-powered cone-cylinder with conical boattail and four stabilizing fins; Mach 0.8–1.2; transonic free-flight; boattail/base pressure instrumentation; power-on vs power-off comparison. [29]
+Total drag, boattail pressure, base pressure, base drag, Reynolds-vs-Mach, static thrust comparison, and propulsive-jet influence. Report gives Mach and pressure-coefficient accuracy statements. [30]
+Plot-based.	DIGITIZATION_REQUIRED	Tier 1	Extract Figures 3–8, especially Figure 7 and Figure 8. [31]
+D4064	NTRS entry / PDF [32]
+Official NASA/NTRS	Hinson & McGhee, NASA TN D-4064 (1967)	Five rocket models at Mach 4, 5, and 6; Reynolds roughly 0.54–0.76×10⁶ per foot; α from 0° to 8°; pressure-ratio sweeps from jet-off up to 26,000; includes models with and without cruciform fins. [33]
+CN, Cm, xCP/D, pressure-ratio dependence, and extensive schlieren coverage. The report includes a model-conditions table and an explicit accuracy discussion/caution for xCP near low-force cases. [34]
+Plot-based with useful conditioning table.	DIGITIZATION_REQUIRED	Tier 1	Start with Table 1 and Figures 8–10. [35]
+TM74058	NTRS entry / PDF [36]
+Official NASA/NTRS	Boyden, Brooks & Davenport, NASA TM-74058 (1978)	Finned projectile with aft-mounted cruciform fins; transonic points at M = 0.7, 0.9, 1.1, 1.2; fins on, fins deflected, and fins removed. [36]
+Lift, drag, pitching moment, pitch damping, roll damping; useful for static/dynamic separation and roll-damping evaluation. [36]
+Plot-based.	DIGITIZATION_REQUIRED	Tier 2	Add after the static catalog, especially if roll damping or dynamic derivatives enter scope. [37]
+Verified discovery and meta-sources
+Dataset ID	Source link	Role	Why it matters	Status	Tier
+R474	NTRS entry / PDF [38]
+Discovery + failure-envelope source	Contains many comparisons against measured results; verified coverage includes bodies of revolution over M = 0.6–2.9 and angles up to 60° for M = 0.6–2.0 and up to 180° for M = 2.9. Best used to locate high-α comparison families and to test fail-safe behavior, not as a single clean dataset. [39]
+DISCOVERY	Tier 2
+L55G06a	NTRS entry / PDF [40]
+Bibliographic source map	Summarizes lift/stability research relevant to fin-stabilized ammunition over the Mach range up to 7.0 and explicitly includes a list of 179 papers. It is more useful as a discovery tree than as a standalone benchmark dataset. [41]
+DISCOVERY	Tier 3
+TM84599	NTRS entry / PDF [42]
+Discovery source for later expansion	Useful because it explicitly references ARCAS, Tomahawk, Argo D-4, Cajun, and a two-/three-stage rocket configuration report NASA TN D-5378; it is a good curated expansion map once the first benchmark spine is ingested. [43]
+DISCOVERY	Tier 3
+Coverage matrix
+The highest-confidence coverage comes from combining R-100 for zero-lift drag, D-4013/D-4014 for matched ARCAS stability over the transonic-to-supersonic crossover, D-2163 for whole-vehicle and component-delta testing, L53D14a for three-fin blunt-nose drag, L54D27 for transonic powered/base effects, and D-4064 for Mach-4-to-6 plume effects. L52D15a is a deliberately controlled submodel dataset rather than a whole-vehicle one, and TM74058 is the cleanest verified dynamic/roll add-on. [44]
+Legend: ✓ strong coverage, ◐ partial coverage, — not a good match.
+Dataset	0–0.3	0.3–0.7	0.7–1.0	1–2	2–3	3–5	5–7	3-fin	4-fin	Powered / plume	β or roll	Component isolation	High-α
+A53D02 [45]
+—	◐	✓	✓	✓	✓	✓	—	✓	—	—	—	—
+R-100 [6]
+—	◐	✓	✓	◐	—	—	mixed	mixed	—	—	◐	—
+D-4013 [11]
+—	✓	✓	◐	—	—	—	—	✓	—	✓	◐	◐
+D-4014 [14]
+—	—	—	✓	✓	✓	—	—	likely ✓	—	✓	◐	◐
+D-2163 [19]
+◐	✓	✓	✓	✓	✓	—	—	✓	—	✓	✓	✓
+L53D14a [22]
+—	◐	✓	✓	✓	—	—	✓	—	—	—	✓	—
+L52D15a [46]
+—	—	—	—	—	✓	—	—	—	—	—	✓	◐
+L54D27 [47]
+—	—	✓	✓	—	—	—	—	✓	✓	—	◐	—
+D-4064 [33]
+—	—	—	—	—	✓	✓	—	mixed	✓	—	◐	—
+TM74058 [36]
+—	—	✓	✓	—	—	—	—	✓	—	✓	◐	◐
+The matrix shows three practical truths. First, the verified set is already strong from roughly Mach 0.6 to Mach 6, with useful extensions downward to Mach 0.22 through Suttles and upward to Mach 10 through A53D02 for zero-lift drag. Second, the best verified three-fin family in this pass is L53D14a. Third, the best verified powered-flow chain is L54D27 → D-4064, which gives a clean transonic-to-hypersonic plume/base progression. [48]
+Provenance assessment and unresolved targets
+Most of the strongest sources in the catalog are on official NASA/NTRS pages, which is the preferred outcome for provenance and long-term reproducibility. That is true for R-100, D-2163, D-4014, D-4064, R-474, L52D15a, L53D14a, L54D27, L55G06a, TM74058, and TM84599. [49]
+Two RASAero-prioritized reports surfaced cleanly in this tool pass as secondary-host mirrors rather than as NTRS search results: A53D02 and D-4013. Because the mirrored PDFs themselves are the original NACA/NASA reports, they remain primary technical content, but the repository host is secondary. D-4014 is slightly different: its official NTRS metadata page is verified, and the page advertises an available PDF download, but the browser preview did not render the PDF during this pass. [50]
+For benchmark governance, I would therefore tag sources in four provenance buckets:
+Provenance bucket	Meaning	Verified examples
+Official page + PDF verified	Best case for long-term reproducibility	R-100, D-2163, D-4064, L52D15a, L53D14a, L54D27, R-474, L55G06a, TM74058, TM84599 [51]
+Official metadata page verified, PDF not rendered in-browser	Suitable for ingestion, but requires a direct fetch step outside this browsing view	D-4014 [15]
+Primary report content verified on secondary host	Acceptable interim source with note in manifest	A53D02, D-4013, Aerobee 150A handbook [52]
+Discovery source only	Use to locate other reports, not to declare direct benchmark readiness	L55G06a, TM84599, R-474 in many of its comparison-based chapters [53]
+Ingestion priority timeline
+The sequence below is optimized for the current goal: validate an existing correlation-based solver before broadening the benchmark tree. The first wave focuses on drag baselines; the second wave adds the ARCAS transonic/supersonic crossover; the third wave adds whole-vehicle and component-delta validation; the fourth wave adds powered-flow and roll extensions; the last wave adds meta-sources and failure-envelope coverage. [54]
+ 
+
+Digitization plan
+A practical first pass is to digitize summary figures before dense appendices, and to capture geometry and reference-convention metadata before coefficient points. That order minimizes wasted work: you can immediately start comparing solver outputs against high-value curves while the more labor-intensive configuration-by-configuration extraction proceeds in parallel. For every source, preserve report number, page, figure/table number, axis labels, units, digitizer name, and an estimated digitization uncertainty. [55]
+Source	First-pass digitization targets	Why first
+A53D02 [5]
+Figures for experimental drag-vs-Mach, theory comparison, Reynolds dependence, and fin-leading-edge sensitivity, especially the results pages carrying Figures 10–17.	Gives immediate zero-lift drag and sensitivity checks over the highest verified Mach span.
+R-100 [9]
+Tables I–II for geometry, then summary Figures 6–15, then the appendix configuration plots.	Geometry becomes machine-usable immediately; summary curves give quick coverage before full appendix extraction.
+D-4013 [13]
+Figures 11–12 for Mach-sweep CP and corrected axial-force summaries; Figures 7–10 for α-sweeps; Figures 3–6 for base pressure and roll effects.	Best transonic whole-vehicle source; includes explicit uncertainties.
+D-4014 [14]
+Pull PDF from the NTRS record first, then mirror D-4013’s extraction structure.	Necessary to complete the ARCAS crossover pair.
+D-2163 [20]
+Begin with the report’s listed Figures 4–9.	Fastest route to whole-vehicle, β, and component-delta comparisons.
+L53D14a [23]
+Table I, Figure 3, Figures 5–6.	Cleanest three-fin drag family with explicit bluntness parameterization.
+L52D15a [56]
+Figure 1 summary comparisons and Figure 8 CP-vs-fin-centroid relation.	Best controlled fin-planform/body-interaction validation set.
+L54D27 [31]
+Figures 3–8, especially Figure 7 and Figure 8.	Directly exposes power-on/power-off deltas and boattail/base behavior.
+D-4064 [35]
+Table 1 and Figures 8–10.	High-value, high-Mach plume stability and xCP movement.
+TM74058 [36]
+Static and dynamic derivative plots for the fins-on, fins-deflected, and fins-removed cases.	Best verified transonic roll/pitch damping add-on.
+If you want a compact citation style in your benchmark manifests, these short forms are already source-accurate and repository-stable:
+•	James, C. S.; Carros, R. J. Experimental Investigation of the Zero-Lift Drag of a Fin-Stabilized Body of Fineness Ratio 10 at Mach Numbers Between 0.6 and 10. NACA RM A53D02, 1953. [45]
+•	Stoney, W. E., Jr. Collection of Zero-Lift Drag Data on Bodies of Revolution from Free-Flight Investigations. NASA TR R-100, 1961. [6]
+•	Ferris, J. C. Static Stability Investigation of a Single-Stage Sounding Rocket at Mach Numbers from 0.60 to 1.20. NASA TN D-4013, 1967. [57]
+•	Babb, C. D.; Fuller, D. E. Static Stability Investigation of a Sounding-Rocket Vehicle at Mach Numbers from 1.50 to 4.63. NASA TN D-4014, 1967. [14]
+•	Suttles, J. T. Aerodynamic Characteristics from Mach 0.22 to 4.65 of a Two-Stage Rocket Vehicle Having an Unusual Nose Shape. NASA TN D-2163, 1964. [18]
+•	Walisko, H. A.; Hart, R. G. Investigation of the Drag of Blunt-Nosed Bodies of Revolution in Free Flight at Mach Numbers from 0.6 to 2.3. NACA RM L53D14a, 1953. [21]
+•	deMoraes, C. A. Transonic Flight Test of a Rocket-Powered Model to Determine Propulsive Jet Influence on the Configuration Drag. NACA RM L54D27, 1954. [28]
+•	Hinson, W. F.; McGhee, R. J. Effects of Jet Pluming on the Static Stability of Five Rocket Models at Mach Numbers of 4, 5, and 6 and Static Pressure Ratios up to 26,000. NASA TN D-4064, 1967. [32]
+The immediate practical outcome of this refinement is a benchmark catalog that is already strong enough to start automated validation work in the ranges that matter most for a RASAero II–style comparison workflow: zero-lift drag, the transonic/supersonic crossover, component deltas, and powered-flow penalties. The next best return on effort is not a broader search first; it is to ingest R-100, A53D02, D-4013, D-4014, D-2163, L53D14a, L54D27, and D-4064 into a normalized schema with provenance intact. [58]
+ 
+[1] [50]  RASAero II Comparisons with Wind Tunnel Data 
+https://www.rasaero.com/comparisons.htm
+[2] [7] [8] [9] [55] ntrs.nasa.gov
+https://ntrs.nasa.gov/api/citations/19630004995/downloads/19630004995.pdf
+[3] [4] [5] [45] [52] svq7133.tmp
+https://www.rasaero.com/dloads/NACA%20RM%20A53D02.pdf
+[6] [44] [49] [51] [54] [58] Collection of Zero-lift Drag Data on Bodies of Revolution from Free-flight Investigations - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19630004995
+[10] [11] [12] [13] [57] Static stability investigation of a single-stage sounding rocket at mach numbers from 0.60 to 1.20
+https://www.rasaero.com/dloads/ARCAS%20NASA%20TN%20D-4013.pdf
+[14] [15] Static stability investigation of a sounding-rocket vehicle at Mach numbers from 1.50 to 4.63 - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19670020031
+[16] [17] rasaero.com
+https://www.rasaero.com/dloads/Aerobee%20150A%20-%20Vought%20Astronautics%20Report%20AST%20E1R-13319.pdf
+[18] Aerodynamic characteristics from mach 0.22 to 4.65 of a two-stage rocket vehicle having an unusual nose shape high power, high voltage, audio frequency transformer design manual final report, 1 jul. 1962 - 31 aug. 1964 - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19650000798
+[19] [20] [48] Aerodynamic characteristics from mach 0.22 to 4.65 of a two-stage rocket vehicle having an unusual nose shape
+https://ntrs.nasa.gov/api/citations/19650000798/downloads/19650000798.pdf
+[21] Investigation of the drag of blunt-nosed bodies of revolution in free flight at Mach numbers from 0.6 to 2.3 - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19930089121
+[22] [23] ntrs.nasa.gov
+https://ntrs.nasa.gov/api/citations/19930089121/downloads/19930089121.pdf
+[24] Some effects of fin plan on the static stability of fin body combination at Mach number 4.06 - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19930087140
+[25] [26] [27] [46] [56] ntrs.nasa.gov
+https://ntrs.nasa.gov/api/citations/19930087140/downloads/19930087140.pdf
+[28] Transonic Flight Test of a Rocket-powered Model to Determine Propulsive Jet Influence on the Configuration Drag - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19930088274
+[29] [30] [31] [47] ntrs.nasa.gov
+https://ntrs.nasa.gov/api/citations/19930088274/downloads/19930088274.pdf
+[32] Effects of jet pluming on the static stability of five rocket models at Mach numbers of 4, 5 and 6 and static pressure ratios up to 26,000 - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19670022660
+[33] [34] [35] Effects of jet pluming in the static stability of five rocket models at mach numbers of 4, 5, and 6 and static pressure ratios up to 26000
+https://ntrs.nasa.gov/api/citations/19670022660/downloads/19670022660.pdf
+[36] [37] Transonic static and dynamic stability characteristics of a finned projectile configuration - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19780012129
+[38] [39] Prediction of static aerodynamic characteristics for slender bodies alone and with lifting surfaces to very high angles of attack - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19770026166
+[40] [53] Some Research on the Lift and Stability of Wing-Body Combinations - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19690093432
+[41] ntrs.nasa.gov
+https://ntrs.nasa.gov/api/citations/19690093432/downloads/19690093432.pdf
+[42] The role of wind tunnels in predicting sounding rocket aerodynamics - NASA Technical Reports Server (NTRS)
+https://ntrs.nasa.gov/citations/19830009240
+[43] Legacy DAA - Scan to PDF
+https://ntrs.nasa.gov/api/citations/19830009240/downloads/19830009240.pdf

@@ -1,0 +1,9 @@
+schema_version: 1
+units: SI
+BODY-01: cone-cylinder; diameter=0.1016; nose_length=0.4064; cylinder_length=1.2192
+BODY-02: tangent-ogive-cylinder; diameter=0.1016; nose_length=0.4064; cylinder_length=1.2192
+BODY-03: power-series-nose-cylinder; diameter=0.1016; nose_length=0.4064; cylinder_length=1.2192
+BODY-04: abrupt-shoulder; forward_diameter=0.0762; aft_diameter=0.1016; x=0.6096
+BODY-05: conical-transition; forward_diameter=0.0762; aft_diameter=0.1016; length=0.1524
+BODY-06: boattail; main_diameter=0.1016; base_diameter=0.0762; length=0.2032
+BODY-07: boattail-angle-sweep; half_angles_deg=5,10,15,20

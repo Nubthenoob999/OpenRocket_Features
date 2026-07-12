@@ -161,7 +161,7 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 	// ─── panel builders ───────────────────────────────────────────────────────
 
 	private JPanel buildStatusAndGeometryPanel() {
-		JPanel p = new JPanel(new MigLayout("fillx, insets 0, gap 12 0", "[grow,fill][grow,fill]", ""));
+		JPanel p = new JPanel(new MigLayout("fillx, insets 0, gap 8 8, wrap 1", "[grow,fill]", ""));
 
 		JPanel status = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5", "[right][grow]", ""));
 		status.setBorder(BorderFactory.createTitledBorder("ROM status"));
@@ -172,75 +172,75 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		status.add(new JLabel("Enabled:"));  status.add(romStatusValue, "wrap");
 		status.add(new JLabel("Mode:"));     status.add(modeValue, "wrap");
 		status.add(new JLabel("Fallback:")); status.add(fallbackValue, "wrap");
-		p.add(status, "grow, top");
+		p.add(status, "growx, top");
 
 		JPanel geo = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 5",
-				"[right][grow][right][grow]", ""));
+				"[right][grow]", ""));
 		geo.setBorder(BorderFactory.createTitledBorder("Geometry snapshot"));
 		geo.add(createInfoButton("Geometry snapshot",
 				"Geometry hash: stable signature used to detect design changes.\n"
 						+ "Body length and max diameter define fineness and flow scaling.\n"
-						+ "Fin count and shoulder/boattail transitions drive seed budgeting."), "span 4, right, wrap");
-		geo.add(new JLabel("Geometry hash:"));    geo.add(geometryHashValue);
+						+ "Fin count and shoulder/boattail transitions drive seed budgeting."), "span 2, right, wrap");
+		geo.add(new JLabel("Geometry hash:"));    geo.add(geometryHashValue, "wrap");
 		geo.add(new JLabel("Body length:"));      geo.add(bodyLengthValue, "wrap");
-		geo.add(new JLabel("Max diameter:"));     geo.add(maxDiameterValue);
+		geo.add(new JLabel("Max diameter:"));     geo.add(maxDiameterValue, "wrap");
 		geo.add(new JLabel("Total fins:"));       geo.add(finCountValue, "wrap");
-		geo.add(new JLabel("Shoulders / boattails:")); geo.add(shoulderValue, "span 3, wrap");
-		p.add(geo, "grow, top");
+		geo.add(new JLabel("Shoulders / boattails:")); geo.add(shoulderValue, "growx, wrap");
+		p.add(geo, "growx, top");
 
 		return p;
 	}
 
 	private JPanel buildPathlinePanelWithSeedTable() {
-		JPanel p = new JPanel(new MigLayout("fillx, insets 0, gap 8 0", "[grow,fill][grow,fill]", ""));
+		JPanel p = new JPanel(new MigLayout("fillx, insets 0, gap 8 8, wrap 1", "[grow,fill]", ""));
 
 		JPanel controls = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
-				"[right][grow][right][grow]", ""));
+				"[right][grow]", ""));
 		controls.setBorder(BorderFactory.createTitledBorder("Pathline controls"));
 		controls.add(createInfoButton("Pathline controls",
 				"Body meridian pathlines: axial seed lines over body surfaces.\n"
 						+ "Fin surface pathlines: seed lines per fin set for vortex/separation behavior.\n"
-						+ "Higher counts improve fidelity but increase preview runtime."), "span 4, right, wrap");
+						+ "Higher counts improve fidelity but increase preview runtime."), "span 2, right, wrap");
 		controls.add(new JLabel("Body meridian pathlines:"));
-		controls.add(bodyPathlineSpinner, "growx");
+		controls.add(bodyPathlineSpinner, "growx, wrap");
 		controls.add(new JLabel("Fin surface pathlines:"));
 		controls.add(finPathlineSpinner, "growx, wrap");
 		applyDesignDefaultsButton.setToolTipText("Set pathline counts from current rocket geometry characteristics.");
-		controls.add(applyDesignDefaultsButton, "span 2");
+		controls.add(applyDesignDefaultsButton, "span 2, alignx left, wrap");
 		controls.add(defaultHintLabel, "span 2, growx, wrap");
-		controls.add(seedCountLabel, "span 4, growx, wrap");
-		p.add(controls, "grow, top");
+		controls.add(seedCountLabel, "span 2, growx, wrap");
+		p.add(controls, "growx, top");
 
 		JPanel seedPanel = new JPanel(new MigLayout("fill, insets 6, gapy 4", "[grow,fill]", "[][grow]"));
 		seedPanel.setBorder(BorderFactory.createTitledBorder("Pathline seed plan (secondary)"));
 		JTable seedTable = new JTable(seedTableModel);
 		seedTable.setFillsViewportHeight(true);
 		seedPanel.add(new JScrollPane(seedTable), "grow, hmin 120");
-		p.add(seedPanel, "grow, top");
+		p.add(seedPanel, "growx, top");
 
 		return p;
 	}
 
 	private JPanel buildPreviewSweepPanel() {
 		JPanel p = new JPanel(new MigLayout("fillx, insets 6, gapx 8, gapy 6",
-				"[right][grow][right][grow][right][grow]", ""));
+				"[right][grow,fill]", ""));
 		p.setBorder(BorderFactory.createTitledBorder("Preview sweep controls"));
 		p.add(createInfoButton("Preview sweep controls",
 				"Define a 2D Mach/AoA grid; theta and plume are held constant for the sweep.\n"
 						+ "Preview diagnostics evaluate ROM/Barrowman coefficients at each cell.\n"
 						+ "This does NOT precompute simulation forces — flight simulations compute "
-						+ "ROM forces dynamically during integration."), "span 7, right, wrap");
+						+ "ROM forces dynamically during integration."), "span 2, right, wrap");
 
-		p.add(new JLabel("Mach min:"));   p.add(machMinSpinner, "growx");
-		p.add(new JLabel("Mach max:"));   p.add(machMaxSpinner, "growx");
+		p.add(new JLabel("Mach min:"));   p.add(machMinSpinner, "growx, wrap");
+		p.add(new JLabel("Mach max:"));   p.add(machMaxSpinner, "growx, wrap");
 		p.add(new JLabel("Mach step:"));  p.add(machStepSpinner, "growx, wrap");
 
-		p.add(new JLabel("AoA min (deg):"));   p.add(aoaMinSpinner, "growx");
-		p.add(new JLabel("AoA max (deg):"));   p.add(aoaMaxSpinner, "growx");
+		p.add(new JLabel("AoA min (deg):"));   p.add(aoaMinSpinner, "growx, wrap");
+		p.add(new JLabel("AoA max (deg):"));   p.add(aoaMaxSpinner, "growx, wrap");
 		p.add(new JLabel("AoA step (deg):"));  p.add(aoaStepSpinner, "growx, wrap");
 
-		p.add(new JLabel("Theta (deg):"));     p.add(thetaSpinner, "growx");
-		p.add(new JLabel("Plume state:"));     p.add(plumeSpinner, "growx");
+		p.add(new JLabel("Theta (deg):"));     p.add(thetaSpinner, "growx, wrap");
+		p.add(new JLabel("Plume state:"));     p.add(plumeSpinner, "growx, wrap");
 		p.add(new JLabel("Estimated rows:"));  p.add(rowCountLabel, "growx, wrap");
 
 		generateButton.setFont(generateButton.getFont().deriveFont(Font.BOLD, 13f));
@@ -255,10 +255,10 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		cancelButton.addActionListener(e -> cancelSweep());
 		exportCsvButton.addActionListener(e -> exportCsv());
 
-		p.add(generateButton, "h 30!, w 220!, span 2");
-		p.add(cancelButton, "h 30!, w 120!");
-		p.add(exportCsvButton, "h 30!, w 140!");
-		p.add(progressBar, "span 3, growx, wrap");
+		p.add(generateButton, "span 2, growx, h 30!, wrap");
+		p.add(cancelButton, "span 2, growx, h 30!, wrap");
+		p.add(exportCsvButton, "span 2, growx, h 30!, wrap");
+		p.add(progressBar, "span 2, growx, wrap");
 
 		return p;
 	}
@@ -267,13 +267,13 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 		JPanel p = new JPanel(new MigLayout("fill, insets 6, gapy 6", "[grow,fill]", "[][grow][]"));
 		p.setBorder(BorderFactory.createTitledBorder("Preview diagnostics"));
 
-		JPanel strip = new JPanel(new MigLayout("fillx, insets 0, gapx 12, gapy 2",
-				"[right][grow][right][grow][right][grow]", ""));
+		JPanel strip = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 2",
+				"[right][grow][right][grow]", ""));
 		strip.add(new JLabel("Rows:"));        strip.add(rowsComputedLabel);
-		strip.add(new JLabel("Worst conf:"));  strip.add(worstConfidenceLabel);
+		strip.add(new JLabel("Worst conf:"));  strip.add(worstConfidenceLabel, "wrap");
 		strip.add(new JLabel("Max fallback:")); strip.add(maxFallbackLabel, "wrap");
 		strip.add(new JLabel("Max separation:")); strip.add(maxSeparationLabel);
-		strip.add(new JLabel("Singularities:")); strip.add(singularityLabel);
+		strip.add(new JLabel("Singularities:")); strip.add(singularityLabel, "wrap");
 		strip.add(tableStatusLabel, "span 2, growx, wrap");
 		p.add(strip, "growx, wrap");
 
@@ -702,7 +702,7 @@ class RomPrestepPanel extends SimulationScrollablePanel {
 	}
 
 	private static JTextArea createTextArea(int rows) {
-		JTextArea area = new JTextArea(rows, 60);
+		JTextArea area = new JTextArea(rows, 1);
 		area.setEditable(false);
 		area.setLineWrap(true);
 		area.setWrapStyleWord(true);

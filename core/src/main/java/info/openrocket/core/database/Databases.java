@@ -242,6 +242,48 @@ public class Databases {
 	}
 
 	/**
+	 * Find a material with explicit structural properties, or create a document
+	 * material when no exact match exists.  These values are part of the
+	 * material identity so a component cannot accidentally inherit properties
+	 * from another material with the same name and density.
+	 */
+	public static Material findMaterial(Material.Type type, String baseName, double density, double inPlaneShearModulus,
+			double youngsModulus, double tensileStrength, double compressiveStrength, double poissonRatio,
+			MaterialGroup group) {
+		Database<Material> db = getDatabase(type);
+		String name = trans.get("material", baseName);
+		youngsModulus = optionalPositive(youngsModulus);
+		tensileStrength = optionalPositive(tensileStrength);
+		compressiveStrength = optionalPositive(compressiveStrength);
+		poissonRatio = optionalPoissonRatio(poissonRatio);
+
+		for (Material material : db) {
+			if (material.getName().equalsIgnoreCase(name) && MathUtil.equals(material.getDensity(), density)
+					&& MathUtil.equals(material.getInPlaneShearModulus(), inPlaneShearModulus)
+					&& sameProperty(material.getYoungsModulus(), youngsModulus)
+					&& sameProperty(material.getTensileStrength(), tensileStrength)
+					&& sameProperty(material.getCompressiveStrength(), compressiveStrength)
+					&& sameProperty(material.getPoissonRatio(), poissonRatio)) {
+				return material;
+			}
+		}
+		return Material.newMaterial(type, name, density, inPlaneShearModulus, youngsModulus, tensileStrength,
+				compressiveStrength, poissonRatio, group, true, true);
+	}
+
+	private static boolean sameProperty(double first, double second) {
+		return Double.doubleToLongBits(first) == Double.doubleToLongBits(second);
+	}
+
+	private static double optionalPositive(double value) {
+		return Double.isFinite(value) && value > 0 ? value : Double.NaN;
+	}
+
+	private static double optionalPoissonRatio(double value) {
+		return Double.isFinite(value) && value > 0 && value < 0.5 ? value : Double.NaN;
+	}
+
+	/**
 	 * Find a material from the database or return a new user defined material if the specified
 	 * material with the specified density is not found.
 	 * <p>

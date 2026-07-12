@@ -221,10 +221,18 @@ public class RocketComponentSaver {
 		if (shearModulus != 0.0 || mat.isUserDefined()) {
 			result += " shearModulus=\"" + shearModulus + "\"";
 		}
+		result += structuralMaterialProperty(mat.getYoungsModulus(), "youngsModulus");
+		result += structuralMaterialProperty(mat.getTensileStrength(), "tensileStrength");
+		result += structuralMaterialProperty(mat.getCompressiveStrength(), "compressiveStrength");
+		result += structuralMaterialProperty(mat.getPoissonRatio(), "poissonRatio");
 		
 		result += " group=\"" + mat.getGroup().getDatabaseString() + "\">" +
 				TextUtil.escapeXML(baseName) + "</" + tag + ">";
 		return result;
+	}
+
+	private static String structuralMaterialProperty(double value, String attributeName) {
+		return Double.isFinite(value) ? " " + attributeName + "=\"" + value + "\"" : "";
 	}
 	
 	

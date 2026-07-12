@@ -122,18 +122,19 @@ def install4jDisableBundling = providers.gradleProperty('install4jDisableBundlin
         .map { it.toBoolean() }
         .orElse(false)
 def install4jBuildIds = [
-        windows: ['60', '248'],
-        linux  : ['168', '244'],
-        mac    : ['213', '240'],
-        all    : ['60', '248', '168', '244', '213', '240']
+        windows : ['60', '248'],
+        linux   : ['168', '244'],
+        mac     : ['213', '240'],
+        macArm64: ['240'],
+        all     : ['60', '248', '168', '244', '213', '240']
 ]
 def install4jExpectedArtifacts = [
-        '60' : "Project-Imperia-${projectVersionString}-installer-Windows-x86_64.exe",
-        '248': "Project-Imperia-${projectVersionString}-installer-Windows-Arm64.exe",
-        '168': "Project-Imperia-${projectVersionString}-installer-Linux-x86_64",
-        '244': "Project-Imperia-${projectVersionString}-installer-Linux-Arm64",
-        '213': "Project-Imperia-${projectVersionString}-installer-macOS-Intel.dmg",
-        '240': "Project-Imperia-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
+        '60' : "OpenRocket-${projectVersionString}-installer-Windows-x86_64.exe",
+        '248': "OpenRocket-${projectVersionString}-installer-Windows-Arm64.exe",
+        '168': "OpenRocket-${projectVersionString}-installer-Linux-x86_64",
+        '244': "OpenRocket-${projectVersionString}-installer-Linux-Arm64",
+        '213': "OpenRocket-${projectVersionString}-installer-macOS-Intel.dmg",
+        '240': "OpenRocket-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
 ]
 
 def install4jArtifactExists = { File outputDir, String expectedName ->
@@ -583,6 +584,10 @@ tasks.register('install4jLinuxInstallers', com.install4j.gradle.Install4jTask) {
 
 tasks.register('install4jMacInstallers', com.install4j.gradle.Install4jTask) {
     configureInstall4jTask(delegate, install4jBuildIds.mac, 'Builds install4j macOS installers for Intel and Apple Silicon.')
+}
+
+tasks.register('install4jMacArm64Installer', com.install4j.gradle.Install4jTask) {
+    configureInstall4jTask(delegate, install4jBuildIds.macArm64, 'Builds the install4j macOS installer for Apple Silicon (ARM64) only.')
 }
 
 tasks.register('install4jAllInstallers', com.install4j.gradle.Install4jTask) {

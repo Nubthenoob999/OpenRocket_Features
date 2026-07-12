@@ -37,6 +37,12 @@ import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.ModID;
 
+/**
+ * @deprecated Retained only for compilation and numerical comparison while
+ * Physics-Based Aerodynamics replacement tests are established. New code must
+ * not depend on this package.
+ */
+@Deprecated(forRemoval = true)
 public class PathlineROMCalculator extends AbstractAerodynamicCalculator {
 	private static final double PLUME_DECAY_TAU_SEC = 0.30;
 	private static final double CM_BASE_LIMIT = 0.30;

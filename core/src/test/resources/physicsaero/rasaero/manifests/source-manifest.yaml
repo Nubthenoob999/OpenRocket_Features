@@ -1,0 +1,7 @@
+schema_version: 1
+rasaero_version: 1.0.2.0
+installer_sha256: 932e6ad7ad20d89f96594d0324dddc2a30a63324ddbb0c043dbce9a0bb56bef6
+manual_sha256: f43769678ddef8bbffb48f0bd1c6dbcd1e4a50f8659d6db8e968e9d20b4e6709
+flight_dataset_commit: cfbfc37d0d4db9a88de8f525041ccdfe458c904c
+aero_legend_commit: d11e210d28aa1f98b4a9e1f44358d78a660f1f1d
+redistribution: public_flight_csv_and_column_legend_only

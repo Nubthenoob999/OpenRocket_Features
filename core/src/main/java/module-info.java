@@ -99,6 +99,11 @@ open module info.openrocket.core {
 	exports info.openrocket.core.simulation.listeners.example;
 	exports info.openrocket.core.simulation.listeners.system;
 	exports info.openrocket.core.startup;
+	exports info.openrocket.core.structures;
+	exports info.openrocket.core.structures.calculators;
+	exports info.openrocket.core.structures.geometry;
+	exports info.openrocket.core.structures.loads;
+	exports info.openrocket.core.structures.materials;
 	exports info.openrocket.core.thrustcurve;
 	exports info.openrocket.core.unit;
 	exports info.openrocket.core.util;
@@ -130,6 +135,23 @@ open module info.openrocket.core {
 	exports info.openrocket.core.aerodynamics.rom.plume;
 	exports info.openrocket.core.aerodynamics.rom.fins;
 	exports info.openrocket.core.aerodynamics.rom.integration;
+	exports info.openrocket.core.aerodynamics.physicsaero.api;
+	exports info.openrocket.core.aerodynamics.physicsaero.body;
+	exports info.openrocket.core.aerodynamics.physicsaero.config;
+	exports info.openrocket.core.aerodynamics.physicsaero.diagnostics;
+	exports info.openrocket.core.aerodynamics.physicsaero.flow;
+	exports info.openrocket.core.aerodynamics.physicsaero.fin;
+	exports info.openrocket.core.aerodynamics.physicsaero.force;
+	exports info.openrocket.core.aerodynamics.physicsaero.gasdynamics;
+	exports info.openrocket.core.aerodynamics.physicsaero.geometry;
+	exports info.openrocket.core.aerodynamics.physicsaero.interpolation;
+	exports info.openrocket.core.aerodynamics.physicsaero.interaction;
+	exports info.openrocket.core.aerodynamics.physicsaero.integration;
+	exports info.openrocket.core.aerodynamics.physicsaero.math;
+	exports info.openrocket.core.aerodynamics.physicsaero.runtime;
+	exports info.openrocket.core.aerodynamics.physicsaero.selection;
+	exports info.openrocket.core.aerodynamics.physicsaero.table;
+	exports info.openrocket.core.aerodynamics.physicsaero.validation;
 
 	// Service providers
 	// Also edit core/src/main/resources/META-INF/services !! (until gradle-modules-plugin supports service

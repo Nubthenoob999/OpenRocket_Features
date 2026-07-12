@@ -27,7 +27,7 @@ class AirbrakeSettingsPanel extends JPanel {
 	private final SimulationOptions options;
 
 	AirbrakeSettingsPanel(SimulationOptions options) {
-		super(new MigLayout("wrap 3, ins 0", "[right]10[grow,fill]10[]"));
+		super(new MigLayout("fillx, wrap 3, ins 0", "[right,shrink 0]10[grow,fill,shrink 100]10[]"));
 		this.options = options;
 		buildUi();
 	}
@@ -35,23 +35,29 @@ class AirbrakeSettingsPanel extends JPanel {
 	private void buildUi() {
 		add(new JLabel("CFD data CSV:"));
 		final JTextField pathField = new JTextField(options.getCfdDataFilePath());
+		configurePathField(pathField);
+		// Keep the CFD data path field visually bounded so long paths don't blow out the column width.
+		pathField.setMaximumSize(new java.awt.Dimension(400, pathField.getMaximumSize().height));
 		pathField.getDocument().addDocumentListener(new DocumentListener() {
 			@Override
 			public void insertUpdate(DocumentEvent e) {
 				options.setCfdDataFilePath(pathField.getText());
+				pathField.setToolTipText(pathField.getText());
 			}
 
 			@Override
 			public void removeUpdate(DocumentEvent e) {
 				options.setCfdDataFilePath(pathField.getText());
+				pathField.setToolTipText(pathField.getText());
 			}
 
 			@Override
 			public void changedUpdate(DocumentEvent e) {
 				options.setCfdDataFilePath(pathField.getText());
+				pathField.setToolTipText(pathField.getText());
 			}
 		});
-		add(pathField, "growx");
+		add(pathField, "growx, wmin 0, wmax 400");
 		JButton browse = new JButton("Browse...");
 		browse.addActionListener(e -> {
 			JFileChooser chooser = new JFileChooser();
@@ -108,9 +114,9 @@ class AirbrakeSettingsPanel extends JPanel {
 		burn.add(delayLabel);
 		burn.add(delaySpinner, "growx");
 		burn.add(secondsLabel, "wrap");
-		add(burn, "span 3, growx, wrap");
+		add(burn, "span 3, growx, wmin 0, wrap");
 
-		JPanel debug = new JPanel(new MigLayout("insets 8, wrap 2", "[right]10[grow,fill]"));
+		JPanel debug = new JPanel(new MigLayout("fillx, insets 8, wrap 2", "[right,shrink 0]10[grow,fill,shrink 100]"));
 		debug.setBorder(new TitledBorder("Debug"));
 
 		JCheckBox enableDebug = new JCheckBox("Enable debug mode");
@@ -149,30 +155,34 @@ class AirbrakeSettingsPanel extends JPanel {
 
 		debug.add(new JLabel("CSV directory (optional):"));
 		JTextField csvDirField = new JTextField(options.getDbgCsvDir());
+		configurePathField(csvDirField);
 		csvDirField.getDocument().addDocumentListener(new DocumentListener() {
 			@Override
 			public void insertUpdate(DocumentEvent e) {
 				options.setDbgCsvDir(csvDirField.getText());
+				csvDirField.setToolTipText(csvDirField.getText());
 			}
 
 			@Override
 			public void removeUpdate(DocumentEvent e) {
 				options.setDbgCsvDir(csvDirField.getText());
+				csvDirField.setToolTipText(csvDirField.getText());
 			}
 
 			@Override
 			public void changedUpdate(DocumentEvent e) {
 				options.setDbgCsvDir(csvDirField.getText());
+				csvDirField.setToolTipText(csvDirField.getText());
 			}
 		});
-		debug.add(csvDirField, "growx");
+		debug.add(csvDirField, "growx, wmin 0");
 
 		JCheckBox liveConsole = new JCheckBox("Show live debug console");
 		liveConsole.setSelected(options.isDbgShowConsole());
 		liveConsole.addItemListener(e -> options.setDbgShowConsole(e.getStateChange() == ItemEvent.SELECTED));
 		debug.add(liveConsole, "span 2");
 
-		add(debug, "span 3, growx");
+		add(debug, "span 3, growx, wmin 0");
 	}
 
 	private void addDoubleSpinner(String label, String property, UnitGroup unitGroup) {
@@ -182,7 +192,7 @@ class AirbrakeSettingsPanel extends JPanel {
 				: new DoubleModel(options, property, UnitGroup.UNITS_COEFFICIENT, 0);
 		JSpinner spinner = new JSpinner(model.getSpinnerModel());
 		spinner.setEditor(new SpinnerEditor(spinner));
-		add(spinner);
+		add(spinner, "growx, wmin 0");
 		if (unitGroup != null) {
 			add(new UnitSelector(model), "wrap");
 		} else {
@@ -204,5 +214,11 @@ class AirbrakeSettingsPanel extends JPanel {
 		if (component instanceof JComponent jComponent) {
 			jComponent.repaint();
 		}
+	}
+
+	private static void configurePathField(JTextField field) {
+		field.setColumns(1);
+		field.setToolTipText(field.getText());
+		SimulationTabLayoutUtils.forceViewportWidth(field);
 	}
 }

@@ -79,6 +79,19 @@ public class MaterialTest extends BaseTestCase {
 	}
 
 	@Test
+	public void structuralPropertiesRoundTripThroughMaterialStorage() {
+		Material material = Material.newMaterial(Material.Type.BULK, "Structural laminate", 1600.0, 4.5e9,
+				55.0e9, 650.0e6, 450.0e6, 0.31, MaterialGroup.COMPOSITES, true, true);
+
+		Material restored = Material.fromStorableString(material.toStorableString(), true);
+
+		assertEquals(55.0e9, restored.getYoungsModulus(), EPSILON);
+		assertEquals(650.0e6, restored.getTensileStrength(), EPSILON);
+		assertEquals(450.0e6, restored.getCompressiveStrength(), EPSILON);
+		assertEquals(0.31, restored.getPoissonRatio(), EPSILON);
+	}
+
+	@Test
 	public void testDocumentDatabase() {
 		// Create a document and rocket
 		OpenRocketDocument document = OpenRocketDocumentFactory.createNewRocket();

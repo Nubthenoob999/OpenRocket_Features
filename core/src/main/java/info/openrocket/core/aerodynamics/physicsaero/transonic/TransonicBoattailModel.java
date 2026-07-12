@@ -1,0 +1,2 @@
+package info.openrocket.core.aerodynamics.physicsaero.transonic;
+public final class TransonicBoattailModel {public double dragCoefficient(double mach,double boattailAngle,double areaRatio,double separationSeverity){if(mach<.7||mach>1.3||separationSeverity<0||separationSeverity>1)throw new IllegalArgumentException();return Math.max(0,areaRatio*Math.sin(Math.abs(boattailAngle))*(.5+.5*mach)+.08*separationSeverity);}}
