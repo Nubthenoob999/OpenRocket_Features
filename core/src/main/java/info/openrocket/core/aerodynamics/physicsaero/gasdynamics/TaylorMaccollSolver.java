@@ -1,7 +1,10 @@
 package info.openrocket.core.aerodynamics.physicsaero.gasdynamics;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import info.openrocket.core.aerodynamics.physicsaero.flow.GasState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.TotalState;
 import info.openrocket.core.aerodynamics.physicsaero.math.AdaptiveOdeSolver;
@@ -16,6 +19,14 @@ public final class TaylorMaccollSolver {
 	private static final double MAX_WALL_TANGENCY_RESIDUAL = 1e-7;
 	private static final double MACH_CLUSTER_GROWTH = 1.5;
 	private static final int SCAN_INTERVALS = 240;
+	private static final int ROOT_CACHE_CAPACITY = 2048;
+	private static final Map<RootCacheKey, CachedRoot> ROOT_CACHE =
+			Collections.synchronizedMap(new LinkedHashMap<>(256, 0.75f, true) {
+				@Override
+				protected boolean removeEldestEntry(Map.Entry<RootCacheKey, CachedRoot> eldest) {
+					return size() > ROOT_CACHE_CAPACITY;
+				}
+			});
 
 	public TaylorMaccollSolution solve(GasState freestream, double coneHalfAngleRad, ThermodynamicModel model) {
 		if (freestream.mach() <= 1 || coneHalfAngleRad <= 0 || coneHalfAngleRad >= Math.PI / 2)
@@ -24,8 +35,15 @@ public final class TaylorMaccollSolver {
 		double machAngle = Math.asin(1 / freestream.mach());
 		double lower = Math.max(machAngle, coneHalfAngleRad) + ANGLE_GUARD;
 		double upper = Math.PI / 2 - ANGLE_GUARD;
-		Root root = smallestPhysicalRoot(freestream, coneHalfAngleRad, gamma, machAngle, lower, upper);
-		if (root == null) return TaylorMaccollSolution.detached(freestream.mach(), coneHalfAngleRad);
+		RootCacheKey cacheKey = new RootCacheKey(freestream.mach(), coneHalfAngleRad, gamma);
+		CachedRoot cached = ROOT_CACHE.get(cacheKey);
+		if (cached == null) {
+			Root solved = smallestPhysicalRoot(freestream, coneHalfAngleRad, gamma, machAngle, lower, upper);
+			cached = solved == null ? CachedRoot.DETACHED : new CachedRoot(false, solved);
+			ROOT_CACHE.put(cacheKey, cached);
+		}
+		if (cached.detached()) return TaylorMaccollSolution.detached(freestream.mach(), coneHalfAngleRad);
+		Root root = cached.root();
 		double beta = root.beta;
 		Trajectory trajectory = root.trajectory;
 		double normalizedSpeed2 = trajectory.wallVr * trajectory.wallVr + trajectory.wallVtheta * trajectory.wallVtheta;
@@ -164,4 +182,8 @@ public final class TaylorMaccollSolver {
 	private record Bracket(double lower, double upper) {}
 	private record Root(double beta, Trajectory trajectory) {}
 	private record Trajectory(double residual, double wallVr, double wallVtheta, int steps) {}
+	private record RootCacheKey(double mach, double coneHalfAngleRad, double gamma) {}
+	private record CachedRoot(boolean detached, Root root) {
+		private static final CachedRoot DETACHED = new CachedRoot(true, null);
+	}
 }

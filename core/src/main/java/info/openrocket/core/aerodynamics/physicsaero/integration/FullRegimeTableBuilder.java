@@ -7,8 +7,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
 
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.blending.ComponentRegimeBlender;
@@ -117,7 +125,34 @@ public final class FullRegimeTableBuilder {
 	private static final double MAXIMUM_RUNTIME_REYNOLDS_RATIO = 1.25;
 	private static final String RUNTIME_REYNOLDS_METHOD_ID = "ANCHORED_CUBIC_LOG_RE_V5";
 	private final Map<BodyPressureAnchorKey, BodyPressureAnchor> bodyPressureAnchors =
-			new HashMap<>();
+			new ConcurrentHashMap<>();
+	private final Map<String, GeometryMetrics> geometryMetricsCache =
+			new ConcurrentHashMap<>();
+	private final int workerCount;
+
+	public FullRegimeTableBuilder() {
+		this(recommendedWorkerCount(Runtime.getRuntime().availableProcessors()));
+	}
+
+	FullRegimeTableBuilder(int workerCount) {
+		if (workerCount < 1) {
+			throw new IllegalArgumentException("worker count must be positive");
+		}
+		this.workerCount = workerCount;
+	}
+
+	/**
+	 * Leaves enough CPU capacity for the UI and other simulations while keeping
+	 * the table build compute-bound.  Rounding 55% gives 50-60% for every
+	 * multi-core count except three logical processors, where two workers are the
+	 * closest useful choice.
+	 */
+	static int recommendedWorkerCount(int availableProcessors) {
+		if (availableProcessors < 1) {
+			throw new IllegalArgumentException("available processor count must be positive");
+		}
+		return Math.max(1, (int) Math.round(availableProcessors * 0.55));
+	}
 
 	public AerodynamicTable build(AeroGeometry geometry, double[] mach, double[] alpha,
 			double[] beta, AtmosphereState atmosphere, ThermodynamicModel gas,
@@ -130,20 +165,22 @@ public final class FullRegimeTableBuilder {
 			TableMetadata metadata, BooleanSupplier cancelled, IntConsumer progress) {
 		validateAxes(mach, alpha, beta);
 		TableAxes axes = new TableAxes(mach, alpha, beta);
-		Map<Double, SupersonicStencil> supersonic = supersonicTables(
-				geometry, mach, alpha, beta, atmosphere, gas, metadata, cancelled, progress);
-		List<TableCell> cells = new ArrayList<>();
-		for (int machIndex = 0; machIndex < mach.length; machIndex++) {
-			for (int alphaIndex = 0; alphaIndex < alpha.length; alphaIndex++) {
-				for (int betaIndex = 0; betaIndex < beta.length; betaIndex++) {
-					checkCancelled(cancelled);
-					cells.add(cellWithRuntimeCorrection(geometry, mach[machIndex], alpha[alphaIndex], beta[betaIndex],
-							alphaIndex, betaIndex, atmosphere, gas, supersonic.get(mach[machIndex])));
-					progress.accept(5 + (80 * cells.size() / axes.cellCount()));
-				}
-			}
+		ExecutorService executor = newBuildExecutor();
+		try {
+			Map<Double, SupersonicStencil> supersonic = supersonicTables(
+					geometry, mach, alpha, beta, atmosphere, gas, metadata, cancelled, progress, executor);
+			TableCell[] cells = parallelIndexed(executor, axes.cellCount(), cancelled, flatIndex -> {
+				int betaIndex = flatIndex % beta.length;
+				int alphaIndex = (flatIndex / beta.length) % alpha.length;
+				int machIndex = flatIndex / (alpha.length * beta.length);
+				return cellWithRuntimeCorrection(geometry, mach[machIndex], alpha[alphaIndex], beta[betaIndex],
+						alphaIndex, betaIndex, atmosphere, gas, supersonic.get(mach[machIndex]));
+			}, completed -> progress.accept(5 + (80 * completed / axes.cellCount())),
+					TableCell[]::new);
+			return new AerodynamicTable(axes, Arrays.asList(cells), metadata);
+		} finally {
+			shutdown(executor);
 		}
-		return new AerodynamicTable(axes, cells, metadata);
 	}
 
 	/** Builds coast and jet-on variants on an explicit powered-state axis. */
@@ -170,23 +207,34 @@ public final class FullRegimeTableBuilder {
 		}
 		validateAxes(mach, alpha, beta);
 		TableAxes axes = new TableAxes(mach, alpha, beta, poweredAxis);
-		Map<Double, SupersonicStencil> supersonic = supersonicTables(
-				geometry, mach, alpha, beta, atmosphere, gas, metadata, cancelled, progress);
-		List<TableCell> cells = new ArrayList<>(axes.cellCount());
-		for (int machIndex = 0; machIndex < mach.length; machIndex++) {
-			for (int alphaIndex = 0; alphaIndex < alpha.length; alphaIndex++) {
-				for (int betaIndex = 0; betaIndex < beta.length; betaIndex++) {
-					checkCancelled(cancelled);
-					TableCell coast = cellWithRuntimeCorrection(geometry, mach[machIndex], alpha[alphaIndex], beta[betaIndex],
-							alphaIndex, betaIndex, atmosphere, gas, supersonic.get(mach[machIndex]));
-					for (PoweredFlowState poweredState : poweredStates) {
-						cells.add(applyPoweredState(geometry, mach[machIndex], coast, poweredState));
-						progress.accept(5 + (80 * cells.size() / axes.cellCount()));
-					}
+		int coastCellCount = mach.length * alpha.length * beta.length;
+		ExecutorService executor = newBuildExecutor();
+		try {
+			Map<Double, SupersonicStencil> supersonic = supersonicTables(
+					geometry, mach, alpha, beta, atmosphere, gas, metadata, cancelled, progress, executor);
+			TableCell[][] poweredCells = parallelIndexed(executor, coastCellCount, cancelled, flatIndex -> {
+				int betaIndex = flatIndex % beta.length;
+				int alphaIndex = (flatIndex / beta.length) % alpha.length;
+				int machIndex = flatIndex / (alpha.length * beta.length);
+				TableCell coast = cellWithRuntimeCorrection(geometry, mach[machIndex], alpha[alphaIndex],
+						beta[betaIndex], alphaIndex, betaIndex, atmosphere, gas,
+						supersonic.get(mach[machIndex]));
+				TableCell[] states = new TableCell[poweredStates.length];
+				for (int stateIndex = 0; stateIndex < poweredStates.length; stateIndex++) {
+					states[stateIndex] = applyPoweredState(
+							geometry, mach[machIndex], coast, poweredStates[stateIndex]);
 				}
+				return states;
+			}, completed -> progress.accept(5 + (80 * completed / coastCellCount)),
+					TableCell[][]::new);
+			List<TableCell> cells = new ArrayList<>(axes.cellCount());
+			for (TableCell[] states : poweredCells) {
+				cells.addAll(Arrays.asList(states));
 			}
+			return new AerodynamicTable(axes, cells, metadata);
+		} finally {
+			shutdown(executor);
 		}
-		return new AerodynamicTable(axes, cells, metadata);
 	}
 
 	/**
@@ -195,7 +243,8 @@ public final class FullRegimeTableBuilder {
 	 */
 	private Map<Double, SupersonicStencil> supersonicTables(AeroGeometry geometry, double[] mach,
 			double[] alpha, double[] beta, AtmosphereState atmosphere, ThermodynamicModel gas,
-			TableMetadata metadata, BooleanSupplier cancelled, IntConsumer progress) {
+			TableMetadata metadata, BooleanSupplier cancelled, IntConsumer progress,
+			ExecutorService executor) {
 		Map<Double, SupersonicStencil> supersonic = new HashMap<>();
 		final double logStep = 0.05;
 		AtmosphereState lowerReAtmosphere = withDensityScale(atmosphere, Math.exp(-logStep));
@@ -212,36 +261,98 @@ public final class FullRegimeTableBuilder {
 				THREE_DECADE_ANCHOR_REYNOLDS_RATIO);
 		AtmosphereState threeDecadeValidationAtmosphere = withDensityScale(atmosphere,
 				THREE_DECADE_VALIDATION_REYNOLDS_RATIO);
-		int completed = 0;
-		for (double currentMach : mach) {
-			checkCancelled(cancelled);
-			progress.accept(1 + (3 * completed++ / mach.length));
-			if (currentMach >= SUPERSONIC_STENCIL_MIN_MACH && currentMach <= SUPERSONIC_STENCIL_MAX_MACH) {
-				CombinedBodyFinTableBuilder builder = new CombinedBodyFinTableBuilder(true, true);
-				supersonic.put(currentMach, new SupersonicStencil(
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								atmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								lowerReAtmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								upperReAtmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								oneDecadeAnchorAtmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								oneDecadeValidationAtmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								twoDecadeAnchorAtmosphere, gas, metadata),
-						builder.build(geometry, new double[] {currentMach}, alpha, beta,
-								twoDecadeValidationAtmosphere, gas, metadata),
-						currentMach <= THREE_DECADE_REYNOLDS_MAXIMUM_MACH
-								? builder.build(geometry, new double[] {currentMach}, alpha, beta,
-										threeDecadeAnchorAtmosphere, gas, metadata) : null,
-						currentMach <= THREE_DECADE_REYNOLDS_MAXIMUM_MACH
-								? builder.build(geometry, new double[] {currentMach}, alpha, beta,
-										threeDecadeValidationAtmosphere, gas, metadata) : null));
-			}
+		double[] stencilMach = Arrays.stream(mach)
+				.filter(currentMach -> currentMach >= SUPERSONIC_STENCIL_MIN_MACH
+						&& currentMach <= SUPERSONIC_STENCIL_MAX_MACH)
+				.toArray();
+		SupersonicStencil[] stencils = parallelIndexed(executor, stencilMach.length, cancelled, index -> {
+			double currentMach = stencilMach[index];
+			CombinedBodyFinTableBuilder builder = new CombinedBodyFinTableBuilder(true, true);
+			return new SupersonicStencil(
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							atmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							lowerReAtmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							upperReAtmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							oneDecadeAnchorAtmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							oneDecadeValidationAtmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							twoDecadeAnchorAtmosphere, gas, metadata),
+					builder.build(geometry, new double[] {currentMach}, alpha, beta,
+							twoDecadeValidationAtmosphere, gas, metadata),
+					currentMach <= THREE_DECADE_REYNOLDS_MAXIMUM_MACH
+							? builder.build(geometry, new double[] {currentMach}, alpha, beta,
+									threeDecadeAnchorAtmosphere, gas, metadata) : null,
+					currentMach <= THREE_DECADE_REYNOLDS_MAXIMUM_MACH
+							? builder.build(geometry, new double[] {currentMach}, alpha, beta,
+									threeDecadeValidationAtmosphere, gas, metadata) : null);
+		}, completed -> progress.accept(1 + (3 * completed / Math.max(1, stencilMach.length))),
+				SupersonicStencil[]::new);
+		for (int index = 0; index < stencilMach.length; index++) {
+			supersonic.put(stencilMach[index], stencils[index]);
 		}
 		return supersonic;
+	}
+
+	private ExecutorService newBuildExecutor() {
+		return Executors.newFixedThreadPool(workerCount, runnable -> {
+			Thread thread = new Thread(runnable, "physics-aero-table-worker");
+			thread.setDaemon(true);
+			return thread;
+		});
+	}
+
+	private static <T> T[] parallelIndexed(ExecutorService executor, int count,
+			BooleanSupplier cancelled, IntFunction<T> evaluator, IntConsumer progress,
+			IntFunction<T[]> arrayFactory) {
+		T[] results = arrayFactory.apply(count);
+		if (count == 0) {
+			return results;
+		}
+		CompletionService<IndexedResult<T>> completion = new ExecutorCompletionService<>(executor);
+		List<Future<IndexedResult<T>>> futures = new ArrayList<>(count);
+		for (int index = 0; index < count; index++) {
+			final int taskIndex = index;
+			futures.add(completion.submit(() -> {
+				checkCancelled(cancelled);
+				return new IndexedResult<>(taskIndex, evaluator.apply(taskIndex));
+			}));
+		}
+		try {
+			for (int completed = 1; completed <= count; completed++) {
+				checkCancelled(cancelled);
+				IndexedResult<T> result = completion.take().get();
+				results[result.index()] = result.value();
+				progress.accept(completed);
+			}
+			return results;
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			futures.forEach(future -> future.cancel(true));
+			throw new IllegalStateException("BUILD_INTERRUPTED", exception);
+		} catch (ExecutionException exception) {
+			futures.forEach(future -> future.cancel(true));
+			Throwable cause = exception.getCause();
+			if (cause instanceof RuntimeException runtimeException) {
+				throw runtimeException;
+			}
+			throw new IllegalStateException("TABLE_CELL_GENERATION_FAILED", cause);
+		} catch (RuntimeException exception) {
+			futures.forEach(future -> future.cancel(true));
+			throw exception;
+		}
+	}
+
+	private static void shutdown(ExecutorService executor) {
+		executor.shutdownNow();
+		try {
+			executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	private static AtmosphereState withDensityScale(AtmosphereState atmosphere, double scale) {
@@ -1036,6 +1147,11 @@ public final class FullRegimeTableBuilder {
 	}
 
 	private GeometryMetrics geometryMetrics(AeroGeometry geometry) {
+		return geometryMetricsCache.computeIfAbsent(geometry.geometryHash(),
+				ignored -> computeGeometryMetrics(geometry));
+	}
+
+	private static GeometryMetrics computeGeometryMetrics(AeroGeometry geometry) {
 		double diameter = geometry.references().maximumBodyDiameterM();
 		double finenessRatio = geometry.references().vehicleLengthM() / diameter;
 		double frontalArea = Math.PI * diameter * diameter / 4;
@@ -1074,7 +1190,7 @@ public final class FullRegimeTableBuilder {
 				meanSweep, meanAspectRatio);
 	}
 
-	private double bodyCurvatureMetric(AeroGeometry geometry, double diameter) {
+	private static double bodyCurvatureMetric(AeroGeometry geometry, double diameter) {
 		double curvatureIntegral = 0;
 		double length = 0;
 		for (AeroComponent component : geometry.components()) {
@@ -1225,4 +1341,6 @@ public final class FullRegimeTableBuilder {
 			methodIds = List.copyOf(methodIds);
 		}
 	}
+
+	private record IndexedResult<T>(int index, T value) { }
 }

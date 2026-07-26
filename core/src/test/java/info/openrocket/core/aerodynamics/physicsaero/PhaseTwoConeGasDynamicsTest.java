@@ -77,6 +77,32 @@ class PhaseTwoConeGasDynamicsTest {
 	}
 
 	@Test
+	void reynoldsScaledFreestreamReusesDimensionlessRootAndRebuildsAbsoluteState() {
+		GasState reference = state(3.0);
+		double densityScale = 0.1;
+		GasState scaled = new GasState(reference.mach(), reference.pressurePa() * densityScale,
+				reference.temperatureK(), reference.densityKgM3() * densityScale,
+				reference.velocityMS());
+		TaylorMaccollSolver solver = new TaylorMaccollSolver();
+		double coneAngle = Math.toRadians(12.0);
+
+		TaylorMaccollSolution first = solver.solve(reference, coneAngle, AIR);
+		TaylorMaccollSolution second = solver.solve(scaled, coneAngle, AIR);
+
+		assertEquals(first.shockAngleRad(), second.shockAngleRad(), 0.0);
+		assertEquals(first.wallPressureCoefficient(), second.wallPressureCoefficient(), 1.0e-15);
+		assertEquals(first.totalPressureRatio(), second.totalPressureRatio(), 1.0e-15);
+		assertEquals(first.wallTangencyResidual(), second.wallTangencyResidual(), 0.0);
+		assertEquals(first.odeSteps(), second.odeSteps());
+		assertEquals(first.wallState().mach(), second.wallState().mach(), 1.0e-14);
+		assertEquals(first.wallState().temperatureK(), second.wallState().temperatureK(), 1.0e-10);
+		assertEquals(first.wallState().pressurePa() * densityScale,
+				second.wallState().pressurePa(), 1.0e-10);
+		assertEquals(first.wallState().densityKgM3() * densityScale,
+				second.wallState().densityKgM3(), 1.0e-13);
+	}
+
+	@Test
 	void shallowConesSelectContinuousWeakShockAcrossBenchmarkMachRange() {
 		TaylorMaccollSolver solver = new TaylorMaccollSolver();
 		double[] machNumbers = {1.2, 1.5, 2.0, 2.3};
