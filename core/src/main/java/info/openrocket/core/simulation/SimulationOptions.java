@@ -28,15 +28,12 @@ import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanDragCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanStabilityCalculator;
-import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
+import info.openrocket.core.aerodynamics.PhysicsAeroAerodynamicCalculator;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroSettings;
+import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.aerodynamics.lookup.CsvMachAoALookup;
 import info.openrocket.core.aerodynamics.lookup.MachAoALookup;
-import info.openrocket.core.aerodynamics.rom.DragSurface;
-import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
-import info.openrocket.core.aerodynamics.rom.RomMode;
-import info.openrocket.core.aerodynamics.rom.RomSettings;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
@@ -120,14 +117,20 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	private SimulationStepperMethod stepperMethodChoice = SimulationStepperMethod.RK4;
 
+	/**
+	 * Nozzle exit diameter in meters by RASAero axial stage number.  Thrust-curve
+	 * data is referenced to sea-level ambient pressure, so imported exit area is
+	 * required to recover the altitude pressure-thrust term.
+	 */
+	private double sustainerNozzleExitDiameter = Double.NaN;
+	private double booster1NozzleExitDiameter = Double.NaN;
+	private double booster2NozzleExitDiameter = Double.NaN;
+
 	private Path dragLookupCsvPath;
 	private Path stabilityLookupCsvPath;
 	private MachAoALookup dragLookupTable;
 	private MachAoALookup stabilityLookupTable;
-	private DragSurface romDragSurface;
-	private AeroSurface4D romAeroSurface4D;
-	private RomSurfaceMode romSurfaceMode = RomSurfaceMode.THREE_D;
-	private RomSettings romSettings = RomSettings.defaults();
+	private PhysicsAeroSettings physicsAeroSettings = new PhysicsAeroSettings();
 	private List<String> dragLookupCsvRows;
 	private List<String> stabilityLookupCsvRows;
 
@@ -779,6 +782,39 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		fireChangeEvent();
 	}
 
+	public double getNozzleExitDiameter() {
+		return getNozzleExitDiameterForStage(0);
+	}
+
+	public void setNozzleExitDiameter(double diameter) {
+		setNozzleExitDiameterForStage(0, diameter);
+	}
+
+	public double getNozzleExitDiameterForStage(int stageNumber) {
+		return switch (stageNumber) {
+			case 0 -> sustainerNozzleExitDiameter;
+			case 1 -> booster1NozzleExitDiameter;
+			case 2 -> booster2NozzleExitDiameter;
+			default -> Double.NaN;
+		};
+	}
+
+	public void setNozzleExitDiameterForStage(int stageNumber, double diameter) {
+		if (Double.isFinite(diameter) && diameter < 0) {
+			throw new IllegalArgumentException("Nozzle exit diameter must be non-negative");
+		}
+		if (Double.compare(getNozzleExitDiameterForStage(stageNumber), diameter) == 0) {
+			return;
+		}
+		switch (stageNumber) {
+			case 0 -> sustainerNozzleExitDiameter = diameter;
+			case 1 -> booster1NozzleExitDiameter = diameter;
+			case 2 -> booster2NozzleExitDiameter = diameter;
+			default -> throw new IllegalArgumentException("Unsupported axial stage number: " + stageNumber);
+		}
+		fireChangeEvent();
+	}
+
 	public Path getDragLookupCsvPath() {
 		return dragLookupCsvPath;
 	}
@@ -815,31 +851,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		return dragLookupTable != null;
 	}
 
-	/**
-	 * Returns whether a drag lookup table is present and contains angle-of-attack
-	 * data in addition to Mach. This is the required prerequisite shape for ROM
-	 * drag surface workflows.
-	 */
+	/** Returns whether a drag lookup table includes angle-of-attack data. */
 	public boolean hasDragLookupWithAoA() {
 		return dragLookupTable != null && dragLookupTable.hasAoA();
-	}
-
-	/**
-	 * The pathline ROM no longer depends on a lookup-table prerequisite.
-	 *
-	 * The lookup APIs remain available for compatibility with saved documents and
-	 * ancillary tooling, but the active ROM runtime should always be considered
-	 * ready from a prerequisite perspective.
-	 */
-	public boolean isRomDragPrerequisiteReady() {
-		return true;
-	}
-
-	/**
-	 * The pathline ROM no longer throws when lookup tables are absent.
-	 */
-	public void verifyRomDragPrerequisite() {
-		// Pathline-only runtime: no-op.
 	}
 
 	public List<String> getDragLookupCsvRows() {
@@ -886,114 +900,38 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		return stabilityLookupCsvRows != null ? new ArrayList<>(stabilityLookupCsvRows) : null;
 	}
 
-	public DragSurface getRomDragSurface() {
-		return romDragSurface;
-	}
-
-	public boolean hasRomDragSurface() {
-		return romDragSurface != null || romAeroSurface4D != null;
-	}
-
-	public void setRomDragSurface(DragSurface romDragSurface) {
-		if (this.romDragSurface == romDragSurface) {
-			return;
-		}
-		this.romDragSurface = romDragSurface;
+	public PhysicsAeroSettings getPhysicsAeroSettings() { return physicsAeroSettings.copy(); }
+	public void setPhysicsAeroSettings(PhysicsAeroSettings settings) {
+		PhysicsAeroSettings normalized = settings == null ? new PhysicsAeroSettings() : settings.copy();
+		if (physicsAeroSettings.equals(normalized)) return;
+		physicsAeroSettings = normalized;
 		fireChangeEvent();
 	}
-
-	public AeroSurface4D getRomAeroSurface4D() {
-		return romAeroSurface4D;
+	public PhysicsAeroMode getPhysicsAeroMode() { return physicsAeroSettings.getMode(); }
+	public boolean isForceTurbulentBoundaryLayer() {
+		return physicsAeroSettings.isForceTurbulentBoundaryLayer();
 	}
-
-	public boolean hasRomAeroSurface4D() {
-		return romAeroSurface4D != null;
+	public void setForceTurbulentBoundaryLayer(boolean force) {
+		PhysicsAeroSettings updated = physicsAeroSettings.copy();
+		updated.setForceTurbulentBoundaryLayer(force);
+		setPhysicsAeroSettings(updated);
 	}
-
-	public void setRomAeroSurface4D(AeroSurface4D romAeroSurface4D) {
-		if (this.romAeroSurface4D == romAeroSurface4D) {
-			return;
-		}
-		this.romAeroSurface4D = romAeroSurface4D;
-		fireChangeEvent();
+	public void setPhysicsAeroEnabled(boolean enabled) {
+		setPhysicsAeroMode(enabled ? PhysicsAeroMode.STRICT : PhysicsAeroMode.OFF);
 	}
-
-	public RomSurfaceMode getRomSurfaceMode() {
-		return romSurfaceMode;
-	}
-
-	public void setRomSurfaceMode(RomSurfaceMode romSurfaceMode) {
-		RomSurfaceMode normalized = romSurfaceMode != null ? romSurfaceMode : RomSurfaceMode.THREE_D;
-		if (this.romSurfaceMode == normalized) {
-			return;
-		}
-		this.romSurfaceMode = normalized;
-		fireChangeEvent();
-	}
-
-	public RomSettings getRomSettings() {
-		return romSettings.copy();
-	}
-
-	public void setRomSettings(RomSettings romSettings) {
-		RomSettings normalized = romSettings != null ? romSettings.copy() : RomSettings.defaults();
-		if (this.romSettings.equals(normalized)) {
-			return;
-		}
-		this.romSettings = normalized;
-		fireChangeEvent();
-	}
-
-	public boolean isRomEnabled() {
-		return romSettings.isEnabled();
-	}
-
-	public void setRomEnabled(boolean enabled) {
-		if (romSettings.isEnabled() == enabled) {
-			return;
-		}
-		RomSettings updated = romSettings.copy();
-		updated.setEnabled(enabled);
-		setRomSettings(updated);
-	}
-
-	public RomMode getRomMode() {
-		return romSettings.getMode();
-	}
-
-	public void setRomMode(RomMode mode) {
-		if (romSettings.getMode() == mode) {
-			return;
-		}
-		RomSettings updated = romSettings.copy();
+	public void setPhysicsAeroMode(PhysicsAeroMode mode) {
+		PhysicsAeroSettings updated = physicsAeroSettings.copy();
 		updated.setMode(mode);
-		setRomSettings(updated);
+		setPhysicsAeroSettings(updated);
 	}
-
-	public RomFallbackMode getRomFallbackMode() {
-		return romSettings.getFallbackMode();
-	}
-
-	public void setRomFallbackMode(RomFallbackMode fallbackMode) {
-		if (romSettings.getFallbackMode() == fallbackMode) {
-			return;
+	public void setPhysicsAeroTableIdentity(AerodynamicTable table, String contentHash) {
+		PhysicsAeroSettings updated = physicsAeroSettings.copy();
+		if (table != null) {
+			updated.setGeometryHash(table.metadata().geometryHash());
+			updated.setSettingsHash(table.metadata().settingsHash());
+			updated.setTableContentHash(contentHash);
 		}
-		RomSettings updated = romSettings.copy();
-		updated.setFallbackMode(fallbackMode);
-		setRomSettings(updated);
-	}
-
-	public boolean isRomDiagnosticsEnabled() {
-		return romSettings.isDiagnosticsEnabled();
-	}
-
-	public void setRomDiagnosticsEnabled(boolean diagnosticsEnabled) {
-		if (romSettings.isDiagnosticsEnabled() == diagnosticsEnabled) {
-			return;
-		}
-		RomSettings updated = romSettings.copy();
-		updated.setDiagnosticsEnabled(diagnosticsEnabled);
-		setRomSettings(updated);
+		setPhysicsAeroSettings(updated);
 	}
 
 	private void updateDragLookup(Path path, MachAoALookup table) {
@@ -1057,10 +995,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			copy.windModelType = this.windModelType;
 			copy.dragLookupCsvPath = this.dragLookupCsvPath;
 			copy.dragLookupTable = this.dragLookupTable;
-			copy.romDragSurface = this.romDragSurface;
-			copy.romAeroSurface4D = this.romAeroSurface4D;
-			copy.romSurfaceMode = this.romSurfaceMode;
-			copy.romSettings = this.romSettings.copy();
+			copy.physicsAeroSettings = this.physicsAeroSettings.copy();
 			copy.dragLookupCsvRows = this.dragLookupCsvRows != null ? new ArrayList<>(this.dragLookupCsvRows) : null;
 			copy.stabilityLookupCsvPath = this.stabilityLookupCsvPath;
 			copy.stabilityLookupTable = this.stabilityLookupTable;
@@ -1194,6 +1129,22 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			isChanged = true;
 			this.geodeticComputation = src.geodeticComputation;
 		}
+		if (this.stepperMethodChoice != src.stepperMethodChoice) {
+			isChanged = true;
+			this.stepperMethodChoice = src.stepperMethodChoice;
+		}
+		if (Double.compare(this.sustainerNozzleExitDiameter, src.sustainerNozzleExitDiameter) != 0) {
+			isChanged = true;
+			this.sustainerNozzleExitDiameter = src.sustainerNozzleExitDiameter;
+		}
+		if (Double.compare(this.booster1NozzleExitDiameter, src.booster1NozzleExitDiameter) != 0) {
+			isChanged = true;
+			this.booster1NozzleExitDiameter = src.booster1NozzleExitDiameter;
+		}
+		if (Double.compare(this.booster2NozzleExitDiameter, src.booster2NozzleExitDiameter) != 0) {
+			isChanged = true;
+			this.booster2NozzleExitDiameter = src.booster2NozzleExitDiameter;
+		}
 
 		if (!Objects.equals(this.dragLookupCsvPath, src.dragLookupCsvPath) || this.dragLookupTable != src.dragLookupTable) {
 			isChanged = true;
@@ -1206,21 +1157,9 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			this.stabilityLookupCsvPath = src.stabilityLookupCsvPath;
 			this.stabilityLookupTable = src.stabilityLookupTable;
 		}
-		if (this.romDragSurface != src.romDragSurface) {
+		if (!this.physicsAeroSettings.equals(src.physicsAeroSettings)) {
 			isChanged = true;
-			this.romDragSurface = src.romDragSurface;
-		}
-		if (this.romAeroSurface4D != src.romAeroSurface4D) {
-			isChanged = true;
-			this.romAeroSurface4D = src.romAeroSurface4D;
-		}
-		if (this.romSurfaceMode != src.romSurfaceMode) {
-			isChanged = true;
-			this.romSurfaceMode = src.romSurfaceMode;
-		}
-		if (!this.romSettings.equals(src.romSettings)) {
-			isChanged = true;
-			this.romSettings = src.romSettings.copy();
+			this.physicsAeroSettings = src.physicsAeroSettings.copy();
 		}
 
 		if (isChanged) {
@@ -1253,11 +1192,13 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				MathUtil.equals(this.maximumAngle, o.maximumAngle) &&
 				MathUtil.equals(this.timeStep, o.timeStep) &&
 				MathUtil.equals(this.maxSimulationTime, o.maxSimulationTime) &&
+				Double.compare(this.sustainerNozzleExitDiameter, o.sustainerNozzleExitDiameter) == 0 &&
+				Double.compare(this.booster1NozzleExitDiameter, o.booster1NozzleExitDiameter) == 0 &&
+				Double.compare(this.booster2NozzleExitDiameter, o.booster2NozzleExitDiameter) == 0 &&
 				Objects.equals(this.liveWeatherLaunchDate, o.liveWeatherLaunchDate) &&
 				Objects.equals(this.liveWeatherLaunchTime, o.liveWeatherLaunchTime) &&
-				this.romSettings.equals(o.romSettings)) &&
+				this.physicsAeroSettings.equals(o.physicsAeroSettings)) &&
 				this.stepperMethodChoice == o.stepperMethodChoice &&
-				this.romSurfaceMode == o.romSurfaceMode &&
 				this.windModelType == o.windModelType &&
 				this.liveWeatherDataSelected == o.liveWeatherDataSelected &&
 				this.weathercockingCompensationEnabled == o.weathercockingCompensationEnabled &&
@@ -1306,6 +1247,11 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	// TODO: HIGH: Clean up
 	public SimulationConditions toSimulationConditions() {
+		return toSimulationConditions(null);
+	}
+
+	/** Build runtime conditions using a table already resolved and verified during preflight. */
+	public SimulationConditions toSimulationConditions(AerodynamicTable resolvedPhysicsAeroTable) {
 		SimulationConditions conditions = new SimulationConditions();
 
 		conditions.setLaunchRodLength(getLaunchRodLength());
@@ -1330,20 +1276,32 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 		}
 		conditions.setGravityModel(gravityModel);
 
-		// Pathline ROM testing uses a pure Barrowman fallback calculator. Legacy
-		// lookup-table aerodynamic overrides remain loadable for compatibility, but
-		// they no longer participate in the active ROM execution path.
-		AerodynamicCalculator legacyCalculator = new BarrowmanCalculator(
+		AerodynamicCalculator barrowman = new BarrowmanCalculator(
 				new BarrowmanStabilityCalculator(),
 				new BarrowmanDragCalculator());
-		conditions.setAerodynamicCalculator(legacyCalculator);
-		RomAerodynamicCalculator romCalculator = new RomAerodynamicCalculator(legacyCalculator.newInstance(), romSettings);
-		conditions.setRomAerodynamicCalculator(romCalculator);
+		if (physicsAeroSettings.isEnabled()) {
+			if (resolvedPhysicsAeroTable == null) {
+				throw new IllegalStateException("PHYSICS_AERO_TABLE_MISSING_REBUILD_REQUIRED");
+			}
+			AerodynamicCalculator fallback =
+					(physicsAeroSettings.getMode() == PhysicsAeroMode.DIAGNOSTIC_HYBRID
+							|| physicsAeroSettings.getMode() == PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID)
+					? barrowman.newInstance() : null;
+			PhysicsAeroAerodynamicCalculator physicsCalculator = new PhysicsAeroAerodynamicCalculator(
+					resolvedPhysicsAeroTable, physicsAeroSettings.getGeometryHash(), physicsAeroSettings.getSettingsHash(),
+					physicsAeroSettings.getTableContentHash(), physicsAeroSettings.getMode(), fallback);
+			conditions.setAerodynamicCalculator(physicsCalculator);
+		} else {
+			conditions.setAerodynamicCalculator(barrowman);
+		}
 		conditions.setMassCalculator(new MassCalculator());
 
 		conditions.setTimeStep(getTimeStep());
 		conditions.setMaxSimulationTime(getMaxSimulationTime());
 		conditions.setMaximumAngleStep(getMaximumStepAngle());
+		conditions.setNozzleExitDiameterForStage(0, getNozzleExitDiameterForStage(0));
+		conditions.setNozzleExitDiameterForStage(1, getNozzleExitDiameterForStage(1));
+		conditions.setNozzleExitDiameterForStage(2, getNozzleExitDiameterForStage(2));
 
 		return conditions;
 	}
@@ -1376,9 +1334,7 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 				.concat(String.format("    maxTime:  %f\n", maxSimulationTime))
 				.concat(String.format("    maximumAngle:  %f\n", maximumAngle))
 				.concat(String.format("    stepperMethodChoice: %s\n", stepperMethodChoice))
-				.concat(String.format("    romEnabled: %b\n", romSettings.isEnabled()))
-				.concat(String.format("    romMode: %s\n", romSettings.getMode()))
-				.concat(String.format("    romFallbackMode: %s\n", romSettings.getFallbackMode()))
+				.concat(String.format("    physicsAeroMode: %s\n", physicsAeroSettings.getMode()))
 				.concat("]\n");
 	}
 

@@ -28,11 +28,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.Assumptions;
+
 final class TuningTestInfrastructure {
 
 	private static volatile boolean initialized;
 
 	private TuningTestInfrastructure() {
+	}
+
+	static void requireFixtures(Path... fixtures) {
+		for (Path fixture : fixtures) {
+			Assumptions.assumeTrue(Files.isRegularFile(fixture),
+					"External tuning fixture is not available: " + fixture);
+		}
 	}
 
 	static synchronized void ensureApplicationInjector() throws IOException {

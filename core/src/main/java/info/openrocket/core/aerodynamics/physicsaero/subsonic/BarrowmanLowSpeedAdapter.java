@@ -11,7 +11,9 @@ import info.openrocket.core.util.Coordinate;
 /** Independent low-speed equation adapter; it never imports the legacy calculator or owns skin/base drag. */
 public final class BarrowmanLowSpeedAdapter {
 	public List<ForceContribution> evaluate(AeroGeometry geometry,FlowCondition flow){
-		if(flow.mach()>.35||Math.hypot(flow.alphaRad(),flow.betaRad())>Math.toRadians(15))throw new IllegalArgumentException("BARROWMAN_LOW_SPEED_OUT_OF_RANGE");
+		if(flow.mach()>.35 || Math.abs(flow.alphaRad())>Math.toRadians(15)
+				|| Math.abs(flow.betaRad())>Math.toRadians(5))
+			throw new IllegalArgumentException("BARROWMAN_LOW_SPEED_OUT_OF_RANGE");
 		double q=flow.dynamicPressurePa(),area=geometry.references().referenceAreaM2(),slope=2,normal=q*area*slope;
 		List<ForceContribution> out=new ArrayList<>();double x=.65*geometry.references().vehicleLengthM();
 		// Alpha and beta are components of one authoritative body-normal force owner.  Emitting one

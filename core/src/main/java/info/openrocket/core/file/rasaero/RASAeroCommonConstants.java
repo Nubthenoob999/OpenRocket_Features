@@ -88,10 +88,10 @@ public class RASAeroCommonConstants {
     public static final String FIN_FX1 = "FX1";
     public static final String FIN_FX3 = "FX3";
     public static final String AIRFOIL_SECTION = "AirfoilSection";
-    //// LERadius, FX1 and FX3 not used
     public static final String CROSS_SECTION_SQUARE = "Square";
     public static final String CROSS_SECTION_ROUNDED = "Rounded";
     public static final String CROSS_SECTION_SUBSONIC_NACA = "Subsonic NACA";
+    public static final String CROSS_SECTION_HEXAGONAL = "Hexagonal";
 
     // Launch lug settings
     public static final String LAUNCH_LUG_DIAMETER = "LaunchLugDiameter";
@@ -313,6 +313,8 @@ public class RASAeroCommonConstants {
         } else if (CROSS_SECTION_ROUNDED.equals(crossSection)) {
             return FinSet.CrossSection.ROUNDED;
         } else if (CROSS_SECTION_SUBSONIC_NACA.equals(crossSection)) {
+            return FinSet.CrossSection.AIRFOIL;
+        } else if (CROSS_SECTION_HEXAGONAL.equals(crossSection)) {
             return FinSet.CrossSection.AIRFOIL;
         } else {
             String msg = "Unknown fin cross section: " + crossSection + ", defaulting to Airfoil.";

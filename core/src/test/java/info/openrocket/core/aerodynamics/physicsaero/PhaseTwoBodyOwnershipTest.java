@@ -14,7 +14,7 @@ import info.openrocket.core.aerodynamics.physicsaero.api.OwnershipMode;
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalOwner;
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.body.BaseDragModel;
-import info.openrocket.core.aerodynamics.physicsaero.body.OpenRocketSupersonicBasePressureCorrelation;
+import info.openrocket.core.aerodynamics.physicsaero.body.HartTn3393SupersonicBasePressureCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
 import info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicCoefficients;
@@ -79,9 +79,12 @@ class PhaseTwoBodyOwnershipTest {
 				new Coordinate(), 0.5);
 		ForceContribution base = new BaseDragModel().evaluate(withBase, flow(2.0, false), "body");
 		assertEquals(PhysicalTerm.BASE_PRESSURE_DRAG, base.owner().term());
-		assertEquals(OpenRocketSupersonicBasePressureCorrelation.METHOD_ID, base.methodId().value());
-		assertEquals(0.025, base.forceBodyN().x / flow(2.0, false).dynamicPressurePa(), 1.0e-12);
-		assertTrue(new OpenRocketSupersonicBasePressureCorrelation().source().contains("BarrowmanDragCalculator"));
+		assertEquals(HartTn3393SupersonicBasePressureCorrelation.METHOD_ID,
+				base.methodId().value());
+		assertEquals(0.2 * (0.064 + 0.186 / (2.0 * 2.0)),
+				base.forceBodyN().x / flow(2.0, false).dynamicPressurePa(), 1.0e-12);
+		assertTrue(new HartTn3393SupersonicBasePressureCorrelation().source()
+				.contains("NACA TN 3393"));
 
 		ReferenceGeometry noBase = new ReferenceGeometry(1.0, 0.0, 2.0, 0.5, Map.of(),
 				new Coordinate(), 0.5);

@@ -1,95 +1,114 @@
 package info.openrocket.core.file.rasaero.importt;
 
-import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.file.DocumentLoadingContext;
 import info.openrocket.core.file.rasaero.RASAeroCommonConstants;
+import info.openrocket.core.file.simplesax.ElementHandler;
+import info.openrocket.core.file.simplesax.PlainTextHandler;
+import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.rocketcomponent.BodyTube;
-import info.openrocket.core.rocketcomponent.PodSet;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.Transition;
-import info.openrocket.core.rocketcomponent.position.AxialMethod;
-import info.openrocket.core.rocketcomponent.position.RadiusMethod;
 import org.xml.sax.SAXException;
 
 import java.util.HashMap;
 
 /**
- * A RASAero fin can is basically a body tube with fins on that slides over
- * another body tube.
- * The start of the fin can is a transition from the outer diameter of the fin
- * can tube, to the
- * outer diameter of the parent tube.
- * We will represent the fin can with an inline pod set.
+ * Imports a RASAero fin can as one continuous outer mold line.
  *
- * @author Sibo Van Gool <sibo.vangool@hotmail.com>
+ * <p>The CDX1 representation is an inline sleeve over the aft end of the
+ * preceding body tube. Keeping that sleeve in an overlapping pod duplicates
+ * external area and hides its shoulder from the supersonic geometry marcher.
+ * Instead, shorten the preceding tube and insert the shoulder and fin-can tube
+ * as ordinary siblings at the same physical stations.
  */
 public class FinCanHandler extends BodyTubeHandler {
-    private final PodSet finCan = new PodSet();
+	private final RocketComponent parent;
+	private final BodyTube parentBodyTube;
 
-    private double insideDiameter;
-    private double shoulderLength;
+	private double insideDiameter;
+	private double shoulderLength;
 
-    public FinCanHandler(DocumentLoadingContext context, RocketComponent parent) {
-        super(context);
-        if (parent == null) {
-            throw new IllegalArgumentException("The parent component of a body tube may not be null.");
-        }
-        // The body tube that the fin can is attached to should be added previously.
-        RocketComponent lastChild = parent.getChild(parent.getChildCount() - 1);
-        if (lastChild == null) {
-            throw new IllegalArgumentException("There is no component to attach the fin can to.");
-        }
-        if (!(lastChild instanceof BodyTube)) {
-            throw new IllegalArgumentException("The parent component of a fin can must be a body tube.");
-        }
+	public FinCanHandler(DocumentLoadingContext context, RocketComponent parent) {
+		super(context);
+		if (parent == null) {
+			throw new IllegalArgumentException("The parent component of a fin can may not be null.");
+		}
+		if (parent.getChildCount() == 0) {
+			throw new IllegalArgumentException("There is no component to attach the fin can to.");
+		}
+		RocketComponent lastChild = parent.getChild(parent.getChildCount() - 1);
+		if (!(lastChild instanceof BodyTube bodyTube)) {
+			throw new IllegalArgumentException("The parent component of a fin can must be a body tube.");
+		}
 
-        // The fin can is a pod set child of the parent body tube.
-        BodyTube parentBodyTube = (BodyTube) lastChild;
-        parentBodyTube.addChild(this.finCan);
-        this.finCan.setInstanceCount(1);
-        this.finCan.setRadius(RadiusMethod.FREE, 0);
-        this.finCan.addChild(this.bodyTube);
-        this.finCan.setName("Fin Can");
-        this.bodyTube.setName("Fin Can Tube");
+		this.parent = parent;
+		this.parentBodyTube = bodyTube;
+		this.bodyTube.setName("Fin Can");
+	}
 
-        // A fin can is always positioned at the end of the parent body tube.
-        this.finCan.setAxialMethod(AxialMethod.BOTTOM);
-        this.finCan.setAngleOffset(0);
-    }
+	@Override
+	public ElementHandler openElement(String element, HashMap<String, String> attributes, WarningSet warnings)
+			throws SAXException {
+		if (RASAeroCommonConstants.INSIDE_DIAMETER.equals(element)
+				|| RASAeroCommonConstants.SHOULDER_LENGTH.equals(element)) {
+			return PlainTextHandler.INSTANCE;
+		}
+		return super.openElement(element, attributes, warnings);
+	}
 
-    @Override
-    public void closeElement(String element, HashMap<String, String> attributes, String content, WarningSet warnings)
-            throws SAXException {
-        super.closeElement(element, attributes, content, warnings);
-        try {
-            if (RASAeroCommonConstants.INSIDE_DIAMETER.equals(element)) {
-                insideDiameter = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
-            } else if (RASAeroCommonConstants.SHOULDER_LENGTH.equals(element)) {
-                shoulderLength = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
-            }
-        } catch (NumberFormatException nfe) {
-            warnings.add("Could not convert " + element + " value of " + content + ".  It is expected to be a number.");
-        }
-    }
+	@Override
+	public void closeElement(String element, HashMap<String, String> attributes, String content, WarningSet warnings)
+			throws SAXException {
+		super.closeElement(element, attributes, content, warnings);
+		try {
+			if (RASAeroCommonConstants.INSIDE_DIAMETER.equals(element)) {
+				insideDiameter = Double.parseDouble(content)
+						/ RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
+			} else if (RASAeroCommonConstants.SHOULDER_LENGTH.equals(element)) {
+				shoulderLength = Double.parseDouble(content)
+						/ RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
+			}
+		} catch (NumberFormatException exception) {
+			warnings.add("Could not convert " + element + " value of " + content
+					+ ". It is expected to be a number.");
+		}
+	}
 
-    @Override
-    public void endHandler(String element, HashMap<String, String> attributes, String content, WarningSet warnings)
-            throws SAXException {
-        super.endHandler(element, attributes, content, warnings);
-        this.bodyTube.setOuterRadiusAutomatic(false);
+	@Override
+	public void endHandler(String element, HashMap<String, String> attributes, String content, WarningSet warnings)
+			throws SAXException {
+		super.endHandler(element, attributes, content, warnings);
+		this.bodyTube.setOuterRadiusAutomatic(false);
 
-        // Add the shoulder to the front of the fin can
-        Transition shoulder = new Transition();
-        shoulder.setName("Fin Can Shoulder");
-        shoulder.setShapeType(Transition.Shape.CONICAL);
-        shoulder.setForeRadiusAutomatic(false);
-        shoulder.setAftRadiusAutomatic(false);
-        shoulder.setLength(shoulderLength);
-        shoulder.setForeRadius(insideDiameter / 2);
-        shoulder.setAftRadius(bodyTube.getOuterRadius());
-        shoulder.setThickness(bodyTube.getThickness());
-        shoulder.setColor(bodyTube.getColor());
+		// BodyTubeHandler briefly enables automatic radius while this component
+		// is still unattached. Restore the explicit CDX1 diameter afterward.
+		if (diameter != null && diameter > 0) {
+			this.bodyTube.setOuterRadius(diameter / 2.0
+					/ RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+		}
 
-        finCan.addChild(shoulder, 0);
-    }
+		Transition shoulder = new Transition();
+		shoulder.setName("Fin Can Shoulder");
+		shoulder.setShapeType(Transition.Shape.CONICAL);
+		shoulder.setForeRadiusAutomatic(false);
+		shoulder.setAftRadiusAutomatic(false);
+		shoulder.setLength(shoulderLength);
+		shoulder.setForeRadius(insideDiameter / 2);
+		shoulder.setAftRadius(bodyTube.getOuterRadius());
+		shoulder.setThickness(bodyTube.getThickness());
+		shoulder.setColor(bodyTube.getColor());
+
+		double sleeveLength = shoulderLength + this.bodyTube.getLength();
+		double newParentLength = parentBodyTube.getLength() - sleeveLength;
+		if (newParentLength < 0) {
+			warnings.add("Fin can (length " + sleeveLength
+					+ " m) is longer than the parent body tube (length "
+					+ parentBodyTube.getLength() + " m); clamping to 0.");
+			newParentLength = 0;
+		}
+		parentBodyTube.setLength(newParentLength);
+
+		parent.addChild(shoulder);
+		parent.addChild(this.bodyTube);
+	}
 }

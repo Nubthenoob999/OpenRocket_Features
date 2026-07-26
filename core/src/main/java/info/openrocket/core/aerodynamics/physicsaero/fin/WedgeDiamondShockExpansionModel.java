@@ -26,8 +26,13 @@ public final class WedgeDiamondShockExpansionModel {
 			double upperGauge = upper.panelStates().get(i).pressurePa() - upstream.pressurePa();
 			double lowerGauge = lower.panelStates().get(i).pressurePa() - upstream.pressurePa();
 			normal += (lowerGauge - upperGauge) * area;
-			axial += (upperGauge * Math.abs(Math.tan(upperPanelAnglesRad[i]))
-					+ lowerGauge * Math.abs(Math.tan(lowerPanelAnglesRad[i]))) * area;
+			// Keep the signed panel slope.  The rear face of a diamond section has
+			// both a negative gauge pressure and an aft-facing surface normal, so
+			// its axial contribution is positive.  Taking abs(tan(theta)) made that
+			// expansion load cancel the leading-face compression load and collapsed
+			// the O(theta^2) Ackeret wave drag to a spurious higher-order residual.
+			axial += (upperGauge * Math.tan(upperPanelAnglesRad[i])
+					+ lowerGauge * Math.tan(lowerPanelAnglesRad[i])) * area;
 		}
 		return new Result(true, normal, Math.max(0, axial), upper, lower, METHOD_ID);
 	}

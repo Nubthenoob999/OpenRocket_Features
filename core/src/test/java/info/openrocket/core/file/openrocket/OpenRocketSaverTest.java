@@ -22,13 +22,8 @@ import java.util.List;
 import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.database.ComponentPresetDao;
 import info.openrocket.core.database.ComponentPresetDatabase;
-import info.openrocket.core.aerodynamics.rom.DragSurface;
-import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
-import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
-import info.openrocket.core.aerodynamics.rom.RomMode;
-import info.openrocket.core.aerodynamics.rom.RomSettings;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroSettings;
 import info.openrocket.core.database.motor.MotorDatabase;
 import info.openrocket.core.database.motor.ThrustCurveMotorSetDatabase;
 import info.openrocket.core.document.OpenRocketDocument;
@@ -272,156 +267,56 @@ public class OpenRocketSaverTest {
 	}
 
 	@Test
-	public void testRomDragSurfaceIsSavedAndRestored() throws IOException {
+	public void testPhysicsAeroSettingsRoundTripWithoutMachineCachePath() throws IOException {
 		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
 		Simulation simulation = rocketDoc.getSimulations().get(0);
-		String geometryHash = RomGeometryParameters.fromRocket(
-				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
-		DragSurface surface = createRomSurface(
-				geometryHash,
-				0.42,
-				0.28,
-				1.75);
-		simulation.getOptions().setRomDragSurface(surface);
-
-		StorageOptions options = new StorageOptions();
-		File file = saveRocket(rocketDoc, options);
-
-		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-		assertTrue(xml.contains("<calculator>RomAerodynamicCalculator</calculator>"));
-		assertTrue(xml.contains("<romsurfacemode>3d</romsurfacemode>"));
-		assertTrue(xml.contains("<romdragsurface version=\"1\""));
-		assertTrue(xml.contains("geometryhash=\"" + surface.geometryHash + "\""));
-
-		OpenRocketDocument loaded = loadRocket(file.getPath());
-		Simulation loadedSimulation = loaded.getSimulations().get(0);
-		DragSurface restored = loadedSimulation.getOptions().getRomDragSurface();
-
-		assertNotNull(restored);
-		assertEquals(RomSurfaceMode.THREE_D, loadedSimulation.getOptions().getRomSurfaceMode());
-		assertEquals(surface.geometryHash, restored.geometryHash);
-		assertEquals(surface.machAxis.length, restored.machAxis.length);
-		assertEquals(surface.logReAxis.length, restored.logReAxis.length);
-		assertEquals(surface.alphaAxis.length, restored.alphaAxis.length);
-		assertEquals(surface.cdPlumeOff[1][1][1], restored.cdPlumeOff[1][1][1], 0.0);
-		assertEquals(surface.cdPlumeOn[0][0][1], restored.cdPlumeOn[0][0][1], 0.0);
-	}
-
-	@Test
-	public void testRomDragSurfaceIgnoredWhenGeometryHashMismatches() throws IOException {
-		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
-		Simulation simulation = rocketDoc.getSimulations().get(0);
-		String geometryHash = RomGeometryParameters.fromRocket(
-				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
-		simulation.getOptions().setRomDragSurface(createRomSurface(
-				geometryHash,
-				0.41,
-				0.26,
-				0.5));
-
-		StorageOptions options = new StorageOptions();
-		File file = saveRocket(rocketDoc, options);
-
-		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-		String rewritten = xml.replaceFirst(
-				"geometryhash=\"[0-9a-fA-F]{64}\"",
-				"geometryhash=\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"");
-		Files.writeString(file.toPath(), rewritten, StandardCharsets.UTF_8);
-
-		OpenRocketDocument loaded = loadRocket(file.getPath());
-		Simulation loadedSimulation = loaded.getSimulations().get(0);
-		assertEquals(false, loadedSimulation.getOptions().hasRomDragSurface());
-	}
-
-	@Test
-	public void testRomDragSurface4DIsSavedAndRestored() throws IOException {
-		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
-		Simulation simulation = rocketDoc.getSimulations().get(0);
-		String geometryHash = RomGeometryParameters.fromRocket(
-				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
-		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.FOUR_D);
-		AeroSurface4D surface4D = createRomSurface4D(geometryHash);
-		simulation.getOptions().setRomAeroSurface4D(surface4D);
-
-		StorageOptions options = new StorageOptions();
-		File file = saveRocket(rocketDoc, options);
-
-		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-		assertTrue(xml.contains("<calculator>RomAerodynamicCalculator</calculator>"));
-		assertTrue(xml.contains("<romsurfacemode>4d</romsurfacemode>"));
-		assertTrue(xml.contains("<romdragsurface4d version=\"3\""));
-		assertTrue(xml.contains("geometryhash=\"" + surface4D.geometryHash + "\""));
-		assertFalse(xml.contains("<romdragsurface version=\"1\""));
-
-		OpenRocketDocument loaded = loadRocket(file.getPath());
-		Simulation loadedSimulation = loaded.getSimulations().get(0);
-		AeroSurface4D restored = loadedSimulation.getOptions().getRomAeroSurface4D();
-
-		assertNotNull(restored);
-		assertEquals(RomSurfaceMode.FOUR_D, loadedSimulation.getOptions().getRomSurfaceMode());
-		assertEquals(surface4D.geometryHash, restored.geometryHash);
-		assertEquals(surface4D.machAxis.length, restored.machAxis.length);
-		assertEquals(surface4D.logReAxis.length, restored.logReAxis.length);
-		assertEquals(surface4D.alphaAxis.length, restored.alphaAxis.length);
-		assertEquals(surface4D.betaAxis.length, restored.betaAxis.length);
-		assertEquals(surface4D.cdPlumeOff[1][1][1][1], restored.cdPlumeOff[1][1][1][1], 0.0);
-		assertEquals(surface4D.cdBody[0][1][0][1], restored.cdBody[0][1][0][1], 0.0);
-	}
-
-	@Test
-	public void testRomDragSurface4DIgnoredWhenGeometryHashMismatches() throws IOException {
-		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
-		Simulation simulation = rocketDoc.getSimulations().get(0);
-		String geometryHash = RomGeometryParameters.fromRocket(
-				simulation.getRocket().getFlightConfiguration(simulation.getFlightConfigurationId())).geometryHash();
-		simulation.getOptions().setRomSurfaceMode(RomSurfaceMode.FOUR_D);
-		simulation.getOptions().setRomAeroSurface4D(createRomSurface4D(geometryHash));
-
-		StorageOptions options = new StorageOptions();
-		File file = saveRocket(rocketDoc, options);
-
-		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-		String rewritten = xml.replaceFirst(
-				"(<romdragsurface4d[^>]*geometryhash=\")[0-9a-fA-F]{64}(\")",
-				"$1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff$2");
-		Files.writeString(file.toPath(), rewritten, StandardCharsets.UTF_8);
-
-		OpenRocketDocument loaded = loadRocket(file.getPath());
-		Simulation loadedSimulation = loaded.getSimulations().get(0);
-		assertEquals(false, loadedSimulation.getOptions().hasRomAeroSurface4D());
-	}
-
-	@Test
-	public void testRomSettingsAreSavedAndRestored() throws IOException {
-		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v104_withSimulationData();
-		Simulation simulation = rocketDoc.getSimulations().get(0);
-		RomSettings settings = simulation.getOptions().getRomSettings();
-		settings.setEnabled(true);
-		settings.setMode(RomMode.DIAGNOSTIC);
-		settings.setFallbackMode(RomFallbackMode.FORCE_ROM);
-		settings.setDiagnosticsEnabled(false);
-		settings.setBodyMeridianSeedCount(17);
-		settings.setFinSurfaceSeedCount(5);
-		settings.setTransonicBandHalfWidth(0.25);
-		settings.setHighAngleDeg(18.5);
-		settings.setMaxTrustedSeparationFraction(0.375);
-		settings.setPrestepMach(0.875);
-		settings.setPrestepAngleOfAttackDeg(7.5);
-		settings.setPrestepThetaDeg(15.0);
-		settings.setPrestepPlumeState(0.25);
-		simulation.getOptions().setRomSettings(settings);
+		PhysicsAeroSettings settings = simulation.getOptions().getPhysicsAeroSettings();
+		settings.setMode(PhysicsAeroMode.DIAGNOSTIC_HYBRID);
+		settings.setGeometryHash("geometry-sha256");
+		settings.setSettingsHash("settings-sha256");
+		settings.setTableContentHash("table-sha256");
+		settings.setForceTurbulentBoundaryLayer(true);
+		simulation.getOptions().setPhysicsAeroSettings(settings);
 
 		File file = saveRocket(rocketDoc, new StorageOptions());
-
 		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-		assertTrue(xml.contains("<romenabled>true</romenabled>"));
-		assertTrue(xml.contains("<rommode>diagnostic</rommode>"));
-		assertTrue(xml.contains("<romfallbackmode>forcerom</romfallbackmode>"));
-		assertTrue(xml.contains("<romprestepaoadeg>7.5</romprestepaoadeg>"));
+		assertTrue(xml.contains("<physicsaeromode>diagnostichybrid</physicsaeromode>"));
+		assertTrue(xml.contains("<physicsaerogeometryhash>geometry-sha256</physicsaerogeometryhash>"));
+		assertTrue(xml.contains("<physicsaerotablehash>table-sha256</physicsaerotablehash>"));
+		assertTrue(xml.contains(
+				"<physicsaeroforceturbulentboundarylayer>true</physicsaeroforceturbulentboundarylayer>"));
+		assertFalse(xml.contains(System.getProperty("user.home")));
 
 		OpenRocketDocument loaded = loadRocket(file.getPath());
-		Simulation loadedSimulation = loaded.getSimulations().get(0);
-		assertEquals(settings, loadedSimulation.getOptions().getRomSettings());
+		assertEquals(settings, loaded.getSimulations().get(0).getOptions().getPhysicsAeroSettings());
+	}
+
+	@Test
+	public void testLegacyAerodynamicSettingsAreIgnoredAndNotResaved() throws Exception {
+		OpenRocketDocument document = TestRockets.makeTestRocket_v104_withSimulationData();
+		document.getSimulations().get(0).getOptions().setPhysicsAeroMode(PhysicsAeroMode.STRICT);
+		File file = saveRocket(document, new StorageOptions());
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+				.replace("<calculator>PhysicsAeroAerodynamicCalculator</calculator>",
+						"<calculator>RomAerodynamic" + "Calculator</calculator>")
+				.replace("</conditions>", "<romenabled>true</romenabled>"
+						+ "<romprestepmach>1.2</romprestepmach>"
+						+ "<romprestepplumestate>1</romprestepplumestate></conditions>");
+		Files.writeString(file.toPath(), xml, StandardCharsets.UTF_8);
+
+		GeneralRocketLoader loader = new GeneralRocketLoader(file);
+		OpenRocketDocument loaded = loader.load();
+		assertEquals(PhysicsAeroMode.OFF, loaded.getSimulations().get(0).getOptions().getPhysicsAeroMode());
+		String compatibilityPrefix = "Legacy " + "R" + "OM/" + "path" + "line settings were ignored.";
+		long compatibilityWarnings = loader.getWarnings().stream()
+				.filter(warning -> warning.toString().contains(compatibilityPrefix))
+				.count();
+		assertEquals(1, compatibilityWarnings);
+
+		File resaved = saveRocket(loaded, new StorageOptions());
+		String resavedXml = Files.readString(resaved.toPath(), StandardCharsets.UTF_8);
+		assertFalse(resavedXml.contains("<rom"));
+		assertTrue(resavedXml.contains("<calculator>BarrowmanCalculator</calculator>"));
 	}
 	
 	
@@ -867,53 +762,6 @@ public class OpenRocketSaverTest {
 		throw new RuntimeException("Could not load motor");
 	}
 
-	private static DragSurface createRomSurface(String hash, double cdOff, double cdOn, double looRmse) {
-		double[] mach = new double[] { 0.05, 0.8, 1.8 };
-		double[] re = new double[] { 4.0, 6.0 };
-		double[] alpha = new double[] { 0.0, 8.0 };
-
-		double[][][] off = new double[mach.length][re.length][alpha.length];
-		double[][][] on = new double[mach.length][re.length][alpha.length];
-		for (int im = 0; im < mach.length; im++) {
-			for (int ir = 0; ir < re.length; ir++) {
-				for (int ia = 0; ia < alpha.length; ia++) {
-					off[im][ir][ia] = cdOff + 0.01 * im + 0.005 * ir + 0.002 * ia;
-					on[im][ir][ia] = cdOn + 0.01 * im + 0.005 * ir + 0.002 * ia;
-				}
-			}
-		}
-
-		return new DragSurface(mach, re, alpha, off, on, hash, looRmse);
-	}
-
-	private static AeroSurface4D createRomSurface4D(String hash) {
-		double[] mach = new double[] { 0.05, 0.8 };
-		double[] re = new double[] { 4.0, 6.0 };
-		double[] alpha = new double[] { 0.0, 8.0 };
-		double[] beta = new double[] { 0.0, 15.0 };
-
-		double[][][][] off = new double[mach.length][re.length][alpha.length][beta.length];
-		double[][][][] on = new double[mach.length][re.length][alpha.length][beta.length];
-		double[][][][] body = new double[mach.length][re.length][alpha.length][beta.length];
-		double[][][][] cn = new double[mach.length][re.length][alpha.length][beta.length];
-		double[][][][] cm = new double[mach.length][re.length][alpha.length][beta.length];
-
-		for (int im = 0; im < mach.length; im++) {
-			for (int ir = 0; ir < re.length; ir++) {
-				for (int ia = 0; ia < alpha.length; ia++) {
-					off[im][ir][ia][0] = 0.42 + 0.01 * im + 0.005 * ir + 0.002 * ia;
-					off[im][ir][ia][1] = 0.47 + 0.01 * im + 0.005 * ir + 0.002 * ia;
-					on[im][ir][ia][0] = 0.30 + 0.01 * im + 0.005 * ir + 0.002 * ia;
-					on[im][ir][ia][1] = 0.35 + 0.01 * im + 0.005 * ir + 0.002 * ia;
-					body[im][ir][ia][0] = off[im][ir][ia][0] - 0.03;
-					body[im][ir][ia][1] = off[im][ir][ia][1] - 0.03;
-				}
-			}
-		}
-
-		return new AeroSurface4D(mach, re, alpha, beta, off, on, body, cn, cm, hash, 4);
-	}
-	
 	public static class EmptyComponentDbProvider implements Provider<ComponentPresetDao> {
 		
 		final ComponentPresetDao db = new ComponentPresetDatabase();

@@ -9,7 +9,11 @@ public final class AbuGhannamShawModel implements TransitionModel {
 		double f = lambda <= 0
 				? 6.91 + 12.75 * lambda + 63.64 * lambda * lambda
 				: 6.91 + 2.48 * lambda - 12.27 * lambda * lambda;
-		double critical = 163.0 + Math.exp(f / (1.0 - tuPercent / 6.91));
+		// Abu-Ghannam and Shaw: Re_theta,t = 163 + exp[F(lambda) -
+		// F(lambda) Tu / 6.91], with Tu expressed in percent.  Dividing by
+		// (1 - Tu/6.91) reverses the turbulence-intensity response and delays
+		// transition as freestream turbulence rises.
+		double critical = 163.0 + Math.exp(f * (1.0 - tuPercent / 6.91));
 		double margin = reTheta / critical - 1.0;
 		return new TransitionDecision(margin >= 0, margin, METHOD_ID, margin >= 0 ? "NATURAL_ONSET" : "BELOW_ONSET");
 	}

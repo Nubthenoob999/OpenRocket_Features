@@ -15,7 +15,8 @@ public final class TransitionUncertaintyRunner {
 	}
 	private BoundaryLayerResult runAt(SurfaceTrack track,BoundaryLayerConfiguration c,double tu,Coordinate r) {
 		return new BoundaryLayerMarcher().march(track,new BoundaryLayerConfiguration(c.transitionMode(),tu,c.transitionBlendLengthM(),c.intermittencyExponent(),
-				c.wallMode()==null?WallThermalBoundary.ADIABATIC:c.wallMode(),c.gamma(),c.prandtl(),c.minimumVelocityMS(),c.totalStateRelativeTolerance()),r);
+				c.wallMode()==null?WallThermalBoundary.ADIABATIC:c.wallMode(),c.gamma(),c.prandtl(),c.minimumVelocityMS(),c.totalStateRelativeTolerance(),
+				c.skinFrictionCompressibilityMode()),r);
 	}
 	private double drag(BoundaryLayerResult r){ var f=r.skinFriction().forceBodyN(); return Math.sqrt(f.x*f.x+f.y*f.y+f.z*f.z); }
 }

@@ -195,51 +195,114 @@ signing {
 // ─── Test configuration ──────────────────────────────────────────────────────
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        if (!project.hasProperty('includeBenchmarks')) {
+            excludeTags 'benchmark'
+        }
+    }
 }
 
-tasks.register('romTest', Test) {
-    useJUnitPlatform()
-    description = 'Runs all ROM tests under info.openrocket.core.aerodynamics.rom.'
+tasks.register('physicsAeroBenchmarks', Test) {
+    useJUnitPlatform {
+        includeTags 'benchmark'
+    }
+    description = 'Runs slow physics-aerodynamics regression and correlation benchmarks.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    include 'info/openrocket/core/aerodynamics/rom/**'
+    shouldRunAfter tasks.named('test')
+    outputs.upToDateWhen { false }
 }
 
-tasks.register('romPhysicsTest', Test) {
-    useJUnitPlatform()
-    description = 'Runs fast ROM physics/kernel tests (no full-grid LOO sweep).'
+tasks.register('flightDatabaseComparison', Test) {
+    useJUnitPlatform {
+        includeTags 'flight-database'
+    }
+    description = 'Replays Rocket Flight Database CDX1 cases with the diagnostic-hybrid physics-aero runtime.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    include 'info/openrocket/core/aerodynamics/rom/SkinFrictionModelTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/BaseDragModelTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/WaveDragModelTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/InducedDragModelTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/TransonicBlendingModelTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/PchipInterpolator1DTest.class'
+    shouldRunAfter tasks.named('test')
+    outputs.upToDateWhen { false }
+
+    ['flightDatabaseDir', 'openRocketReferenceDir', 'flightId', 'flightIds', 'flightLimit'].each { propertyName ->
+        if (project.hasProperty(propertyName)) {
+            systemProperty propertyName, project.property(propertyName)
+        }
+    }
 }
 
-tasks.register('romIntegrationTest', Test) {
+tasks.register('physicsAeroSourceGuard') {
+    description = 'Rejects executable source that reintroduces the removed legacy aerodynamic runtime.'
+    group = 'verification'
+
+    doLast {
+        // Keep the guard itself from containing the forbidden tokens verbatim.
+        def forbidden = [
+                'info.openrocket.core.aerodynamics.' + 'rom',
+                'RomAerodynamic' + 'Calculator',
+                'PathlineROM' + 'Calculator',
+                'Pathline' + 'Seed',
+                'Rom' + 'Surface',
+                'Aero' + 'Surface4D',
+                java.util.regex.Pattern.compile('(?i)path' + 'line\\s+(seed|surface)')
+        ]
+        def parserAllowlist = [
+                file('src/main/java/info/openrocket/core/file/openrocket/importt/SimulationConditionsHandler.java').canonicalFile,
+                file('src/main/java/info/openrocket/core/file/openrocket/importt/SingleSimulationHandler.java').canonicalFile
+        ] as Set
+        def roots = [
+                fileTree('src') { include '**/*.java' },
+                fileTree('../swing/src') { include '**/*.java' },
+                fileTree('..') {
+                    include '*.gradle', '**/*.gradle'
+                    exclude '**/build/**', '**/.gradle/**', 'reports/**'
+                }
+        ]
+        def violations = []
+        roots.each { tree ->
+            tree.files.each { source ->
+                if (!parserAllowlist.contains(source.canonicalFile)) {
+                    def text = source.getText('UTF-8')
+                    forbidden.each { token ->
+                        if (token instanceof java.util.regex.Pattern ? token.matcher(text).find() : text.contains(token)) {
+                            violations << "${rootProject.relativePath(source)}: ${token}"
+                        }
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException('Removed aerodynamic runtime references found:\n' +
+                    violations.unique().sort().collect { '  - ' + it }.join('\n'))
+        }
+    }
+}
+
+tasks.register('physicsAeroOrkValidation', Test) {
     useJUnitPlatform()
-    description = 'Runs ROM integration tests that build/query/serialize drag surfaces.'
+    description = 'Runs the opt-in external .ork flight-validation corpus.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    include 'info/openrocket/core/aerodynamics/rom/DragGridEvaluatorTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/DragSurfaceInterpolatorTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/DragSurfaceSerializerTest.class'
-    include 'info/openrocket/core/aerodynamics/rom/RomValidationPipelineTest.class'
+    include 'info/openrocket/core/aerodynamics/physicsaero/validation/PhysicsAeroOrkValidationTest.class'
+    outputs.upToDateWhen { false }
+
+    [
+            'physicsAeroOrkValidationDir',
+            'physicsAeroOrkValidationManifest',
+            'physicsAeroOrkMode',
+            'physicsAeroRequireFlightValidation',
+            'physicsAeroOrkValidationReport'
+    ].each { propertyName ->
+        if (project.hasProperty(propertyName)) {
+            systemProperty propertyName, project.property(propertyName)
+        }
+    }
 }
 
-tasks.register('romLooValidationTest', Test) {
-    useJUnitPlatform()
-    description = 'Runs ROM leave-one-out validation gates (G7/G8).'
-    group = 'verification'
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    include 'info/openrocket/core/aerodynamics/rom/LooValidationTest.class'
+tasks.named('check') {
+    dependsOn tasks.named('physicsAeroSourceGuard')
 }
 
 // ─── JaCoCo coverage ─────────────────────────────────────────────────────────
@@ -341,38 +404,6 @@ tasks.register('copyReadmeMain', Copy) {
 tasks.named('sourcesJar') {
     // The sources archive includes resources copied into src/main/resources at build time.
     dependsOn 'copyReadmeMain', 'externalComponentsCopy'
-}
-
-tasks.register('phaseTwoGenerateReports', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass.set('info.openrocket.core.tuning.PhaseTwoBatchRunner')
-    def configPath = project.hasProperty('phaseTwoConfig') ?
-        project.property('phaseTwoConfig').toString() :
-        file('src/test/java/info/openrocket/core/tuning/Phase3_tuning.json').absolutePath
-    def outputPath = project.hasProperty('phaseTwoReportsDir') ?
-        project.property('phaseTwoReportsDir').toString() :
-        file('build/reports/phase-three').absolutePath
-    args(configPath, outputPath)
-    standardInput = System.in
-    description = 'Generates Phase III report CSV/XML/log artifacts from the configured tuning batch (override via -PphaseTwoConfig and -PphaseTwoReportsDir).'
-    group = 'verification'
-}
-
-tasks.register('phaseTwoGui', JavaExec) {
-    dependsOn phaseTwoGenerateReports
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass.set('info.openrocket.core.tuning.PhaseTwoTestGuiLauncher')
-    jvmArgs('-Djava.awt.headless=false')
-    if (project.hasProperty('reportsDir')) {
-        args(project.property('reportsDir').toString())
-    } else {
-        args(file('build/reports/phase-three').absolutePath)
-    }
-    standardInput = System.in
-    description = 'Launches the Phase III Swing test GUI for report inspection.'
-    group = 'verification'
 }
 
 // ─── External component database (submodule) ─────────────────────────────────

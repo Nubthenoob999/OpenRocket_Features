@@ -11,6 +11,11 @@ import info.openrocket.core.util.Coordinate;
 public final class FinStripDiscretizer {
 	public List<FinStrip> discretize(PhysicalFin fin, int stripCount) {
 		if (stripCount < 2) throw new IllegalArgumentException("at least two strips required");
+		Double constantThicknessRatio = fin.component().localReferences().get("thicknessRatio");
+		if (constantThicknessRatio != null
+				&& (!Double.isFinite(constantThicknessRatio) || constantThicknessRatio < 0)) {
+			throw new IllegalArgumentException("thicknessRatio must be finite and nonnegative");
+		}
 		double span = fin.geometry().spanM(), dy = span / stripCount;
 		List<Raw> raw = new ArrayList<>(); double rawArea = 0;
 		for (int i = 0; i < stripCount; i++) {
@@ -29,7 +34,11 @@ public final class FinStripDiscretizer {
 			double x = fin.component().axialStartM() + (r.leading + r.trailing) * 0.5;
 			Coordinate radial = fin.frame().spanwise();
 			Coordinate centroid = new Coordinate(x, radial.y * (fin.component().rootRadiusM() + r.y), radial.z * (fin.component().rootRadiusM() + r.y));
-			double tc = fin.thicknessM() / r.chord;
+			// A physical OpenRocket fin normally has one constant absolute thickness.  Imported
+			// correlation fixtures may instead specify a geometrically similar taper with a
+			// constant t/c.  The explicit ratio owns that representation when present; the
+			// historical thicknessM/chord behavior remains unchanged otherwise.
+			double tc = constantThicknessRatio != null ? constantThicknessRatio : fin.thicknessM() / r.chord;
 			strips.add(new FinStrip(r.y, dy, r.leading, r.trailing, r.chord, leSweep, halfSweep, tc,
 					family(fin.geometry().section()), centroid, r.chord * dy * areaScale, fin.frame(), fin.component().rootRadiusM()));
 		}

@@ -2,13 +2,17 @@ package info.openrocket.swing.gui.simulation;
 
 import java.awt.Component;
 import java.awt.Color;
+import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
@@ -47,6 +51,11 @@ final class SimulationTabLayoutUtils {
 
 	private static JScrollPane createScrollPane(Component component) {
 		JScrollPane scrollPane = new JScrollPane(component);
+		configureScrollPane(scrollPane);
+		return scrollPane;
+	}
+
+	private static void configureScrollPane(JScrollPane scrollPane) {
 		scrollPane.setBorder(null);
 		scrollPane.setViewportBorder(null);
 		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -54,7 +63,6 @@ final class SimulationTabLayoutUtils {
 		scrollPane.getHorizontalScrollBar().setUnitIncrement(SCROLL_UNIT_INCREMENT);
 		configureBlockIncrement(scrollPane.getVerticalScrollBar());
 		configureBlockIncrement(scrollPane.getHorizontalScrollBar());
-		return scrollPane;
 	}
 
 	private static void configureBlockIncrement(JScrollBar scrollBar) {
@@ -66,21 +74,31 @@ final class SimulationTabLayoutUtils {
 		if (foreground != null) {
 			area.setForeground(foreground);
 		}
-		forceViewportWidth(area);
-		Dimension preferred = area.getPreferredSize();
-		area.setPreferredSize(new Dimension(0, preferred.height));
 		return area;
 	}
 
+	/**
+	 * Scroll pane that never advertises a width of its own, so the enclosing tile
+	 * stays as narrow as the tab allows, while still tracking the live height of
+	 * its view as rows are added and removed.
+	 */
 	static JScrollPane createContainedScrollPane(Component component) {
-		JScrollPane scrollPane = createScrollPane(component);
+		JScrollPane scrollPane = new JScrollPane(component) {
+			private static final long serialVersionUID = 1L;
+
+			@Override
+			public Dimension getPreferredSize() {
+				Insets insets = getInsets();
+				Dimension view = component.getPreferredSize();
+				return new Dimension(0, view.height + insets.top + insets.bottom);
+			}
+		};
+		configureScrollPane(scrollPane);
 		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		scrollPane.setOpaque(false);
 		scrollPane.getViewport().setOpaque(false);
 		forceViewportWidth(scrollPane);
 		forceViewportWidth(component);
-		Dimension preferred = scrollPane.getPreferredSize();
-		scrollPane.setPreferredSize(new Dimension(0, preferred.height));
 		return scrollPane;
 	}
 
@@ -98,7 +116,7 @@ final class SimulationTabLayoutUtils {
 	}
 
 	static JTextArea createWrappingDisplayText(String text) {
-		JTextArea area = new JTextArea();
+		JTextArea area = new WrappingDisplayText();
 		area.setEditable(false);
 		area.setOpaque(false);
 		area.setLineWrap(true);
@@ -112,10 +130,110 @@ final class SimulationTabLayoutUtils {
 	}
 
 	static void setWrappingDisplayText(JTextArea area, String text) {
-		String display = text == null || text.isBlank() ? "-" : text;
+		String display = plainText(text);
 		area.setText(display);
 		area.setToolTipText(display);
 		area.setCaretPosition(0);
+		if (area instanceof WrappingDisplayText wrapping) {
+			wrapping.updateRowEstimate();
+		}
+	}
+
+	/** Several translated strings are authored as HTML fragments for JLabel. */
+	private static String plainText(String text) {
+		if (text == null || text.isBlank()) {
+			return "-";
+		}
+		String stripped = text.replaceAll("<\\s*br\\s*/?\\s*>", " ")
+				.replaceAll("<[^>]*>", "")
+				.replace("&nbsp;", " ")
+				.replace("&amp;", "&")
+				.replaceAll("\\s{2,}", " ")
+				.trim();
+		return stripped.isEmpty() ? "-" : stripped;
+	}
+
+	/**
+	 * A wrapped text area normally reports the height of one unwrapped line, so a
+	 * multi-line description gets clipped. Deriving the height from a word-wrap
+	 * estimate keeps every line visible without making the preferred size depend
+	 * on the width the layout manager is still in the middle of deciding, which
+	 * is what makes a self-measuring text area explode to hundreds of pixels.
+	 */
+	private static final class WrappingDisplayText extends JTextArea {
+		private static final long serialVersionUID = 1L;
+		private static final int ASSUMED_WIDTH = 330;
+
+		private WrappingDisplayText() {
+			addComponentListener(new ComponentAdapter() {
+				@Override
+				public void componentResized(ComponentEvent event) {
+					if (updateRowEstimate()) {
+						Container parent = getParent();
+						if (parent != null) {
+							parent.revalidate();
+						}
+					}
+				}
+			});
+		}
+
+		@Override
+		public Dimension getPreferredSize() {
+			return new Dimension(0, wrappedHeight());
+		}
+
+		/**
+		 * Left to itself a wrapping text area reports a minimum height tall enough
+		 * to stack the text one word per line, and a layout that honours it hands
+		 * the description hundreds of unused pixels.
+		 */
+		@Override
+		public Dimension getMinimumSize() {
+			return new Dimension(0, wrappedHeight());
+		}
+
+		@Override
+		public Dimension getMaximumSize() {
+			return new Dimension(Integer.MAX_VALUE, wrappedHeight());
+		}
+
+		private int wrappedHeight() {
+			Insets insets = getInsets();
+			return Math.max(1, getRows()) * getRowHeight() + insets.top + insets.bottom;
+		}
+
+		private boolean updateRowEstimate() {
+			int wanted = estimateRows();
+			if (wanted == getRows()) {
+				return false;
+			}
+			setRows(wanted);
+			return true;
+		}
+
+		private int estimateRows() {
+			Insets insets = getInsets();
+			int available = getWidth() - insets.left - insets.right;
+			if (available <= 0) {
+				available = ASSUMED_WIDTH;
+			}
+			FontMetrics metrics = getFontMetrics(getFont());
+			int spaceWidth = Math.max(1, metrics.charWidth(' '));
+			int rows = 1;
+			int lineWidth = 0;
+			for (String word : getText().trim().split("\\s+")) {
+				int wordWidth = metrics.stringWidth(word);
+				int candidate = lineWidth == 0 ? wordWidth : lineWidth + spaceWidth + wordWidth;
+				if (lineWidth == 0 || candidate <= available) {
+					lineWidth = candidate;
+				} else {
+					rows++;
+					lineWidth = wordWidth;
+				}
+			}
+			return rows;
+		}
 	}
 
 	static JLabel createCompactValueLabel(String text) {

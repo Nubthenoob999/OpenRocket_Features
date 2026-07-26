@@ -58,9 +58,19 @@ public class FinHandler extends AbstractElementHandler {
                 finSet.setTipChord(Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
             } else if (RASAeroCommonConstants.FIN_THICKNESS.equals(element)) {
                 finSet.setThickness(Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+            } else if (RASAeroCommonConstants.FIN_LE_RADIUS.equals(element)) {
+                finSet.setLeadingEdgeRadius(
+                        Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
             } else if (RASAeroCommonConstants.AIRFOIL_SECTION.equals(element)) {
+                finSet.setDetailedAirfoilSection(content);
                 finSet.setCrossSection(
                         RASAeroCommonConstants.RASAERO_TO_OPENROCKET_FIN_CROSSSECTION(content, warnings));
+            } else if (RASAeroCommonConstants.FIN_FX1.equals(element)) {
+                finSet.setLeadingEdgeAirfoilLength(
+                        Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+            } else if (RASAeroCommonConstants.FIN_FX3.equals(element)) {
+                finSet.setTrailingEdgeAirfoilLength(
+                        Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
             } else if (RASAeroCommonConstants.LOCATION.equals(element)) {
                 // Location is the location of the front of the fin relative to the bottom of
                 // the body tube

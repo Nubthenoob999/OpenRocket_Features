@@ -21,14 +21,20 @@ public final class AxisymmetricBodyPreprocessor {
 			// Conical transitions and boattails begin from the upstream axial direction at a true component junction.
 			double startTangent = type == BodySegmentType.BOATTAIL || type == BodySegmentType.DISCRETE_COMPRESSION_CORNER
 					? previousTangent : localStartTangent;
+			List<String> methods = type == BodySegmentType.SMOOTH_COMPRESSION
+					&& component.classification().equals("TRANSITION")
+					? List.of(ModifiedNewtonianPressureId.VALUE)
+					: eligible(type);
 			result.add(new AxisymmetricBodySegment(component.id(), component.id() + ":surface", type,
 					component.axialStartM(), component.axialEndM(), stations.get(0).radiusM(), stations.get(stations.size() - 1).radiusM(),
-					startTangent, localEndTangent, stations, eligible(type)));
+					startTangent, localEndTangent, stations, methods));
 			previousTangent = localEndTangent; previous = component;
 		}
 		AeroComponent last = bodies.get(bodies.size() - 1);
-		result.add(new AxisymmetricBodySegment(last.id(), last.id() + ":base", BodySegmentType.BASE,
-				last.axialEndM(), last.axialEndM(), last.rootRadiusM(), last.rootRadiusM(), 0, 0, List.of(), List.of("OPENROCKET_SUPERSONIC_BASE_CP_V1")));
+		result.add(new AxisymmetricBodySegment(last.id(), last.id() + ":base",
+				BodySegmentType.BASE, last.axialEndM(), last.axialEndM(),
+				last.rootRadiusM(), last.rootRadiusM(), 0, 0, List.of(),
+				List.of(HartTn3393SupersonicBasePressureCorrelation.METHOD_ID)));
 		return List.copyOf(result);
 	}
 	private static void addCornerIfSignificant(List<AxisymmetricBodySegment> result, AeroComponent upstream,
@@ -45,7 +51,26 @@ public final class AxisymmetricBodyPreprocessor {
 		String c = component.classification();
 		if (c.equals("CYLINDER")) return BodySegmentType.CYLINDER;
 		if (c.equals("BOATTAIL")) return BodySegmentType.BOATTAIL;
-		if (c.equals("TRANSITION")) return BodySegmentType.DISCRETE_COMPRESSION_CORNER;
+		if (c.equals("TRANSITION")) {
+			/*
+			 * OpenRocket Transition also represents curved ogive/frustum nose
+			 * pieces.  Treating every increasing-radius transition as one
+			 * discrete corner turns the aft slope relaxation of an ogive into
+			 * a second compression shock (the old abs(turn) failure).  A
+			 * materially varying profile slope owns distributed tangent-cone
+			 * pressure; a constant-slope shoulder retains the discrete leading
+			 * corner required by P2-RAS-003/004.
+			 */
+			List<GeometryStation> stations =
+					component.axisymmetricProfile().stations();
+			double minimumSlope = stations.stream()
+					.mapToDouble(GeometryStation::slope).min().orElse(0);
+			double maximumSlope = stations.stream()
+					.mapToDouble(GeometryStation::slope).max().orElse(0);
+			return maximumSlope - minimumSlope > 1e-4
+					? BodySegmentType.SMOOTH_COMPRESSION
+					: BodySegmentType.DISCRETE_COMPRESSION_CORNER;
+		}
 		if (c.equals("NOSE_CONICAL")) return BodySegmentType.TRUE_CONE;
 		if (c.startsWith("NOSE_")) return BodySegmentType.SMOOTH_COMPRESSION;
 		throw new IllegalArgumentException("UNSUPPORTED_AXISYMMETRIC_CLASSIFICATION:" + c);
@@ -57,7 +82,9 @@ public final class AxisymmetricBodyPreprocessor {
 			case SMOOTH_COMPRESSION -> List.of(TangentConePressureModel.METHOD_ID, ModifiedNewtonianPressureId.VALUE);
 			case DISCRETE_COMPRESSION_CORNER -> List.of(DiscreteCornerShockModel.METHOD_ID, ModifiedNewtonianPressureId.VALUE);
 			case SMOOTH_EXPANSION, DISCRETE_EXPANSION_CORNER, BOATTAIL -> List.of(ExpansionTurnModel.METHOD_ID);
-			case CYLINDER -> List.of("ISENTROPIC_CYLINDER"); case BASE -> List.of("OPENROCKET_SUPERSONIC_BASE_CP_V1");
+			case CYLINDER -> List.of("ISENTROPIC_CYLINDER");
+			case BASE -> List.of(
+					HartTn3393SupersonicBasePressureCorrelation.METHOD_ID);
 			case NOSE_STAGNATION_REGION -> List.of(ModifiedNewtonianPressureId.VALUE);
 		};
 	}

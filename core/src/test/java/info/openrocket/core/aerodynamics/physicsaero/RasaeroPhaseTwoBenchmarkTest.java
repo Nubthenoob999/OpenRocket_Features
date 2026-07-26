@@ -2,6 +2,7 @@ package info.openrocket.core.aerodynamics.physicsaero;
 
 import static org.junit.jupiter.api.Assertions.*;
 import java.util.*;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.body.*;
@@ -12,6 +13,7 @@ import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.ModifiedNewtoni
 import info.openrocket.core.aerodynamics.physicsaero.geometry.*;
 import info.openrocket.core.util.Coordinate;
 
+@Tag("benchmark")
 class RasaeroPhaseTwoBenchmarkTest {
 	private static final double RADIUS = .0508, NOSE_LENGTH = .4064, BODY_LENGTH = 1.6256;
 

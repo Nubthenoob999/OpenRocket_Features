@@ -95,7 +95,7 @@ public class RASAeroSaver extends RocketSaver {
     private RASAeroDocumentDTO toRASAeroDocumentDTO(OpenRocketDocument doc, WarningSet warnings, ErrorSet errors)
             throws RASAeroExportException {
         RASAeroDocumentDTO rad = new RASAeroDocumentDTO();
-        rad.setDesign(toRocketDesignDTO(doc.getRocket(), warnings, errors));
+        rad.setDesign(toRocketDesignDTO(doc, warnings, errors));
         rad.setLaunchSite(toLaunchSiteDTO(doc, warnings, errors));
         rad.setRecovery(toRecoveryDTO(doc.getRocket(), warnings, errors));
         rad.setSimulationList(toSimulationListDTO(doc, warnings, errors));
@@ -107,12 +107,26 @@ public class RASAeroSaver extends RocketSaver {
      * Create the RASAero rocket design (containing all the actual rocket
      * components).
      * 
-     * @param rocket the OR rocket to export the components from
+     * @param document the OR document to export
      * @return the RASAero rocket design
      */
-    private RocketDesignDTO toRocketDesignDTO(Rocket rocket, WarningSet warnings, ErrorSet errors)
+    private RocketDesignDTO toRocketDesignDTO(OpenRocketDocument document,
+            WarningSet warnings, ErrorSet errors)
             throws RASAeroExportException {
-        return new RocketDesignDTO(rocket, warnings, errors);
+        RocketDesignDTO design = new RocketDesignDTO(document.getRocket(), warnings, errors);
+        if (!document.getSimulations().isEmpty()) {
+            boolean first = document.getSimulations().get(0).getOptions()
+                    .isForceTurbulentBoundaryLayer();
+            design.setTurbulence(first);
+            boolean mixed = document.getSimulations().stream()
+                    .map(simulation -> simulation.getOptions().isForceTurbulentBoundaryLayer())
+                    .anyMatch(value -> value != first);
+            if (mixed) {
+                warnings.add("RASAero has one design-wide Turbulence setting; exported the first "
+                        + "simulation's boundary-layer mode.");
+            }
+        }
+        return design;
     }
 
     /**

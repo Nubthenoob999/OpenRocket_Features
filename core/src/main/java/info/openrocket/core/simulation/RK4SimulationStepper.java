@@ -51,7 +51,7 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 	 * A random amount that is added to pitch and yaw coefficients, plus or minus.
 	 */
 	public static final double PITCH_YAW_RANDOM = 0.0005;
-	
+
 	/**
 	 * Maximum roll step allowed.  This is selected as an uneven division of the full
 	 * circle so that the simulation will sample the most wind directions
@@ -102,7 +102,6 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		 * Get the current atmospheric conditions
 		 */
 		calculateFlightConditions(status, store);
-		store.romStageContext = RomStageAerodynamicsHelper.capture(status);
 
 		/*
 		 * Perform RK4 integration.  Decide the time step length after the first step.
@@ -248,7 +247,6 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		.toImmutable());
 		
 		k4 = computeParameters(status2, store);
-		store.romStageContext.commit(status2);
 		
 
 		//// Sum all together,  y(n+1) = y(n) + h*(k1 + 2*k2 + 2*k3 + k4)/6
@@ -369,7 +367,10 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		thrust = 0;
 		Collection<MotorClusterState> activeMotorList = status.getActiveMotors();
 		for (MotorClusterState currentMotorState : activeMotorList ) {
-			thrust += currentMotorState.getThrust( status.getSimulationTime() );
+			double clusterThrust = currentMotorState.getThrust(status.getSimulationTime());
+			thrust += clusterThrust;
+			thrust += AltitudePressureThrustModel.correction(status,
+					store.flightConditions, currentMotorState, clusterThrust);
 		}
 
 		// Post-listeners
@@ -505,7 +506,7 @@ public class RK4SimulationStepper extends AbstractSimulationStepper {
 		 * below 20% of the max. velocity.
 		 */
 		WarningSet warnings = status.recordWarnings() ? new WarningSet() : null;
-		store.romStageContext.apply(status);
+		SimulationAerodynamicsContextHelper.apply(status);
 
 		// Calculate aerodynamic forces
 		store.forces = status.getSimulationConditions().getAerodynamicCalculator()

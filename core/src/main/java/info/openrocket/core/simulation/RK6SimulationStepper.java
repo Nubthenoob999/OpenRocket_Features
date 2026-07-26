@@ -100,7 +100,6 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
          * Get the current atmospheric conditions
          */
         calculateFlightConditions(status, store);
-        store.romStageContext = RomStageAerodynamicsHelper.capture(status);
 
 		/*
 		 * Perform RK6 integration.  Decide the time step length after the first step.
@@ -455,7 +454,6 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
                 .toImmutable());
 
         k7 = computeParameters(status2, store);
-        store.romStageContext.commit(status2);
 
         //// Sum all together,  y(n+1) = y(n) + dt*(11/120*k1 + 27/40*k3 + 27/40*k4 - 4/15*k5 - 4/15*k6 + 11/120*k7)
         CoordinateIF deltaO;
@@ -582,7 +580,10 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
         thrust = 0;
         Collection<MotorClusterState> activeMotorList = status.getActiveMotors();
         for (MotorClusterState currentMotorState : activeMotorList ) {
-            thrust += currentMotorState.getThrust( status.getSimulationTime() );
+            double clusterThrust = currentMotorState.getThrust(status.getSimulationTime());
+            thrust += clusterThrust;
+            thrust += AltitudePressureThrustModel.correction(status,
+                    store.flightConditions, currentMotorState, clusterThrust);
         }
 
         // Post-listeners
@@ -716,7 +717,7 @@ public class RK6SimulationStepper extends AbstractSimulationStepper {
          * below 20% of the max. velocity.
          */
         WarningSet warnings = status.recordWarnings() ? new WarningSet() : null;
-		store.romStageContext.apply(status);
+		SimulationAerodynamicsContextHelper.apply(status);
 
         // Calculate aerodynamic forces
         store.forces = status.getSimulationConditions().getAerodynamicCalculator()

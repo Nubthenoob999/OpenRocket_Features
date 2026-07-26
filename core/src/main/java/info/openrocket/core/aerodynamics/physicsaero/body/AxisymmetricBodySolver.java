@@ -1,6 +1,7 @@
 package info.openrocket.core.aerodynamics.physicsaero.body;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,10 @@ import info.openrocket.core.util.Coordinate;
 public final class AxisymmetricBodySolver {
 	private final NumericalTolerances tolerances;
 	private final BasePressureCorrelation baseCorrelation;
-	public AxisymmetricBodySolver() { this(NumericalTolerances.defaults(), new OpenRocketSupersonicBasePressureCorrelation()); }
+	public AxisymmetricBodySolver() {
+		this(NumericalTolerances.defaults(),
+				new HartTn3393SupersonicBasePressureCorrelation());
+	}
 	public AxisymmetricBodySolver(NumericalTolerances tolerances, BasePressureCorrelation baseCorrelation) {
 		this.tolerances = tolerances; this.baseCorrelation = baseCorrelation;
 	}
@@ -36,6 +40,12 @@ public final class AxisymmetricBodySolver {
 				case BOATTAIL, SMOOTH_EXPANSION -> new BoattailPressureModel().integrate(segment, history, flow.atmosphere().pressurePa());
 				default -> null;
 			};
+			if (contribution != null && segment.type() == BodySegmentType.BOATTAIL
+					&& new BoattailPressureModel()
+							.separationRiskPendingBoundaryLayer(segment, flow.mach())) {
+				contribution = capSeparatedBoattail(contribution, segment,
+						geometry, flow);
+			}
 			if (contribution != null) { ledger.add(contribution); pressure.add(contribution); }
 			if (segment.type() == BodySegmentType.BOATTAIL
 					&& new BoattailPressureModel().separationRiskPendingBoundaryLayer(segment, flow.mach()))
@@ -56,6 +66,44 @@ public final class AxisymmetricBodySolver {
 		diagnostics.put("edgeStateCount", Integer.toString(history.states().size()));
 		return new AxisymmetricBodyResult(coefficients, ledger.entries(), history, segments, decisions, area, diagnostics);
 	}
+
+	private ForceContribution capSeparatedBoattail(ForceContribution contribution,
+			AxisymmetricBodySegment segment, AeroGeometry geometry,
+			FlowCondition flow) {
+		double basePressureMagnitude = -baseCorrelation.basePressureCoefficient(
+				flow.mach(), flow.thermodynamics().gamma(
+						flow.atmosphere().temperatureK()));
+		double capCd = new SeparatedBoattailPressureDragModel().dragCoefficient(
+				segment, geometry.references().referenceAreaM2(),
+				basePressureMagnitude);
+		double capForce = capCd * flow.dynamicPressurePa()
+				* geometry.references().referenceAreaM2();
+		double originalForce = contribution.forceBodyN().x;
+		if (!(originalForce > capForce) || !(originalForce > 0)) {
+			return contribution;
+		}
+		double scale = capForce / originalForce;
+		Coordinate force = contribution.forceBodyN();
+		Coordinate moment = contribution.intrinsicMomentBodyNm();
+		return new ForceContribution(contribution.componentId(),
+				contribution.owner(),
+				new info.openrocket.core.aerodynamics.physicsaero.api.MethodId(
+						SeparatedBoattailPressureDragModel.METHOD_ID),
+				new Coordinate(force.x * scale, force.y * scale, force.z * scale),
+				new Coordinate(moment.x * scale, moment.y * scale, moment.z * scale),
+				contribution.applicationPointM(), contribution.regionId(),
+				union(contribution.validityFlags(),
+						List.of("SEPARATED_BOATTAIL_PRESSURE_CAPPED",
+								"BASE_PRESSURE_RECOVERY_ENVELOPE")),
+				0.40, 0.35, null);
+	}
+
+	private static List<String> union(List<String> first, List<String> second) {
+		LinkedHashSet<String> result = new LinkedHashSet<>(first);
+		result.addAll(second);
+		return List.copyOf(result);
+	}
+
 	private static void validate(FlowCondition flow) {
 		if (flow.powered()) throw new IllegalArgumentException("POWERED_BASE_MODEL_NOT_IMPLEMENTED");
 		if (Math.abs(flow.alphaRad()) > 1e-12 || Math.abs(flow.betaRad()) > 1e-12) throw new IllegalArgumentException("ZERO_INCIDENCE_ONLY");

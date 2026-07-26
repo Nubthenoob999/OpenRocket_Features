@@ -45,11 +45,14 @@ public class SimulationHandler extends AbstractElementHandler {
     private Double booster1LaunchWt;
     private Double booster1CG;
     private Boolean includeBooster1;
+    private Double sustainerNozzleDiameter;
+    private Double booster1NozzleDiameter;
     private ThrustCurveMotor booster2Engine;
     private Double booster2SeparationDelay;
     private Double booster2LaunchWt;
     private Double booster2CG;
     private Boolean includeBooster2;
+    private Double booster2NozzleDiameter;
 
     public SimulationHandler(DocumentLoadingContext context, Rocket rocket, SimulationOptions launchSiteSettings,
             int simulationNr) {
@@ -65,16 +68,19 @@ public class SimulationHandler extends AbstractElementHandler {
         if (RASAeroCommonConstants.SUSTAINER_ENGINE.equals(element)
                 || RASAeroCommonConstants.SUSTAINER_IGNITION_DELAY.equals(element)
                 || RASAeroCommonConstants.SUSTAINER_LAUNCH_WT.equals(element)
+                || RASAeroCommonConstants.SUSTAINER_NOZZLE_DIAMETER.equals(element)
                 || RASAeroCommonConstants.SUSTAINER_CG.equals(element)
                 || RASAeroCommonConstants.BOOSTER1_ENGINE.equals(element)
                 || RASAeroCommonConstants.BOOSTER1_IGNITION_DELAY.equals(element)
                 || RASAeroCommonConstants.BOOSTER1_SEPARATION_DELAY.equals(element)
                 || RASAeroCommonConstants.BOOSTER1_LAUNCH_WT.equals(element)
+                || RASAeroCommonConstants.BOOSTER1_NOZZLE_DIAMETER.equals(element)
                 || RASAeroCommonConstants.BOOSTER1_CG.equals(element)
                 || RASAeroCommonConstants.INCLUDE_BOOSTER1.equals(element)
                 || RASAeroCommonConstants.BOOSTER2_ENGINE.equals(element)
                 || RASAeroCommonConstants.BOOSTER2_SEPARATION_DELAY.equals(element)
                 || RASAeroCommonConstants.BOOSTER2_LAUNCH_WT.equals(element)
+                || RASAeroCommonConstants.BOOSTER2_NOZZLE_DIAMETER.equals(element)
                 || RASAeroCommonConstants.BOOSTER2_CG.equals(element)
                 || RASAeroCommonConstants.INCLUDE_BOOSTER2.equals(element)) {
             return PlainTextHandler.INSTANCE;
@@ -91,6 +97,8 @@ public class SimulationHandler extends AbstractElementHandler {
             sustainerIgnitionDelay = Double.parseDouble(content);
         } else if (RASAeroCommonConstants.SUSTAINER_LAUNCH_WT.equals(element)) {
             sustainerLaunchWt = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_WEIGHT;
+        } else if (RASAeroCommonConstants.SUSTAINER_NOZZLE_DIAMETER.equals(element)) {
+            sustainerNozzleDiameter = parsePositiveLength(content);
         } else if (RASAeroCommonConstants.SUSTAINER_CG.equals(element)) {
             sustainerCG = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
         } else if (RASAeroCommonConstants.BOOSTER1_ENGINE.equals(element)) {
@@ -101,6 +109,8 @@ public class SimulationHandler extends AbstractElementHandler {
             booster1SeparationDelay = Double.parseDouble(content);
         } else if (RASAeroCommonConstants.BOOSTER1_LAUNCH_WT.equals(element)) {
             booster1LaunchWt = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_WEIGHT;
+        } else if (RASAeroCommonConstants.BOOSTER1_NOZZLE_DIAMETER.equals(element)) {
+            booster1NozzleDiameter = parsePositiveLength(content);
         } else if (RASAeroCommonConstants.BOOSTER1_CG.equals(element)) {
             booster1CG = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
         } else if (RASAeroCommonConstants.INCLUDE_BOOSTER1.equals(element)) {
@@ -111,6 +121,8 @@ public class SimulationHandler extends AbstractElementHandler {
             booster2SeparationDelay = Double.parseDouble(content);
         } else if (RASAeroCommonConstants.BOOSTER2_LAUNCH_WT.equals(element)) {
             booster2LaunchWt = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_WEIGHT;
+        } else if (RASAeroCommonConstants.BOOSTER2_NOZZLE_DIAMETER.equals(element)) {
+            booster2NozzleDiameter = parsePositiveLength(content);
         } else if (RASAeroCommonConstants.BOOSTER2_CG.equals(element)) {
             booster2CG = Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
         } else if (RASAeroCommonConstants.INCLUDE_BOOSTER2.equals(element)) {
@@ -148,11 +160,27 @@ public class SimulationHandler extends AbstractElementHandler {
         sim.setFlightConfigurationId(fcid);
         sim.setName("Simulation " + simulationNr);
         sim.copySimulationOptionsFrom(launchSiteSettings);
+        if (sustainerNozzleDiameter != null) {
+            sim.getOptions().setNozzleExitDiameterForStage(0, sustainerNozzleDiameter);
+        }
+        if (booster1NozzleDiameter != null) {
+            sim.getOptions().setNozzleExitDiameterForStage(1, booster1NozzleDiameter);
+        }
+        if (booster2NozzleDiameter != null) {
+            sim.getOptions().setNozzleExitDiameterForStage(2, booster2NozzleDiameter);
+        }
         context.getOpenRocketDocument().addSimulation(sim);
 
         // Set the weight and CG overrides
         applyMassOverrides(warnings);
         applyCGOverrides(sustainerMount, booster1Mount, booster2Mount, fcid);
+    }
+
+    private static Double parsePositiveLength(String content) {
+        double value = Double.parseDouble(content);
+        return value > 0
+                ? value / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH
+                : null;
     }
 
     /**

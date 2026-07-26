@@ -74,8 +74,22 @@ public class FinDTO {
         setSpan(fin.getSpan() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
         setSweepDistance(fin.getSweep() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
         setThickness(fin.getThickness() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
-        setAirfoilSection(
-                RASAeroCommonConstants.OPENROCKET_TO_RASAERO_FIN_CROSSSECTION(fin.getCrossSection(), warnings));
+        setAirfoilSection(fin.getDetailedAirfoilSection() != null
+                ? fin.getDetailedAirfoilSection()
+                : RASAeroCommonConstants.OPENROCKET_TO_RASAERO_FIN_CROSSSECTION(
+                        fin.getCrossSection(), warnings));
+        if (Double.isFinite(fin.getLeadingEdgeRadius())) {
+            setLERadius(fin.getLeadingEdgeRadius()
+                    * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+        }
+        if (Double.isFinite(fin.getLeadingEdgeAirfoilLength())) {
+            setFX1(fin.getLeadingEdgeAirfoilLength()
+                    * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+        }
+        if (Double.isFinite(fin.getTrailingEdgeAirfoilLength())) {
+            setFX3(fin.getTrailingEdgeAirfoilLength()
+                    * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
+        }
         setLocation((-fin.getAxialOffset(AxialMethod.BOTTOM) + fin.getLength())
                 * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
     }

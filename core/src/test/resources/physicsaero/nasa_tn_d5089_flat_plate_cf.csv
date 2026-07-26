@@ -1,0 +1,28 @@
+# NASA TN D-5089 — Table I: Experimental skin-friction data, flat plates
+# Source: Hopkins et al., "Summary and Correlation of Skin-Friction and Heat-Transfer
+#         Data for a Hypersonic Turbulent Boundary Layer on Simple Shapes," NASA TN D-5089, 1969
+# Facility: Ames 3.5-Foot Hypersonic Wind Tunnel
+# Measurement: Floating-element balance (direct Cf) + pitot surveys (direct Re_theta)
+#
+# mach: boundary-layer edge Mach number
+# re_theta: momentum-thickness Reynolds number (dimensionless)
+# tt_e_R: total temperature at BL edge (degrees Rankine)
+# tw_R: wall temperature (degrees Rankine)
+# te_R: static temperature at BL edge (degrees Rankine)
+# tw_taw: wall-to-adiabatic-wall temperature ratio
+# cf_x1e3: skin-friction coefficient * 1000
+# bl_trips: boundary-layer trips (On/Off)
+#
+mach,re_theta,tt_e_R,tw_R,te_R,tw_taw,cf_x1e3,bl_trips
+6.5,2260,1850,583,205,0.34,1.57,Off
+6.5,4560,1960,587,218,0.32,1.22,On
+6.5,3300,1410,551,153,0.43,1.25,On
+6.5,5900,1477,564,161,0.42,1.20,On
+6.5,2390,1474,559,160,0.41,1.52,Off
+6.5,3820,1376,561,149,0.45,1.23,Off
+6.5,2190,1158,537,124,0.51,1.41,On
+6.5,3890,1250,543,130,0.50,1.35,On
+6.5,8330,1240,572,133,0.51,1.00,On
+6.5,6420,1231,572,132,0.51,1.06,Off
+7.4,3010,1963,560,172,0.31,1.26,Off
+7.4,5670,1983,573,172,0.31,1.08,Off

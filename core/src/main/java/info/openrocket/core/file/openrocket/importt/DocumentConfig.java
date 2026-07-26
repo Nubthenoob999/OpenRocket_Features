@@ -289,6 +289,14 @@ class DocumentConfig {
 		setters.put("FinSet:crosssection", new EnumSetter<>(
 				Reflection.findMethod(FinSet.class, "setCrossSection", FinSet.CrossSection.class),
 				FinSet.CrossSection.class));
+		setters.put("FinSet:detailedairfoilsection", new StringSetter(
+				Reflection.findMethod(FinSet.class, "setDetailedAirfoilSection", String.class)));
+		setters.put("FinSet:leadingedgeairfoillength", new DoubleSetter(
+				Reflection.findMethod(FinSet.class, "setLeadingEdgeAirfoilLength", double.class)));
+		setters.put("FinSet:trailingedgeairfoillength", new DoubleSetter(
+				Reflection.findMethod(FinSet.class, "setTrailingEdgeAirfoilLength", double.class)));
+		setters.put("FinSet:leadingedgeradius", new DoubleSetter(
+				Reflection.findMethod(FinSet.class, "setLeadingEdgeRadius", double.class)));
 		setters.put("FinSet:cant", new DoubleSetter(
 				Reflection.findMethod(FinSet.class, "setCantAngle", double.class), Math.PI / 180.0));
 		setters.put("FinSet:tabheight", new DoubleSetter(

@@ -1,14 +1,28 @@
 package info.openrocket.core.aerodynamics.physicsaero.table;
 
-public record TableAxes(double[] mach, double[] alphaRad, double[] betaRad) {
-	public TableAxes { mach = copyValidate(mach, true); alphaRad = copyValidate(alphaRad, false); betaRad = copyValidate(betaRad, false); }
+public record TableAxes(double[] mach, double[] alphaRad, double[] betaRad, double[] poweredFraction) {
+	public TableAxes {
+		mach = copyValidate(mach, true);
+		alphaRad = copyValidate(alphaRad, false);
+		betaRad = copyValidate(betaRad, false);
+		poweredFraction = copyValidate(poweredFraction, true);
+		if (poweredFraction[poweredFraction.length - 1] > 1) throw new IllegalArgumentException("powered axis must be within [0,1]");
+	}
+	public TableAxes(double[] mach, double[] alphaRad, double[] betaRad) {
+		this(mach, alphaRad, betaRad, new double[] {0});
+	}
 	@Override public double[] mach() { return mach.clone(); } @Override public double[] alphaRad() { return alphaRad.clone(); }
 	@Override public double[] betaRad() { return betaRad.clone(); }
-	public int cellCount() { return mach.length * alphaRad.length * betaRad.length; }
+	@Override public double[] poweredFraction() { return poweredFraction.clone(); }
+	public int cellCount() { return mach.length * alphaRad.length * betaRad.length * poweredFraction.length; }
 	public int index(int machIndex, int alphaIndex, int betaIndex) {
+		return index(machIndex, alphaIndex, betaIndex, 0);
+	}
+	public int index(int machIndex, int alphaIndex, int betaIndex, int poweredIndex) {
 		if (machIndex < 0 || machIndex >= mach.length || alphaIndex < 0 || alphaIndex >= alphaRad.length || betaIndex < 0 || betaIndex >= betaRad.length)
 			throw new IndexOutOfBoundsException();
-		return ((machIndex * alphaRad.length) + alphaIndex) * betaRad.length + betaIndex;
+		if (poweredIndex < 0 || poweredIndex >= poweredFraction.length) throw new IndexOutOfBoundsException();
+		return (((machIndex * alphaRad.length) + alphaIndex) * betaRad.length + betaIndex) * poweredFraction.length + poweredIndex;
 	}
 	private static double[] copyValidate(double[] input, boolean nonnegative) {
 		double[] v = input.clone(); if (v.length == 0) throw new IllegalArgumentException("empty table axis");

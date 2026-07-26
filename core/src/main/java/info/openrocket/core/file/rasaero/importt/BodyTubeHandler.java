@@ -23,6 +23,7 @@ public class BodyTubeHandler extends BaseHandler<BodyTube> {
     private double launchLugLength;
     private double railGuideDiameter;
     private double railGuideHeight;
+    private double launchShoeArea;
 
     public BodyTubeHandler(DocumentLoadingContext context, RocketComponent parent, WarningSet warnings) {
         super(context);
@@ -50,7 +51,8 @@ public class BodyTubeHandler extends BaseHandler<BodyTube> {
                 RASAeroCommonConstants.LAUNCH_LUG_DIAMETER.equals(element)
                 || RASAeroCommonConstants.LAUNCH_LUG_LENGTH.equals(element) ||
                 RASAeroCommonConstants.RAIL_GUIDE_DIAMETER.equals(element)
-                || RASAeroCommonConstants.RAIL_GUIDE_HEIGHT.equals(element) ||
+                || RASAeroCommonConstants.RAIL_GUIDE_HEIGHT.equals(element)
+                || RASAeroCommonConstants.LAUNCH_SHOE_AREA.equals(element) ||
                 RASAeroCommonConstants.LOCATION.equals(element) || RASAeroCommonConstants.COLOR.equals(element)) {
             return PlainTextHandler.INSTANCE;
         }
@@ -70,6 +72,8 @@ public class BodyTubeHandler extends BaseHandler<BodyTube> {
                 railGuideDiameter = Double.parseDouble(content);
             } else if (RASAeroCommonConstants.RAIL_GUIDE_HEIGHT.equals(element)) {
                 railGuideHeight = Double.parseDouble(content);
+            } else if (RASAeroCommonConstants.LAUNCH_SHOE_AREA.equals(element)) {
+                launchShoeArea = Double.parseDouble(content);
             }
         } catch (NumberFormatException nfe) {
             warnings.add("Could not convert " + element + " value of " + content + ".  It is expected to be a number.");
@@ -94,6 +98,9 @@ public class BodyTubeHandler extends BaseHandler<BodyTube> {
         }
         if (railGuideDiameter > 0 && railGuideHeight > 0) {
             RailGuideHandler.addRailGuide(this.bodyTube, railGuideDiameter, railGuideHeight);
+        }
+        if (launchShoeArea > 0) {
+            LaunchShoeHandler.addLaunchShoes(this.bodyTube, launchShoeArea);
         }
     }
 

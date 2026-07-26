@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Locale;
 
 import info.openrocket.core.util.MathUtil;
+import info.openrocket.core.util.TextUtil;
 
 public class FinSetSaver extends ExternalComponentSaver {
 
@@ -21,6 +22,26 @@ public class FinSetSaver extends ExternalComponentSaver {
 		elements.add("<thickness>" + fins.getThickness() + "</thickness>");
 		elements.add("<crosssection>" + fins.getCrossSection().name().toLowerCase(Locale.ENGLISH)
 				+ "</crosssection>");
+		if (fins.getDetailedAirfoilSection() != null) {
+			elements.add("<detailedairfoilsection>"
+					+ TextUtil.escapeXML(fins.getDetailedAirfoilSection())
+					+ "</detailedairfoilsection>");
+		}
+		if (Double.isFinite(fins.getLeadingEdgeAirfoilLength())) {
+			elements.add("<leadingedgeairfoillength>"
+					+ fins.getLeadingEdgeAirfoilLength()
+					+ "</leadingedgeairfoillength>");
+		}
+		if (Double.isFinite(fins.getTrailingEdgeAirfoilLength())) {
+			elements.add("<trailingedgeairfoillength>"
+					+ fins.getTrailingEdgeAirfoilLength()
+					+ "</trailingedgeairfoillength>");
+		}
+		if (Double.isFinite(fins.getLeadingEdgeRadius())) {
+			elements.add("<leadingedgeradius>"
+					+ fins.getLeadingEdgeRadius()
+					+ "</leadingedgeradius>");
+		}
 		elements.add("<cant>" + Math.toDegrees(fins.getCantAngle()) + "</cant>");
 
 		// Save fin tabs only if they exist (compatibility with file version < 1.1)

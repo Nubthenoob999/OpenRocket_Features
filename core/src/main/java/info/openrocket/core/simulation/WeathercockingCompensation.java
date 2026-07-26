@@ -16,7 +16,7 @@ import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.MathUtil;
 
 /**
- * Beta weathercocking compensation helper for ROM-backed launch simulations.
+ * Beta weathercocking compensation helper for launch simulations.
  */
 public final class WeathercockingCompensation {
 
@@ -82,10 +82,7 @@ public final class WeathercockingCompensation {
 			double launchAltitudeMsl = conditions.getLaunchSite() != null ? conditions.getLaunchSite().getAltitude() : 0.0;
 			double profileWindSpeed = sampleProfileWindSpeed(conditions.getWindModel(), launchAltitudeMsl);
 			RigidBody launchMass = MassCalculator.calculateLaunch(configuration);
-			AerodynamicCalculator stabilityCalculator = conditions.getBaselineAerodynamicCalculator();
-			if (stabilityCalculator == null) {
-				stabilityCalculator = conditions.getAerodynamicCalculator();
-			}
+			AerodynamicCalculator stabilityCalculator = conditions.getAerodynamicCalculator();
 
 			double stabilityCalibers = computeLaunchStabilityCalibers(configuration, stabilityCalculator, launchMass);
 

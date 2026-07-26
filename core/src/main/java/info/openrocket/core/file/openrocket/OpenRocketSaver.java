@@ -32,11 +32,6 @@ import info.openrocket.core.document.StorageOptions;
 import info.openrocket.core.file.RocketSaver;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
-import info.openrocket.core.aerodynamics.rom.DragSurface;
-import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
-import info.openrocket.core.aerodynamics.rom.RomSettings;
-import info.openrocket.core.aerodynamics.rom.core.io.AeroSurfaceSerializer;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
@@ -337,7 +332,9 @@ public class OpenRocketSaver extends RocketSaver {
 		// TODO: MEDIUM: Other simulators/calculators
 		
 		writeln("<simulator>RK4Simulator</simulator>");
-		writeln("<calculator>" + (cond.hasRomDragSurface() ? "RomAerodynamicCalculator" : "BarrowmanCalculator") + "</calculator>");
+		String calculator = cond.getPhysicsAeroSettings().isEnabled()
+				? "PhysicsAeroAerodynamicCalculator" : "BarrowmanCalculator";
+		writeln("<calculator>" + calculator + "</calculator>");
 		
 		writeln("<conditions>");
 		indent++;
@@ -406,8 +403,13 @@ public class OpenRocketSaver extends RocketSaver {
 		writeElement("launchlongitude", cond.getLaunchLongitude());
 		writeElement("geodeticmethod", cond.getGeodeticComputation().name().toLowerCase(Locale.ENGLISH));
 		writeElement("simulationsteppermethod", cond.getSimulationStepperMethodChoice().name().toLowerCase(Locale.ENGLISH));
-		writeElement("romsurfacemode", cond.getRomSurfaceMode().toStorageValue());
-		writeRomSettings(cond.getRomSettings());
+		var physics = cond.getPhysicsAeroSettings();
+		writeElement("physicsaeromode", enumToXMLName(physics.getMode()));
+		writeElement("physicsaerogeometryhash", physics.getGeometryHash());
+		writeElement("physicsaerosettingshash", physics.getSettingsHash());
+		writeElement("physicsaerotablehash", physics.getTableContentHash());
+		writeElement("physicsaeroforceturbulentboundarylayer",
+				physics.isForceTurbulentBoundaryLayer());
 
 		if (cond.isISAAtmosphere()) {
 			writeln("<atmosphere model=\"isa\"/>");
@@ -444,26 +446,6 @@ public class OpenRocketSaver extends RocketSaver {
 		indent--;
 		writeln("</conditions>");
 
-		DragSurface romSurface = cond.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.THREE_D
-				? cond.getRomDragSurface() : null;
-		if (romSurface != null) {
-			String encoded = DragSurfaceSerializer.serializeToBase64Gzip(romSurface);
-			writeln("<romdragsurface version=\"1\" geometryhash=\"" + TextUtil.escapeXML(romSurface.geometryHash)
-					+ "\" builttimestamp=\"" + romSurface.buildTimestampMs + "\" looRmse=\""
-					+ TextUtil.doubleToString(romSurface.looRmsePercent) + "\">"
-					+ encoded + "</romdragsurface>");
-		}
-
-		AeroSurface4D surface4D = cond.getRomSurfaceMode() == info.openrocket.core.aerodynamics.rom.RomSurfaceMode.FOUR_D
-				? cond.getRomAeroSurface4D() : null;
-		if (surface4D != null) {
-			byte[] encodedBytes = AeroSurfaceSerializer.serialize(surface4D);
-			String encoded = new String(encodedBytes, java.nio.charset.StandardCharsets.UTF_8);
-			writeln("<romdragsurface4d version=\"3\" geometryhash=\"" + TextUtil.escapeXML(surface4D.geometryHash)
-					+ "\" builttimestamp=\"" + surface4D.buildTimestampMs + "\" fincount=\""
-					+ surface4D.finCount + "\">" + encoded + "</romdragsurface4d>");
-		}
-		
 		for (SimulationExtension extension : simulation.getSimulationExtensions()) {
 			Config config = extension.getConfig();
 			writeln("<extension extensionid=\"" + TextUtil.escapeXML(extension.getId()) + "\">");
@@ -858,37 +840,6 @@ public class OpenRocketSaver extends RocketSaver {
 		writeln("</" + element + ">");
 	}
 
-	private void writeRomSettings(RomSettings settings) throws IOException {
-		if (settings == null) {
-			return;
-		}
-
-		writeElement("romenabled", settings.isEnabled());
-		writeElement("rommode", enumToXMLName(settings.getMode()));
-		writeElement("romfallbackmode", enumToXMLName(settings.getFallbackMode()));
-		writeElement("romdiagnosticsenabled", settings.isDiagnosticsEnabled());
-		writeElement("rombodymeridianseedcount", settings.getBodyMeridianSeedCount());
-		writeElement("romfinsurfaceseedcount", settings.getFinSurfaceSeedCount());
-		writeElement("romtransonicbandhalfwidth", settings.getTransonicBandHalfWidth());
-		writeElement("romhighangledeg", settings.getHighAngleDeg());
-		writeElement("rommaxtrustedseparationfraction", settings.getMaxTrustedSeparationFraction());
-		writeElement("romprestepmach", settings.getPrestepMach());
-		writeElement("romprestepaoadeg", settings.getPrestepAngleOfAttackDeg());
-		writeElement("romprestepthetadeg", settings.getPrestepThetaDeg());
-		writeElement("romprestepplumestate", settings.getPrestepPlumeState());
-		writeElement("rompreviewmachmin", settings.getPreviewMachMin());
-		writeElement("rompreviewmachmax", settings.getPreviewMachMax());
-		writeElement("rompreviewmachstep", settings.getPreviewMachStep());
-		writeElement("rompreviewaoadegmin", settings.getPreviewAoADegMin());
-		writeElement("rompreviewaoadegmax", settings.getPreviewAoADegMax());
-		writeElement("rompreviewaoadegstep", settings.getPreviewAoADegStep());
-		writeElement("rompreviewthetadeg", settings.getPreviewThetaDeg());
-		writeElement("rompreviewplumestate", settings.getPreviewPlumeState());
-		writeElement("rompreviewmaxrows", settings.getPreviewMaxRows());
-	}
-	
-	
-	
 	/**
 	 * Return the XML equivalent of an enum name.
 	 * 

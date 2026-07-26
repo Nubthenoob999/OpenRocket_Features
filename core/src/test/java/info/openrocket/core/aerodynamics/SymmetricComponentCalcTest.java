@@ -1,6 +1,7 @@
 package info.openrocket.core.aerodynamics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import info.openrocket.core.logging.WarningSet;
 import org.junit.jupiter.api.BeforeAll;
@@ -14,6 +15,7 @@ import info.openrocket.core.ServicesForTesting;
 import info.openrocket.core.aerodynamics.barrowman.SymmetricComponentCalc;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.Transition;
@@ -41,6 +43,60 @@ public class SymmetricComponentCalcTest {
 		// Injector injector = Guice.createInjector(guiModule, pluginModule);
 		// Application.setInjector(injector);
 		// }
+	}
+
+	@Test
+	public void testCylindricalBodyLiftFadesOutSupersonically() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		BodyTube tube = rocket.getAllChildren().stream()
+				.filter(BodyTube.class::isInstance)
+				.map(BodyTube.class::cast)
+				.findFirst()
+				.orElseThrow();
+
+		FlightConditions conditions = new FlightConditions(rocket.getSelectedConfiguration());
+		conditions.setAOA(Math.toRadians(5));
+		WarningSet warnings = new WarningSet();
+		AerodynamicForces forces = new AerodynamicForces();
+		SymmetricComponentCalc calc = new SymmetricComponentCalc(tube);
+
+		conditions.setMach(0.8);
+		calc.calculateNonaxialForces(conditions, Transformation.IDENTITY, forces, warnings);
+		double subsonicCNa = forces.getCP().getWeight();
+
+		conditions.setMach(1.05);
+		calc.calculateNonaxialForces(conditions, Transformation.IDENTITY, forces, warnings);
+		assertEquals(0.5 * subsonicCNa, forces.getCP().getWeight(), EPSILON,
+				"cylindrical body lift should be halfway through its smooth transonic fade");
+
+		conditions.setMach(1.3);
+		calc.calculateNonaxialForces(conditions, Transformation.IDENTITY, forces, warnings);
+		assertEquals(0, forces.getCP().getWeight(), EPSILON,
+				"low-speed cylindrical body lift must not persist into supersonic flight");
+	}
+
+	@Test
+	public void testNoseBodyLiftExtensionFadesButBarrowmanTermRemains() {
+		Rocket rocket = TestRockets.makeEstesAlphaIII();
+		NoseCone nose = (NoseCone) rocket.getChild(0).getChild(0);
+		FlightConditions conditions = new FlightConditions(rocket.getSelectedConfiguration());
+		double aoa = Math.toRadians(5);
+		conditions.setAOA(aoa);
+		WarningSet warnings = new WarningSet();
+		AerodynamicForces forces = new AerodynamicForces();
+		SymmetricComponentCalc calc = new SymmetricComponentCalc(nose);
+
+		conditions.setMach(0.8);
+		calc.calculateNonaxialForces(conditions, Transformation.IDENTITY, forces, warnings);
+		double lowSpeedCNa = forces.getCP().getWeight();
+
+		conditions.setMach(1.3);
+		calc.calculateNonaxialForces(conditions, Transformation.IDENTITY, forces, warnings);
+		double barrowmanCNa = 2 * Math.sin(aoa) / aoa;
+		assertEquals(barrowmanCNa, forces.getCP().getWeight(), EPSILON,
+				"the supersonic blend should remove body lift without removing area-change CNa");
+		assertTrue(lowSpeedCNa > barrowmanCNa,
+				"the low-speed solution should retain the Galejs body-lift extension");
 	}
 
 	@Test

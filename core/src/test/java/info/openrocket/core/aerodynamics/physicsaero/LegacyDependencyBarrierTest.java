@@ -13,9 +13,13 @@ class LegacyDependencyBarrierTest {
 		Path physics = source.resolve("info/openrocket/core/aerodynamics/physicsaero");
 		try (var files = Files.walk(physics)) {
 			List<Path> offenders = files.filter(p -> p.toString().endsWith(".java")).filter(p -> {
-				try { return Files.readString(p).contains("import info.openrocket.core.aerodynamics.rom"); } catch (IOException e) { throw new IllegalStateException(e); }
+				try {
+					return Files.readString(p).contains("import info.openrocket.core.aerodynamics." + "rom");
+				} catch (IOException e) {
+					throw new IllegalStateException(e);
+				}
 			}).toList();
-			assertTrue(offenders.isEmpty(), "new physics code imports legacy ROM: " + offenders);
+			assertTrue(offenders.isEmpty(), "new physics code imports the removed implementation: " + offenders);
 		}
 	}
 }

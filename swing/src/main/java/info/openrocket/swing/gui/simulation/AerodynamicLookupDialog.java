@@ -590,16 +590,6 @@ class AerodynamicLookupDialog extends JDialog {
 			fullText += " (modified)";
 		}
 
-		if (!stability) {
-			if (table.hasAoA()) {
-				escapedText += " <i>- ROM prerequisite ready</i>";
-				fullText += " - ROM prerequisite ready";
-			} else {
-				escapedText += " <i>- ROM prerequisite missing AoA</i>";
-				fullText += " - ROM prerequisite missing AoA";
-			}
-		}
-		
 		summaryLabel.setText("<html>" + escapedText + "</html>");
 		summaryLabel.setToolTipText(fullText);
 	}

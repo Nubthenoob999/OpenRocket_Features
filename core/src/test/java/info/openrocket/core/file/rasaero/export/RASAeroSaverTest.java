@@ -41,7 +41,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class RASAeroSaverTest {
@@ -113,6 +115,18 @@ public class RASAeroSaverTest {
         } catch (RocketLoadException | IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Test
+    public void testFullyTurbulentBoundaryLayerIsExportedAsRasaeroTurbulence() {
+        OpenRocketDocument document = loadRocket("01.One-stage.ork");
+        assertFalse(document.getSimulations().isEmpty());
+        document.getSimulations().get(0).getOptions()
+                .setForceTurbulentBoundaryLayer(true);
+        String result = new RASAeroSaver().marshalToRASAero(
+                document, new WarningSet(), new ErrorSet());
+
+        assertTrue(result.contains("<Turbulence>True</Turbulence>"));
     }
 
     @Test

@@ -1,0 +1,381 @@
+
+Public aerodynamic benchmark datasets for validating a correlation-based OpenRocket solver
+Executive summary
+The most important result of this search is that RASAero II’s public validation nucleus is identifiable and narrow: the official comparison page points directly to NACA RM A53D02, NASA TR R-100, NASA TN D-4013, NASA TN D-4014, and Vought Astronautics Report AST/E1R-13319 as the key comparison sources. The ARCAS comparison slides further show that RASAero II uses NASA TN D-4013 and D-4014 to compare center of pressure and power-off drag for ARCAS Short and ARCAS Long configurations, with Reynolds-number matching via its Mach-Alt feature. 
+
+For a deterministic, correlation-based OpenRocket solver, the strongest publicly accessible validation corpus is therefore not a single “RASAero dataset,” but a layered benchmark library built from that RASAero nucleus and expanded with public NASA/NACA reports that cover whole-vehicle drag, transonic and supersonic stability, component isolation, blunt-nose effects, powered base/plume effects, and transonic roll/damping behavior. In this pass, the best verified additions are Suttles 1964, NACA RM L52D15a, NACA RM L53D14a, NACA RM L54D27, NASA TN D-4064, NASA TM 74058, and NACA RM L55G06a as a discovery map. 
+
+The verified public corpus is dominated by experimental, free-flight, and wind-tunnel reports rather than machine-readable CFD archives. Most of the high-value sources are public PDFs that require digitization rather than direct raw-data ingestion. Among the conventional rocket reports verified in this pass, dense whole-vehicle coverage below Mach 0.22 remains thin; Suttles begins at Mach 0.22, while many of the classic NASA/NACA validation reports begin at Mach 0.6 or higher. 
+
+RASAero II validation nucleus
+RASAero II’s comparison page is unusually useful because it names the exact public sources used in the vendor’s validation narrative. The page links to NACA RM A53D02, NASA TR R-100, a dedicated ARCAS comparison deck, NASA TN D-4013, NASA TN D-4014, and Vought’s Aerobee 150A report. That gives a concrete, auditable starting point for an OpenRocket benchmark suite rather than a vague claim of “matching RASAero.” 
+
+The ARCAS slide deck is especially informative because it documents not only the source reports but also the comparison setup: RASAero II compares subsonic, transonic, and supersonic CP plus power-off CD for ARCAS Short and ARCAS Long, using NASA TN D-4013 and D-4014 and matching the wind-tunnel Reynolds number of 3.0 × 10^6 per foot. It also shows that the comparison plots are specifically at angle of attack 0°, and that the deck treats D-4013/D-4014 as the key ARCAS validation set. 
+
+RASAero II public validation nucleus
+
+A53D02
+zero-lift drag
+Mach 0.6-10
+
+TR R-100
+177 drag configurations
+Mach 0.6-2.0
+
+D-4013
+ARCAS transonic
+CP / CD / roll / cant
+
+D-4014
+ARCAS supersonic
+CP / CD / static stability
+
+AST/E1R-13319
+Aerobee 150A
+vehicle + manufacturer refs
+
+
+
+Show code
+The direct RASAero nucleus is best treated as follows. A53D02 is the long-range zero-lift drag backbone; R-100 is the broad parametric drag library; D-4013/D-4014 are the most important whole-vehicle transonic/supersonic stability and CP benchmarks; and AST/E1R-13319 is better treated as a vehicle/performance and reference-tracing source than as a clean aerodynamic coefficient dataset, because it points onward to the more primary Aerojet wind-tunnel report for Aerobee 150A. 
+
+Direct RASAero-linked sources
+Dataset	What is directly verified	Why it matters for OpenRocket	Ingestion view
+NACA RM A53D02 — James & Carros, 1953 
+Cruciform-finned fineness-ratio-10 body; Mach 0.6–10; Re 0.9–16 million; free-flight zero-lift drag; Reynolds checks at M 4.7 and 7.2; fin leading-edge bluntness sensitivity. 
+Core high-speed CD(M) benchmark extending all the way into the low-hypersonic regime. 
+DIGITIZE
+NASA TR R-100 — Stoney, 1961 
+Compilation of zero-lift drag data on bodies of revolution from free flight; Mach 0.6–~2.0, Re 2×10^6 to 100×10^6; 177 models; supplementary information to estimate body pressure drag; body ordinates included. 
+Best public parameter sweep for zero-lift drag and body-shape effects. 
+DIGITIZE with some tabular support
+NASA TN D-4013 — Ferris, 1967 
+1/2-scale ARCAS-type sounding rocket; Mach 0.60–1.20; constant Re 3.0×10^6/ft; α −3° to 21°; roll angles 0°, 22.5°, 45°; fin cant 0° and 2°; short and long models. Figures include base pressure, axial force, normal force, pitching, yawing, and rolling moments. 
+Best single public transonic whole-rocket dataset for CD/CP/stability with roll and fin-cant sensitivity. 
+DIGITIZE
+NASA TN D-4014 — Babb & Fuller, 1967 
+NTRS record verifies public availability for Mach 1.50–4.63 ARCAS sounding-rocket tests; title/record state the purpose was the effect of body length and fin cant on static stability. RASAero slides show it as the supersonic CP and CD source for ARCAS Short and Long. 
+Essential supersonic companion to D-4013. 
+PARTIAL in-session verification; public record confirmed
+AST/E1R-13319 — Vought Astronautics, 1961 
+Aerobee 150A vehicle report; confirms a four-fin layout, first-stage fin cant of 2°30', adjustable second-stage fins, aerodynamic reference area 1.228 ft², flight-performance material, and a cited Aerojet wind-tunnel report on Aerobee 150A. 
+Useful for flight-level consistency and for tracing to more primary Aerobee aero reports. 
+PARTIAL / DISCOVERY
+
+Public benchmark dataset catalog
+The table below is the master working catalog I would use for the first OpenRocket validation corpus. I grouped it into Tier 1 core, Tier 2 gap fillers, and Tier 3 discovery sources. Because the historical corpus is heavily figure-based, the dominant ingestion status is DIGITIZE rather than READY. Also, because I could not reliably compute file hashes in this browsing-only session, the SHA-256 column is marked compute on ingest; the exact command is given immediately after the table. 
+
+Master dataset table
+Dataset ID	Tier	Status	Report and source	Access	Suggested fetch	SHA-256	Envelope	Geometry and fin count	Reported outputs	Raw vs digitize	Known limitations
+A53D02	1	DIGITIZE	NACA RM A53D02 — Carlton S. James; Robert J. Carros; 1953 
+Public PDF mirror on RASAero page. 
+curl -L -o A53D02.pdf "https://www.rasaero.com/dloads/NACA%20RM%20A53D02.pdf"	compute on ingest	M 0.6–10; Re 0.9–16e6. 
+Cruciform, trapezoidal fins; fineness ratio 10 body; tangent-ogive/cylindrical body; wedge fin-edge variants. 
+CD0, base drag terms, friction/base decomposition symbols, Reynolds checks, fin-edge sensitivity. 
+Mostly figures	Zero-lift emphasis; not a rich lateral/roll dataset.
+TR-R-100	1	DIGITIZE	NASA TR R-100 — William E. Stoney Jr.; 1961 
+Public PDF mirror on RASAero page. 
+curl -L -o TR-R-100.pdf "https://www.rasaero.com/dloads/NASA%20TR%20R-100.pdf"	compute on ingest	M 0.6–~2.0; Re 2e6–100e6. 
+177 bodies of revolution from free-flight campaigns, including smooth and “bumpy” bodies. 
+CD0, body pressure-drag aids, ordinates, geometry tables. 
+Mixed; tables plus plots	Mostly drag only; not a full force/moment dataset.
+D-4013	1	DIGITIZE	NASA TN D-4013 — James C. Ferris; 1967 
+Public PDF mirror on RASAero page. 
+curl -L -o D-4013.pdf "https://www.rasaero.com/dloads/ARCAS%20NASA%20TN%20D-4013.pdf"	compute on ingest	M 0.60–1.20; Re 3.0e6/ft; α −3° to 21°; roll 0/22.5/45°; fin cant 0/2°. 
+ARCAS short/long, 4-fin sounding-rocket family; fineness ratios 18.2 and 23.8. 
+CA, CN, CY, Cm, Cn, Cl, base pressure, CP via figures and summary plots. 
+Figures	No native machine-readable tables verified.
+D-4014	1	PARTIAL	NASA TN D-4014 — C. D. Babb; D. E. Fuller; 1967 
+NTRS citation record is public; browser fetch of PDF was unstable in this session. 
+curl -L -o 19670020031.pdf "https://ntrs.nasa.gov/api/citations/19670020031/downloads/19670020031.pdf"	compute on ingest	M 1.50–4.63; review text gives α −4° to 20°, β −4° to 8°, Re 3.0e6/ft. 
+ARCAS short/long supersonic continuation; body-length and fin-cant effects. 
+Verified as static stability source; RASAero uses it for supersonic CP and power-off CD. 
+Likely figures	Full coefficient inventory not fully re-read in-session.
+SUTTLES-1964	1	DIGITIZE	Aerodynamic Characteristics From Mach 0.22 to 4.65 of a Two-Stage Rocket Vehicle Having an Unusual Nose Shape — John T. Suttles; 1964 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 0.22–4.65; subsonic α −20° to 95°; transonic/supersonic α, β about −8° to 8°. 
+Two-stage rocket with cruciform modified double-wedge fins, auxiliary rockets, nose fairings, and tested body-without-fins condition. 
+CA, CN, CY, Cl, Cm, Cn, CP, auxiliary-booster and fairing increments, body/fin contributions. 
+Figures	Unusual square forebody means it is invaluable for method-failure testing, but less “clean” than ARCAS.
+L52D15a	1	DIGITIZE	NACA RM L52D15a — Edward F. Ulmann; Robert W. Dunning; 1952 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 4.06; Re 16.8e6 / 22.3e6; α 0–10° for most cases. 
+Fineness-ratio 9 and 12 bodies alone and with two fins of three planforms. 
+CN, Cm, schlieren, body-alone vs finned comparisons, interaction breakdown discussion. 
+Figures	Two-fin research geometry, so use for component/interference validation more than direct rocket matching.
+L53D14a	1	DIGITIZE	NACA RM L53D14a — Harvey A. Wallskog; Roger G. Hart; 1953 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 0.6–2.3; Re 10e6–80e6. 
+Fin-stabilized bodies with three sweptback fins and spherical/parabolic/flat/conical noses. 
+CD for blunt-nose families; nose-radius effects; drag increment comparisons. 
+Figures	Drag-focused; no full lateral/dynamic set.
+L54D27	1	DIGITIZE	NACA RM L54D27 — Carlos A. deMoraes; 1954 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 0.8–1.2; Re 23e6–43e6. 
+Cone-cylinder with conical boattail; rocket-powered free-flight model. 
+Power-on vs power-off total drag, base drag, boattail pressure coefficients; transonic propulsive-jet effects. 
+Figures	Geometry is simpler than a full sounding rocket, but the jet-interference physics are first-rate.
+D-4064	1	DIGITIZE	NASA TN D-4064 — William F. Hinson; Robert J. McGhee; 1967 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 4, 5, 6; Re 1.77e6–2.49e6 per meter; jet-static-pressure ratio from jet-off up to 26,000. 
+Five cone-cylinder-flare-finned rocket models scaled from Scout-like upper stages. 
+CN, Cm versus jet pressure ratio, angle of attack, Mach, and nozzle condition. 
+Figures	High-Mach powered-flight specialization rather than general coast aerodynamics.
+TM-74058	1	DIGITIZE	NASA TM 74058 — Boyden; Brooks; Davenport; 1978 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 0.7, 0.9, 1.1, 1.2; α about −4° to 22°; roll-angle variations; full-scale model. 
+Cruciform aft-finned projectile; fins on/off; fin-deflection cases. 
+CL/CD/Cm, CN/CY/Cn/Cl, pitch damping, roll damping, fin deployment/deflection effects. 
+Figures	Not a rocket per se, but outstanding for transonic roll/damping and fins-on/off deltas.
+19660004864	2	DIGITIZE	Static Aerodynamic Characteristics of a Rocket Vehicle With Thick Wedge Fins and Sweptback Leading and Trailing Edges — NASA, 1965 conference paper / 1966 accession 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	M 1.79–3.47; α −3° to 10°. 
+Three 1/5-scale second-stage sounding-rocket models with four trapezoidal thick-wedge fins, varying fin area and body length. 
+CA, CN, Cm, x_CP, actual base drag subtraction from pressure taps. 
+Figures	Narrower Mach range than ARCAS; very useful if wedge-fin support matters.
+D-5378	2	PARTIAL	NASA TN D-5378 — Hinson; Langhans; Fournier; 1969 verified through Spearman review. 
+Public existence verified in NASA review, but original PDF/metadata were not directly retrieved in-session. 
+search NTRS for NASA-TN-D-5378	compute on ingest	M 0.4–4.63. 
+Two- and three-stage rocket configuration; review figures indicate body-length, fin-planform, forebody-size, and lateral-characteristics material. 
+Pitch, normal force, pitching moment, lateral characteristics, induced roll per review text. 
+Unknown mix	Strong prospect; needs direct primary ingest before scoring as core.
+AST-E1R-13319	2	PARTIAL	Vought Astronautics AST/E1R-13319 — Aerobee 150A; 1961 
+Public PDF mirror on RASAero page. 
+curl -L -o Aerobee-150A.pdf "https://www.rasaero.com/dloads/Aerobee%20150A%20-%20Vought%20Astronautics%20Report%20AST%20E1R-13319.pdf"	compute on ingest	Flight/performance regime rather than a single wind-tunnel envelope. 
+Two-stage vehicle, four fins, known cants; references to manufacturer aero material. 
+Vehicle data, nomenclature, CP/CD references, trajectory/performance. 
+Mixed and indirect	Better as a traceability anchor than as a primary coefficient benchmark.
+L55G06a	3	DISCOVERY	NACA RM L55G06a — Purser; Fields; 1957 
+Public NTRS PDF. 
+manual NTRS fetch from cited PDF resource	compute on ingest	Review spans research trends up to Mach 7. 
+Bibliographic and synthesis paper on wing-body combinations for fin-stabilized ammunition. 
+A list of 179 papers and a structured map of interference, planform, and CP behavior. 
+Narrative / bibliography	Not itself a benchmark dataset; outstanding for corpus expansion.
+SPEARMAN-REVIEW	3	DISCOVERY	The Role of Wind Tunnels in Predicting Sounding Rocket Aerodynamics — M. Leroy Spearman via NASA review scan. 
+Public NASA scan. 
+manual NTRS fetch from cited PDF resource	compute on ingest	Review only	Maps ARCAS, Tomahawk, Cajun, Argo D-4, multistage rocket, and roll/protuberance references. 
+Secondary descriptions plus exact report numbers for follow-up. 
+Narrative	Use as a reference harvester, not as scored benchmark data.
+
+The Aerobee report also surfaces an important industry follow-on: it cites Aerojet-General Report No. 1784, “Wind Tunnel Tests of the Aerobee 150A (Model AJ60-13)”, which is likely more primary for Aerobee aerodynamics than the Vought vehicle report itself. I would therefore track Aerojet 1784 as a Tier 3 discovery target even though I did not verify a public copy in this pass. 
+
+Fetch hints for directly verified public files
+The following one-line commands were directly verifiable from public mirrors or records in this search. The historical NASA/NACA reports accessed through NTRS may be easier to ingest by following the NTRS record cited above and saving the attached PDF. 
+
+bash
+Copy
+curl -L -o A53D02.pdf "https://www.rasaero.com/dloads/NACA%20RM%20A53D02.pdf"
+curl -L -o TR-R-100.pdf "https://www.rasaero.com/dloads/NASA%20TR%20R-100.pdf"
+curl -L -o RASAero-ARCAS-comparison.pdf "https://www.rasaero.com/dloads/RASAero%20II%20Comparisons%20with%20ARCAS%20CP%20and%20CD%20Data.pdf"
+curl -L -o D-4013.pdf "https://www.rasaero.com/dloads/ARCAS%20NASA%20TN%20D-4013.pdf"
+curl -L -o Aerobee-150A.pdf "https://www.rasaero.com/dloads/Aerobee%20150A%20-%20Vought%20Astronautics%20Report%20AST%20E1R-13319.pdf"
+
+# NTRS examples where the direct PDF endpoint was public in the browser data:
+curl -L -o 19670020031.pdf "https://ntrs.nasa.gov/api/citations/19670020031/downloads/19670020031.pdf"
+curl -L -o 19650000798.pdf "https://ntrs.nasa.gov/api/citations/19650000798/downloads/19650000798.pdf"
+curl -L -o 19930087140.pdf "https://ntrs.nasa.gov/api/citations/19930087140/downloads/19930087140.pdf"
+curl -L -o 19930089121.pdf "https://ntrs.nasa.gov/api/citations/19930089121/downloads/19930089121.pdf"
+curl -L -o 19930088274.pdf "https://ntrs.nasa.gov/api/citations/19930088274/downloads/19930088274.pdf"
+curl -L -o 19670022660.pdf "https://ntrs.nasa.gov/api/citations/19670022660/downloads/19670022660.pdf"
+curl -L -o 19780012129.pdf "https://ntrs.nasa.gov/api/citations/19780012129/downloads/19780012129.pdf"
+bash
+Copy
+# Compute and store hashes during the first repository ingest
+sha256sum *.pdf > SHA256SUMS.txt
+Coverage matrix and prioritization
+The catalog’s coverage is broad enough to support a serious correlation-validation campaign, but it is uneven. A53D02 and D-4064 give the strongest verified reach toward Mach 5–7; R-100, D-4013, L53D14a, and TM 74058 are strongest in the transonic / low-supersonic region; Suttles is the most versatile whole-vehicle source because it covers low Mach through Mach 4.65, includes β, and contains explicit component-removal deltas. L52D15a is the clearest available body-vs-fin / planform-interference benchmark. 
+
+Dataset–feature relationship map
+Zero-lift drag
+
+A53D02
+
+TR R-100
+
+L53D14a
+
+Transonic CP / CD / stability
+
+D-4013
+
+TM 74058
+
+L54D27
+
+Supersonic CP / stability
+
+D-4014
+
+Suttles 1964
+
+19660004864
+
+Component isolation / interaction
+
+L52D15a
+
+Powered jet / plume
+
+D-4064
+
+Roll / fin cant / lateral
+
+Corpus expansion
+
+L55G06a
+
+Spearman review
+
+
+
+Show code
+Mach-band coverage heatmap chart
+Legend: █ direct and strong; ▓ useful but narrower; ░ indirect or edge-of-envelope. The banding below is compiled from the report envelopes in the source documents. 
+
+Dataset	0–0.3	0.3–0.7	0.7–1.0	1–2	2–3	3–5	5–7
+A53D02 
+▓	█	█	█	█	█
+TR R-100 
+▓	█	█			
+D-4013 
+█	█	░			
+D-4014 
+█	█	█	░
+Suttles 1964 
+█	▓	█	█	█	█	
+L52D15a 
+█	
+L53D14a 
+▓	█	█	▓		
+L54D27 
+█	█			
+D-4064 
+█	█
+TM 74058 
+█	█			
+19660004864 
+█	█	█	
+
+Feature coverage chart
+Legend: █ explicit support; ▓ useful but limited; blank means not verified in this pass. 
+
+Dataset	3-fin	4-fin / cruciform	α	β	roll / cant	powered	component isolation	dynamics
+A53D02 
+█	▓				▓	
+TR R-100 
+mixed	mixed					▓	
+D-4013 
+█	█	▓	█		▓	
+D-4014 
+█	█	█	█		▓	
+Suttles 1964 
+█	█	█	▓	auxiliary bodies, not plume	█	
+L52D15a 
+research body+2 fins	█				█	
+L53D14a 
+█						nose families	
+L54D27 
+simple finned body context	▓			█	base / boattail / power-on delta	
+D-4064 
+█	█			█	plume-body/flare effects	
+TM 74058 
+█	█	▓	█		fins on/off and deflected	█
+19660004864 
+█	█		roll position listed		fin-area/body-length changes	
+
+On prioritization, I would classify the catalog as follows. Tier 1 core should contain A53D02, TR R-100, D-4013, D-4014, Suttles, L52D15a, L53D14a, L54D27, D-4064, and TM 74058 because together they cover drag, CP/stability, component deltas, powered effects, and roll/damping across the broadest range of Mach and geometry variation. Tier 2 should hold 19660004864, D-5378, and AST/E1R-13319, because they are important but either narrower, more indirect, or less completely verified in this pass. Tier 3 should hold L55G06a, the Spearman review, and industry follow-ons like Aerojet Report 1784, because they are best used to expand the corpus rather than as first-line scored datasets. 
+
+Holdout design and data leakage control
+Because you explicitly want the datasets to validate the current solver and possibly later support constant-fitting, the benchmark suite should be split in a way that prevents obvious leakage. I recommend treating A53D02, TR R-100, L53D14a, L52D15a, and L54D27 as the initial development and calibration pool. Those sources give broad drag coverage, clean component or geometry-family variation, and controlled transonic jet/base effects without relying too heavily on a single whole-vehicle family. That recommendation is an inference from the structure of those reports rather than a statement made by the reports themselves. 
+
+I would then lock D-4013, D-4014, Suttles 1964, D-4064, and TM 74058 as the first independent validation holdout family. The reason is coverage diversity: ARCAS gives transonic and supersonic CP/CD/stability on a conventional sounding rocket, Suttles gives a whole-vehicle case with β and component-removal deltas, D-4064 stresses high-Mach plume interaction, and TM 74058 checks whether a static correlation stack is being misapplied to roll/pitch damping regimes. That is exactly the kind of cross-family holdout that catches false gains from tuning on only one physics bucket. 
+
+Development / calibration pool
+
+Freeze coefficients
+
+Locked validation pool
+
+Acceptance dashboard
+
+A53D02
+
+TR R-100
+
+L53D14a
+
+L52D15a
+
+L54D27
+
+D-4013
+
+D-4014
+
+Suttles 1964
+
+D-4064
+
+TM 74058
+
+
+
+Show code
+A second locked holdout can be created later from the Tier 2 family, especially D-5378 once its primary source is ingested, plus the wedge-fin report 19660004864 if thick wedge-section support becomes a production requirement. That second holdout would be valuable because it focuses on planform changes, body length, forebody effects, and wedge-fin effectiveness rather than merely repeating the ARCAS geometry family. 
+
+Benchmark implementation
+The first implementation step should be to treat benchmark ingestion as a data-engineering problem, not a plotting problem. Every source PDF needs a stable local identity, provenance record, digitization log, and normalized coefficient convention before any solver comparison is trusted. Historical reports in this corpus use different reference areas, reference lengths, moment centers, body/stability axes, and sometimes report only plot-derived data. That is especially clear when you compare the ARCAS reports, the free-flight drag reports, and the transonic dynamic projectile report. 
+
+I would implement the benchmark repository with four layers: source, extracted points, normalized benchmark cases, and comparison results. The source layer stores the PDF, citation metadata, and SHA-256. The extracted points layer stores digitized coordinates with figure/page provenance and a digitization-quality flag. The normalized benchmark cases layer converts each source into OpenRocket’s canonical units and coefficient references. The comparison results layer stores solver predictions, selected correlation methods, validity-domain flags, and error metrics. That structure is justified by how heterogeneous these reports are: some are almost pure drag compilations, some are whole-vehicle force/moment families, some are powered-plume studies, and some are dynamic-derivative reports. 
+
+A practical canonical benchmark record should therefore look like this:
+
+json
+Copy
+{
+  "dataset_id": "D-4013",
+  "configuration_id": "ARCAS_LONG_CANT0_ROLL0",
+  "source_page": 40,
+  "source_figure": "Figure 9",
+  "digitization_required": true,
+  "digitization_quality": "A",
+
+  "mach": 0.95,
+  "reynolds_number": 9.8e6,
+  "alpha_deg": 8.0,
+  "beta_deg": 0.0,
+  "roll_deg": 0.0,
+  "fin_cant_deg": 0.0,
+
+  "powered": false,
+  "jet_pressure_ratio": null,
+
+  "reference_area_m2": null,
+  "reference_length_m": null,
+  "moment_reference": "source-defined; normalized to solver convention",
+
+  "CA": 0.42,
+  "CD": null,
+  "CN": 1.36,
+  "CY": 0.00,
+  "Cl": 0.00,
+  "Cm": -0.18,
+  "Cn": 0.00,
+  "CN_alpha": null,
+  "Cm_alpha": null,
+  "x_cp_over_L": 0.57,
+
+  "source_uncertainty": "report accuracy section",
+  "solver_method_trace": {
+    "body_normal_force": "method_name",
+    "fin_normal_force": "method_name",
+    "base_drag": "method_name",
+    "body_fin_interference": "method_name"
+  }
+}
+The scored tests should then be separated into a small number of clear families. Point tests compare the solver directly at the experimental state. Curve tests compare trends such as CD(M), CP(M), CN(α), and Cm(α). Delta tests compare experimentally paired configurations such as body+fin minus body, fairings on minus off, jet on minus jet off, or fins on minus fins off. That third class is especially important because Suttles, L52D15a, TM 74058, and L54D27 all offer some form of paired-configuration information that can catch double-counting and missing interaction terms even when a total coefficient happens to look acceptable. 
+
+The best first-pass error metrics are straightforward. Use relative error where the measured coefficient is comfortably nonzero, use range-normalized absolute error or slope error near zero crossings, and treat center-of-pressure error as a normalized axial-position error. Keep the 1% engineering target as a dashboard threshold, but store report-specific uncertainty separately rather than conflating “inside source uncertainty” with “within 1%.” That recommendation is not taken from any single source; it is a benchmark-design inference motivated by the fact that these reports mix free-flight CD data, whole-rocket CP curves, powered-plume coefficients, and dynamic derivatives with very different native accuracies and reference systems. 
+
+Finally, the most important method-traceability rule is that every benchmark result should record which correlation was selected for each component and why. That is the only reliable way to validate a deterministic correlation stack rather than merely validating its final sum. For this dataset family, I would store at least: selected method, candidate methods rejected, declared validity envelope, whether the point was in-domain, and whether a fallback was used. The need for that is visible in the literature itself: RASAero’s ARCAS deck discusses Barrowman versus a modified method; L52D15a explicitly decomposes body, fin, and interference contributions; and L55G06a is largely a structured argument for understanding a complete configuration as the sum of isolated and interference effects. 
+

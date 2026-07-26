@@ -1,21 +1,18 @@
 package info.openrocket.swing.gui.simulation;
 
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Dialog.ModalityType;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Function;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -31,8 +28,7 @@ import javax.swing.SwingUtilities;
 
 import com.google.inject.Key;
 
-import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
-import info.openrocket.core.aerodynamics.rom.RomMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.l10n.Translator;
@@ -67,8 +63,10 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	private static final String LEGACY_AIRBRAKES_EXTENSION_ID = "com.airbrakesplugin.AirbrakeExtension";
 
 	private static final Translator trans = Application.getTranslator();
-	private static final String PANEL_LAYOUT = "fill, insets 6, gap 8 8, wrap 2";
-	private static final String PANEL_COLUMNS = "[grow,fill,shrink 50][grow,fill,shrink 50]";
+	private static final String PANEL_LAYOUT = "fillx, insets 6, gap 8 8, wrap 1";
+	private static final String PANEL_COLUMNS = "[grow,fill]";
+	private static final String COLUMN_PAIR_COLUMNS = "[grow,fill,shrink 50][grow,fill,shrink 50]";
+	private static final String SECTION_STACK_LAYOUT = "fillx, insets 0, gap 8 8, wrap 1";
 	private static final String FORM_COLUMNS = "[right,shrink 0][grow,fill,shrink 100][pref!,shrink 0][grow,fill,shrink 100]";
 
 	private final OpenRocketDocument document;
@@ -76,13 +74,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	private final SimulationOptions options;
 
 	private JLabel aerodynamicMethodValue;
-	private JTextArea aerodynamicLookupSummaryArea;
-	private JCheckBox romEnabledCheckBox;
-	private JComboBox<RomMode> romModeCombo;
-	private JComboBox<RomFallbackMode> romFallbackCombo;
-	private JCheckBox romDiagnosticsCheckBox;
-	private JTextArea romStatusArea;
-	private boolean updatingRomControls;
 
 	private JPanel currentExtensions;
 	final JPopupMenu extensionMenu;
@@ -100,7 +91,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 
 	private static Color textColor;
 	private static Color dimTextColor;
-	private static Color infoTextColor;
 
 	static {
 		initColors();
@@ -114,14 +104,18 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 
 		final SimulationOptions conditions = this.options;
 
-		JPanel columnsPanel = new JPanel(new MigLayout("fill, insets 0, gap 8 8, wrap 2",
-				PANEL_COLUMNS, ""));
-		add(columnsPanel, "span 2, grow, push, wmin 0, wrap");
+		JPanel columnsPanel = new JPanel(new MigLayout("fillx, insets 0, gap 8 8, wrap 2",
+				COLUMN_PAIR_COLUMNS, ""));
+		JPanel leftColumn = new JPanel(new MigLayout(SECTION_STACK_LAYOUT, "[grow,fill]", ""));
+		JPanel rightColumn = new JPanel(new MigLayout(SECTION_STACK_LAYOUT, "[grow,fill]", ""));
+		columnsPanel.add(leftColumn, "growx, wmin 0, top");
+		columnsPanel.add(rightColumn, "growx, wmin 0, top");
+		add(columnsPanel, "growx, pushx, wmin 0, wrap");
 
 		JPanel simulatorOptionsPanel = new JPanel(new MigLayout("fillx, insets 8, gapx 8, gapy 6, wrap 1",
 				"[grow,fill]", ""));
 		simulatorOptionsPanel.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.Simopt")));
-		columnsPanel.add(simulatorOptionsPanel, "grow, push, wmin 0, top");
+		leftColumn.add(simulatorOptionsPanel, "growx, wmin 0, top");
 
 		JPanel optionsForm = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 6", FORM_COLUMNS, ""));
 		simulatorOptionsPanel.add(optionsForm, "growx, pushx, wmin 0, wrap");
@@ -156,25 +150,9 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		simulationStepperMethodChoiceComboTTipListener.actionPerformed(null);
 		optionsForm.add(simulationStepperMethodChoiceCombo, "span 3, growx, wmin 0, wrap");
 
-		label = new JLabel("Pathline runtime");
-		label.setToolTipText("Phase I tuning and test runs now use the pathline ROM only.");
-		optionsForm.add(label, "gaptop para, gapright para");
-
-		aerodynamicLookupSummaryArea = createWrappingTextArea(infoTextColor);
-		optionsForm.add(aerodynamicLookupSummaryArea, "gapleft para, span 4, growx, wmin 0, wrap para");
-
-		label = new JLabel("Phase I ROM");
-		label.setToolTipText("Enable the Phase I pathline ROM, choose its operating preset, and select fallback behavior.");
-		optionsForm.add(label, "gapright para");
-
-		optionsForm.add(createRomControlPanel(), "span 3, growx, wmin 0, wrap");
-
-		romStatusArea = createWrappingTextArea(infoTextColor);
-		optionsForm.add(romStatusArea, "gapleft para, span 4, growx, wmin 0, wrap para");
-
 		weathercockingEnabledCheckBox = new JCheckBox("Enable weathercocking compensation");
 		weathercockingEnabledCheckBox.setToolTipText(
-				"Apply the ROM beta signed rail-angle compensation model and its short post-rod correction window.");
+				"Apply signed rail-angle compensation and its short post-rod correction window.");
 		weathercockingEnabledCheckBox.addActionListener(e -> {
 			options.setWeathercockingCompensationEnabled(weathercockingEnabledCheckBox.isSelected());
 			updateWeathercockingControls();
@@ -340,7 +318,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 
 		JPanel extensionsPanel = new JPanel(new MigLayout("fillx, insets 8, gap 6 6, wrap 1", "[grow,fill]", ""));
 		extensionsPanel.setBorder(BorderFactory.createTitledBorder(trans.get("simedtdlg.border.SimExt")));
-		columnsPanel.add(extensionsPanel, "grow, push, wmin 0, top");
+		rightColumn.add(extensionsPanel, "growx, wmin 0, top");
 
 		JTextArea desc = SimulationTabLayoutUtils.createBoundedWrappingText(trans.get("simedtdlg.SimExt.desc"), textColor);
 		extensionsPanel.add(desc, "growx, wmin 0, wrap");
@@ -365,7 +343,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		scroll.setBorder(BorderFactory.createEmptyBorder());
 		scroll.setOpaque(false);
 		scroll.getViewport().setOpaque(false);
-		extensionsPanel.add(scroll, "growx, pushx, pushy, growy, hmin 140lp, wmin 0");
+		extensionsPanel.add(scroll, "growx, wmin 0, hmin 140lp, hmax 320lp, top");
 
 		JButton resetBtn = new JButton(trans.get("simedtdlg.but.resettodefault"));
 		resetBtn.setToolTipText(trans.get("simedtdlg.but.ttip.resettodefault")
@@ -402,7 +380,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		defaultsPanel.add(resetBtn);
 		defaultsPanel.add(new JPanel(), "growx");
 		defaultsPanel.add(saveBtn);
-		add(defaultsPanel, "span 2, growx, wmin 0, wrap");
+		add(defaultsPanel, "growx, wmin 0, wrap");
 
 		updateCurrentExtensions();
 		updateMonteCarloControls();
@@ -419,7 +397,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	public static void updateColors() {
 		textColor = UITheme.getColor(UITheme.Keys.TEXT);
 		dimTextColor = UITheme.getColor(UITheme.Keys.TEXT_DIM);
-		infoTextColor = UITheme.getColor(UITheme.Keys.INFO);
 	}
 
 	private JPopupMenu getExtensionMenu() {
@@ -535,165 +512,11 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		return (JComponent) menu;
 	}
 
-	private void updateLookupSummary() {
-		if (aerodynamicLookupSummaryArea == null) {
-			return;
-		}
-		String summary = "Phase I runtime is pathline-only."
-				+ "\nLegacy lookup-table aerodynamic overrides do not participate in active ROM testing."
-				+ "\nFallback calculator: pure Barrowman."
-				+ "\nBatch and tuning runs force pathline ROM with FORCE_ROM fallback.";
-		aerodynamicLookupSummaryArea.setText(summary);
-		aerodynamicLookupSummaryArea.setCaretPosition(0);
-	}
-
-	private JPanel createRomControlPanel() {
-		JPanel panel = new JPanel(new MigLayout("fillx, insets 0, gapx 8, gapy 6",
-				"[grow,fill,shrink 100][grow,fill,shrink 100]", ""));
-
-		romEnabledCheckBox = new JCheckBox("Enable Phase I pathline ROM");
-		romEnabledCheckBox.setToolTipText("Use the Phase I pathline reduced-order model instead of plain legacy aerodynamics.");
-		romEnabledCheckBox.addActionListener(e -> {
-			if (updatingRomControls) {
-				return;
-			}
-			options.setRomEnabled(romEnabledCheckBox.isSelected());
-			refreshRomPresentation();
-		});
-		panel.add(romEnabledCheckBox, "span 2, wrap");
-
-		panel.add(new JLabel("Operating preset:"));
-		romModeCombo = new JComboBox<>(RomMode.values());
-		romModeCombo.setToolTipText("Controls the Phase I seed density and normal-force gain.");
-		configureEnumCombo(romModeCombo, SimulationOptionsPanel::formatRomMode);
-		romModeCombo.addActionListener(e -> {
-			if (updatingRomControls) {
-				return;
-			}
-			options.setRomMode((RomMode) romModeCombo.getSelectedItem());
-			refreshRomPresentation();
-		});
-		panel.add(romModeCombo, "growx, wmin 0, wrap");
-
-		panel.add(new JLabel("Fallback behavior:"));
-		romFallbackCombo = new JComboBox<>(RomFallbackMode.values());
-		romFallbackCombo.setToolTipText("Select how the calculator behaves when Phase I confidence drops.");
-		configureEnumCombo(romFallbackCombo, SimulationOptionsPanel::formatRomFallbackMode);
-		romFallbackCombo.addActionListener(e -> {
-			if (updatingRomControls) {
-				return;
-			}
-			options.setRomFallbackMode((RomFallbackMode) romFallbackCombo.getSelectedItem());
-			refreshRomPresentation();
-		});
-		panel.add(romFallbackCombo, "growx, wmin 0, wrap");
-
-		romDiagnosticsCheckBox = new JCheckBox("Enable developer diagnostics");
-		romDiagnosticsCheckBox.setToolTipText("Keep per-step Phase I computation snapshots for log export and debugging.");
-		romDiagnosticsCheckBox.addActionListener(e -> {
-			if (updatingRomControls) {
-				return;
-			}
-			options.setRomDiagnosticsEnabled(romDiagnosticsCheckBox.isSelected());
-			refreshRomPresentation();
-		});
-		panel.add(romDiagnosticsCheckBox, "span 2, wrap");
-
-		return panel;
-	}
-
-	private void refreshRomPresentation() {
-		updateLookupSummary();
-		refreshRomControls();
-	}
-
-	private void refreshRomControls() {
-		updatingRomControls = true;
-		try {
-			boolean enabled = options.isRomEnabled();
-			romEnabledCheckBox.setSelected(enabled);
-			romModeCombo.setSelectedItem(options.getRomMode());
-			romFallbackCombo.setSelectedItem(options.getRomFallbackMode());
-			romDiagnosticsCheckBox.setSelected(options.isRomDiagnosticsEnabled());
-
-			romModeCombo.setEnabled(enabled);
-			romFallbackCombo.setEnabled(enabled);
-			romDiagnosticsCheckBox.setEnabled(enabled);
-
-			aerodynamicMethodValue.setText(buildAerodynamicMethodLabel());
-			romStatusArea.setText(buildRomStatusSummary());
-			romStatusArea.setCaretPosition(0);
-		} finally {
-			updatingRomControls = false;
-		}
-	}
-
 	private String buildAerodynamicMethodLabel() {
-		if (!options.isRomEnabled()) {
-			return trans.get("simedtdlg.lbl.ExtBarrowman") + " (Pathline ROM disabled)";
+		if (options.getPhysicsAeroMode() == PhysicsAeroMode.OFF) {
+			return trans.get("simedtdlg.lbl.ExtBarrowman");
 		}
-		return "Pathline ROM - " + formatRomMode(options.getRomMode())
-				+ ", " + formatRomFallbackMode(options.getRomFallbackMode());
-	}
-
-	private String buildRomStatusSummary() {
-		if (!options.isRomEnabled()) {
-			return "Pathline ROM is currently disabled. Simulations will use Barrowman fallback only.";
-		}
-		return "Pathline ROM is active."
-				+ "\nMode: " + formatRomMode(options.getRomMode())
-				+ " | Fallback: " + formatRomFallbackMode(options.getRomFallbackMode())
-				+ " | Diagnostics: " + (options.isRomDiagnosticsEnabled() ? "enabled" : "disabled")
-				+ "\nLegacy ROM surfaces and lookup overrides are ignored by the active test runtime."
-				+ "\nSeed plan: " + options.getRomSettings().getBodyMeridianSeedCount()
-				+ " body meridian seeds, " + options.getRomSettings().getFinSurfaceSeedCount()
-				+ " seeds per fin surface."
-				+ "\nConfidence gates: transonic band +/- "
-				+ String.format("%.2f", options.getRomSettings().getTransonicBandHalfWidth())
-				+ " Mach, high-angle threshold "
-				+ String.format("%.1f", options.getRomSettings().getHighAngleDeg())
-				+ " deg, trusted separation fraction "
-				+ String.format("%.0f%%", 100.0 * options.getRomSettings().getMaxTrustedSeparationFraction()) + ".";
-	}
-
-	private static String formatRomMode(RomMode mode) {
-		if (mode == null) {
-			return "Standard";
-		}
-		return switch (mode) {
-			case STANDARD -> "Standard";
-			case CONSERVATIVE -> "Conservative";
-			case DIAGNOSTIC -> "Diagnostic";
-		};
-	}
-
-	private static String formatRomFallbackMode(RomFallbackMode fallbackMode) {
-		if (fallbackMode == null) {
-			return "Blend to legacy";
-		}
-		return switch (fallbackMode) {
-			case BLEND -> "Blend to legacy";
-			case BARROWMAN_ONLY -> "Legacy only";
-			case FORCE_ROM -> "Force ROM";
-		};
-	}
-
-	private static <T> void configureEnumCombo(JComboBox<T> comboBox, Function<T, String> formatter) {
-		comboBox.setRenderer(new DefaultListCellRenderer() {
-			private static final long serialVersionUID = 1L;
-
-			@Override
-			public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index,
-					boolean isSelected, boolean cellHasFocus) {
-				super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-				if (value != null) {
-					@SuppressWarnings("unchecked")
-					T typedValue = (T) value;
-					setText(formatter.apply(typedValue));
-				}
-				return this;
-			}
-		});
+		return "Physics-Based Aerodynamics (Experimental) - " + options.getPhysicsAeroMode();
 	}
 
 	private MonteCarloExtension findMonteCarloExtension() {
@@ -758,7 +581,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	}
 
 	private void refreshManagedOptionPresentation() {
-		refreshRomPresentation();
+		aerodynamicMethodValue.setText(buildAerodynamicMethodLabel());
 		updateWeathercockingControls();
 		updateAirbrakeControls();
 	}
@@ -792,15 +615,16 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		private static final long serialVersionUID = -3296795614810745035L;
 
 		SimulationExtensionPanel(final SimulationExtension extension) {
-			super(new MigLayout("fillx, gapx 0", "[grow,fill]", ""));
+			super(new MigLayout("fillx, insets 4 6 4 6, gapx 4", "[grow,fill][pref!]", ""));
 
 			setBorder(BorderFactory.createLineBorder(dimTextColor));
 			JLabel nameLabel = SimulationTabLayoutUtils.createCompactValueLabel(extension.getName());
-			add(nameLabel, "growx, wmin 0, wrap");
+			add(nameLabel, "growx, wmin 0");
+
+			final JPanel actions = new JPanel(new MigLayout("insets 0, gapx 2", "", ""));
+			add(actions, "right");
 
 			JButton button;
-
-			add(new JPanel(), "split, growx, wmin 0, right");
 
 			if (findConfigurator(extension) != null) {
 				button = new JButton(Icons.CONFIGURE);
@@ -812,7 +636,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 						updateCurrentExtensions();
 					}
 				});
-				add(button, "right");
+				actions.add(button);
 			}
 
 			if (extension.getDescription() != null) {
@@ -839,7 +663,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 						dialog.setVisible(true);
 					}
 				});
-				add(button, "right");
+				actions.add(button);
 			}
 
 			button = new JButton(Icons.EDIT_DELETE);
@@ -856,7 +680,7 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 					updateCurrentExtensions();
 				}
 			});
-			add(button, "right");
+			actions.add(button);
 		}
 	}
 
@@ -875,9 +699,4 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		return extension instanceof MonteCarloExtension;
 	}
 
-	private static JTextArea createWrappingTextArea(Color foreground) {
-		JTextArea area = SimulationTabLayoutUtils.createWrappingDisplayText("");
-		area.setForeground(foreground);
-		return area;
-	}
 }

@@ -322,14 +322,13 @@ public final class AirbrakeSimulationListener extends AbstractSimulationListener
         final FlightDataBranch fdb = status.getFlightDataBranch();
 
         // Gate: if predicted apogee is not above target, leave forces unchanged
-        if (!overrideActiveNow && config != null && fdb != null) {
-            final double targetAGL = config.getTargetApogee();
-            final double apAGL = fdb.getLast(PRED_APOGEE);
-            final double time_af_bo = status.getSimulationTime() - burnoutTimeS;
-            if (apAGL <= targetAGL && time_af_bo >= 0.4) {
-                log.debug("Predicted apogee ({}) not above target ({}); skipping airbrake aero", apAGL, targetAGL);
-                return forces;
-            }
+		if (!overrideActiveNow && config != null && fdb != null) {
+			final double targetAGL = config.getTargetApogee();
+			final double apAGL = fdb.getLast(PRED_APOGEE);
+			if (apAGL <= targetAGL) {
+				log.debug("Predicted apogee ({}) not above target ({}); skipping airbrake aero", apAGL, targetAGL);
+				return forces;
+			}
         }
 
         if (dynP <= 0 || rocket_area <= 0) {

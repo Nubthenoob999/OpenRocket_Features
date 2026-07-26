@@ -16,7 +16,9 @@ public final class RasaeroFlightDatasetReader {
 			List<String> row = parsed.get(i);
 			rows.add(new RasaeroFlightRow(integer(row, header, "flight_id"), text(row, header, "vehicle_name"),
 					number(row, header, "peak_mach"), number(row, header, "apogee_real_ft"), optional(row, header, "apogee_rasaero_ft"),
-					optional(row, header, "err_rasaero_pct"), text(row, header, "flight_data_type"), text(row, header, "data_source")));
+					optional(row, header, "err_rasaero_pct"), optionalIfPresent(row, header, "apogee_thiswork_ft"),
+					optionalIfPresent(row, header, "err_thiswork_pct"),
+					text(row, header, "flight_data_type"), text(row, header, "data_source")));
 		}
 		return List.copyOf(rows);
 	}
@@ -24,10 +26,23 @@ public final class RasaeroFlightDatasetReader {
 	private static double number(List<String> row, Map<String,Integer> header, String name) { try { return Double.parseDouble(text(row, header, name)); } catch (NumberFormatException ex) { throw new RasaeroParseException(RasaeroParseException.Reason.NONNUMERIC_CELL, name); } }
 	private static int integer(List<String> row, Map<String,Integer> header, String name) { return (int) number(row, header, name); }
 	private static Double optional(List<String> row, Map<String,Integer> header, String name) { String value = text(row, header, name); return value.isBlank() ? null : Double.valueOf(value); }
+	private static Double optionalIfPresent(List<String> row, Map<String,Integer> header, String name) {
+		Integer index = header.get(RasaeroColumnMap.normalize(name));
+		if (index == null || index >= row.size() || row.get(index).isBlank()) return null;
+		try { return Double.valueOf(row.get(index)); }
+		catch (NumberFormatException ex) { throw new RasaeroParseException(RasaeroParseException.Reason.NONNUMERIC_CELL, name); }
+	}
 	public record RasaeroFlightRow(int flightId, String vehicle, double peakMach, double measuredApogeeFt,
-			Double rasaeroApogeeFt, Double displayedRasaeroErrorPct, String flightDataType, String source) {
+			Double rasaeroApogeeFt, Double displayedRasaeroErrorPct,
+			Double publishedThisWorkApogeeFt, Double displayedThisWorkErrorPct,
+			String flightDataType, String source) {
 		public boolean hasRasaeroPrediction() { return rasaeroApogeeFt != null; }
 		public double reconstructedRasaeroErrorPct() { if (!hasRasaeroPrediction()) throw new IllegalStateException("missing RASAero prediction"); return 100 * (rasaeroApogeeFt - measuredApogeeFt) / measuredApogeeFt; }
+		public boolean hasPublishedThisWorkPrediction() { return publishedThisWorkApogeeFt != null; }
+		public double reconstructedThisWorkErrorPct() {
+			if (!hasPublishedThisWorkPrediction()) throw new IllegalStateException("missing published OpenRocket Plus prediction");
+			return 100 * (publishedThisWorkApogeeFt - measuredApogeeFt) / measuredApogeeFt;
+		}
 	}
 	public record AggregateError(double meanAbsolutePercentError, int countWithinFivePercent, int countWithinTenPercent,
 			double minimumMach, double maximumMach) {

@@ -1,3 +1,8 @@
+/*
+ * Exact atmosphere relations adapted from AidanSYu/openrocketsupersonic,
+ * supersonic-aero-dev.  Primary references: U.S. Standard Atmosphere (1976)
+ * and Sutherland, Philosophical Magazine 36 (1893), 507-531.
+ */
 package info.openrocket.core.models.atmosphere;
 
 import info.openrocket.core.util.BugException;
@@ -13,13 +18,22 @@ import info.openrocket.core.util.ModID;
 public class AtmosphericConditions implements Cloneable, Monitorable {
 
 	/** Specific gas constant of dry air (J/(kg*K)). */
-	public static final double R = 287.053;
+	public static final double R = 287.05287;
 
 	/** Specific heat ratio of air (dimensionless). */
 	public static final double GAMMA = 1.4;
 
 	/** Ratio of the molar mass of water vapor and dry air */
 	public static final double EPSILON = 0.622;
+
+	/** Sutherland's law reference dynamic viscosity (Pa*s) at {@link #T_REF}. */
+	private static final double MU_REF = 1.716e-5;
+
+	/** Sutherland's law reference temperature (K). */
+	private static final double T_REF = 273.15;
+
+	/** Sutherland's law constant for air (K). */
+	private static final double SUTHERLAND_TEMPERATURE = 110.4;
 
 	/** The standard air pressure (Pa). */
 	public static final double STANDARD_PRESSURE = 101325.0;
@@ -158,35 +172,78 @@ public class AtmosphericConditions implements Cloneable, Monitorable {
 	}
 
 	/**
-	 * Return the current speed of sound for dry air.
+	 * Return the current speed of sound.
 	 * <p>
-	 * The speed of sound is calculated using the expansion around the temperature 0
-	 * C
-	 * <code> c = 331.3 + 0.606*T </code> where T is in Celsius. The result is
-	 * accurate
-	 * to about 0.5 m/s for temperatures between -30 and 30 C, and within 2 m/s
-	 * for temperatures between -55 and 30 C.
+	 * The speed of sound is calculated from the frozen-specific-heat ideal-gas
+	 * relation {@code a = sqrt(gamma * R * T)}.  The humidity-aware gas constant
+	 * is retained.
 	 * 
-	 * @return the current speed of sound.
+	 * @return the current speed of sound in m/s.
 	 */
 	public double getMachSpeed() {
-		return 165.77 + 0.606 * getTemperature();
+		return Math.sqrt(GAMMA * getGasConstant() * getTemperature());
+	}
+
+	/**
+	 * Return the dynamic viscosity of air using Sutherland's law.
+	 *
+	 * @return the dynamic viscosity in Pa*s.
+	 */
+	public double getDynamicViscosity() {
+		double temperatureK = getTemperature();
+		return MU_REF * Math.pow(temperatureK / T_REF, 1.5)
+				* (T_REF + SUTHERLAND_TEMPERATURE)
+				/ (temperatureK + SUTHERLAND_TEMPERATURE);
 	}
 
 	/**
 	 * Return the current kinematic viscosity of the air.
 	 * <p>
-	 * The effect of temperature on the viscosity of a gas can be computed using
-	 * Sutherland's formula. In the region of -40 ... 40 degrees Celsius the effect
-	 * is highly linear, and thus a linear approximation is used in its stead.
-	 * This is divided by the result of {@link #getDensity()} to achieve the
-	 * kinematic viscosity.
+	 * Computed as Sutherland-law dynamic viscosity divided by density.
 	 * 
-	 * @return the current kinematic viscosity.
+	 * @return the current kinematic viscosity in m^2/s.
 	 */
 	public double getKinematicViscosity() {
-		double v = 3.7291e-06 + 4.9944e-08 * getTemperature();
-		return v / getDensity();
+		return getDynamicViscosity() / getDensity();
+	}
+
+	/**
+	 * Compute an effective specific-heat ratio that accounts for vibrational
+	 * excitation in high-temperature air.
+	 * <p>
+	 * The Einstein harmonic-oscillator heat capacity is evaluated for a
+	 * 79% nitrogen / 21% oxygen mixture.  This helper is intended for explicit
+	 * high-Mach thermodynamic selection; the ordinary speed of sound remains a
+	 * frozen-gamma calculation.
+	 *
+	 * @param stagnationTempK stagnation temperature in K.
+	 * @return effective gamma, clamped to [1.3, 1.4].
+	 */
+	public static double effectiveGamma(double stagnationTempK) {
+		if (stagnationTempK <= 800.0) {
+			return GAMMA;
+		}
+
+		double nitrogenVibrationalCv = vibrationalCv(stagnationTempK, 3371.0);
+		double oxygenVibrationalCv = vibrationalCv(stagnationTempK, 2256.0);
+		double mixtureVibrationalCv = 0.79 * nitrogenVibrationalCv
+				+ 0.21 * oxygenVibrationalCv;
+		double totalCvOverR = 2.5 + mixtureVibrationalCv;
+		double gamma = (totalCvOverR + 1.0) / totalCvOverR;
+		return Math.max(1.3, Math.min(GAMMA, gamma));
+	}
+
+	private static double vibrationalCv(double temperatureK, double characteristicTemperatureK) {
+		if (temperatureK < 100.0) {
+			return 0;
+		}
+		double ratio = characteristicTemperatureK / temperatureK;
+		if (ratio > 50.0) {
+			return 0;
+		}
+		double exponential = Math.exp(ratio);
+		double denominator = exponential - 1.0;
+		return ratio * ratio * exponential / (denominator * denominator);
 	}
 
 	/**
@@ -208,12 +265,15 @@ public class AtmosphericConditions implements Cloneable, Monitorable {
 		if (!(other instanceof AtmosphericConditions))
 			return false;
 		AtmosphericConditions o = (AtmosphericConditions) other;
-		return MathUtil.equals(this.pressure, o.pressure) && MathUtil.equals(this.temperature, o.temperature);
+		return MathUtil.equals(this.pressure, o.pressure)
+				&& MathUtil.equals(this.temperature, o.temperature)
+				&& MathUtil.equals(this.relativeHumidity, o.relativeHumidity);
 	}
 
 	@Override
 	public int hashCode() {
-		return (int) (this.pressure + this.temperature * 1000);
+		return (int) (this.pressure + this.temperature * 1000
+				+ this.relativeHumidity * 1000000);
 	}
 
 	@Override

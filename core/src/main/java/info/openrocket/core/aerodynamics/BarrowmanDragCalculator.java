@@ -10,14 +10,19 @@ import java.util.Map;
 import info.openrocket.core.aerodynamics.barrowman.RocketComponentCalc;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.rocketcomponent.ComponentAssembly;
+import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.ExternalComponent;
 import info.openrocket.core.rocketcomponent.ExternalComponent.Finish;
+import info.openrocket.core.rocketcomponent.FinSet;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.InstanceContext;
 import info.openrocket.core.rocketcomponent.InstanceMap;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.SymmetricComponent;
+import info.openrocket.core.rocketcomponent.Transition;
 import info.openrocket.core.rocketcomponent.position.AxialMethod;
+import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.PolyInterpolator;
 import info.openrocket.core.util.Reflection;
@@ -29,6 +34,23 @@ public class BarrowmanDragCalculator implements DragCalculator {
 
 	private static final String BARROWMAN_PACKAGE = "info.openrocket.core.aerodynamics.barrowman";
 	private static final String BARROWMAN_SUFFIX = "Calc";
+	private static final double FINNED_BASE_AUGMENTATION = 0.55;
+	private static final double EXPANDING_FIN_CAN_AUGMENTATION = 1.35;
+	private static final double THICK_BL_K = 2.2;
+	private static final double THICK_BL_DELTA_R_THRESHOLD = 0.5;
+	private static final double THICK_BL_MACH_LOW = 0.9;
+	private static final double THICK_BL_MACH_HIGH = 1.1;
+	private static final double THICK_BL_MACH_DECAY_END = 3.0;
+	private static final double THICK_BL_LD_LOW = 25.0;
+	private static final double THICK_BL_LD_HIGH = 30.0;
+	private static final double THICK_BL_MAX_MULTIPLIER = 1.8;
+	private static final double SLENDER_BODY_PRESSURE_K = 0.0025;
+	private static final double SLENDER_BODY_LD_THRESHOLD = 15;
+	private static final double SLENDER_BODY_LD_EXCESS_CAP = 25;
+	private static final double SLENDER_BODY_MACH_LOW = 1.05;
+	private static final double SLENDER_BODY_MACH_HIGH = 1.3;
+	private static final double SLENDER_BODY_MACH_DECAY_START = 3;
+	private static final double SLENDER_BODY_MACH_DECAY_END = 5;
 
 	private final WarningSet ignoreWarningSet = new WarningSet();
 
@@ -317,7 +339,33 @@ public class BarrowmanDragCalculator implements DragCalculator {
 			}
 		}
 
+		double slenderBodyPressure = calculateSlenderBodyPressureCD(configuration, conditions);
+		if (slenderBodyPressure > 0) {
+			total += slenderBodyPressure;
+			distributeSlenderBodyPressureCD(configuration, forceMap, slenderBodyPressure);
+		}
 		return total;
+	}
+
+	private static void distributeSlenderBodyPressureCD(FlightConfiguration configuration,
+			Map<RocketComponent, AerodynamicForces> forceMap, double totalPressureCd) {
+		if (forceMap == null || totalPressureCd <= 0) return;
+		double totalLength = computeBodyTubeLength(configuration);
+		if (totalLength < MathUtil.EPSILON) return;
+		for (Map.Entry<RocketComponent, ArrayList<InstanceContext>> entry
+				: configuration.getActiveInstances().entrySet()) {
+			if (!(entry.getKey() instanceof SymmetricComponent component)) continue;
+			double maximumRadius = Math.max(component.getForeRadius(), component.getAftRadius());
+			if (maximumRadius < MathUtil.EPSILON
+					|| Math.abs(component.getForeRadius() - component.getAftRadius())
+							/ maximumRadius >= 0.01) {
+				continue;
+			}
+			double share = totalPressureCd * component.getLength()
+					* entry.getValue().size() / totalLength;
+			AerodynamicForces forces = forceMap.get(component);
+			if (forces != null) forces.setPressureCD(forces.getPressureCD() + share);
+		}
 	}
 
 	private double calculateBaseCD(FlightConfiguration configuration, FlightConditions conditions,
@@ -358,7 +406,15 @@ public class BarrowmanDragCalculator implements DragCalculator {
 
 				if (nextRadius < aftRadius) {
 					double area = Math.PI * (pow2(aftRadius) - pow2(nextRadius));
-					double cd = base * area / conditions.getRefArea();
+					double correctedBase = base;
+					if (s instanceof Transition && foreRadius > aftRadius && s.getLength() > 0) {
+						correctedBase *= calculateBoattailFactor(
+								foreRadius, aftRadius, s.getLength(), conditions.getMach());
+					}
+					correctedBase *= calculateFinnedBaseAugmentation(s, conditions.getMach());
+					correctedBase *= calculateThickBLBaseMultiplier(
+							s, entry.getValue(), configuration, conditions, aftRadius);
+					double cd = correctedBase * area / conditions.getRefArea();
 					total += instanceCount * cd;
 					if (forceMap != null && forceMap.get(s) != null) {
 						forceMap.get(s).setBaseCD(cd);
@@ -377,6 +433,193 @@ public class BarrowmanDragCalculator implements DragCalculator {
 		}
 
 		return total;
+	}
+
+	private static double calculateFinnedBaseAugmentation(SymmetricComponent component, double mach) {
+		if (mach < 0.2 || component.getAftRadius() <= MathUtil.EPSILON) return 1;
+		int finCount = 0;
+		double maximumSpan = 0;
+		for (int index = 0; index < component.getChildCount(); index++) {
+			RocketComponent child = component.getChild(index);
+			if (child instanceof FinSet fin && finTrailingEdgeNearAftFace(component, fin)) {
+				finCount += fin.getFinCount();
+				maximumSpan = Math.max(maximumSpan, fin.getSpan());
+			}
+		}
+		if (finCount == 0 && component instanceof Transition
+				&& component.getForeRadius() > component.getAftRadius()) {
+			SymmetricComponent previous = component.getPreviousSymmetricComponent();
+			if (previous != null) {
+				for (int index = 0; index < previous.getChildCount(); index++) {
+					RocketComponent child = previous.getChild(index);
+					if (child instanceof FinSet fin && finTrailingEdgeNearAftFace(component, fin)) {
+						finCount += fin.getFinCount();
+						maximumSpan = Math.max(maximumSpan, fin.getSpan());
+					}
+				}
+			}
+		}
+		double strength = finCount >= 4 && hasExpandingFinCanSleeve(component)
+				? EXPANDING_FIN_CAN_AUGMENTATION : FINNED_BASE_AUGMENTATION;
+		return finnedBaseAugmentationFactor(
+				finCount, maximumSpan / component.getAftRadius(), mach, strength);
+	}
+
+	static double finnedBaseAugmentationFactor(int finCount, double spanToRadius, double mach) {
+		return finnedBaseAugmentationFactor(
+				finCount, spanToRadius, mach, FINNED_BASE_AUGMENTATION);
+	}
+
+	private static double finnedBaseAugmentationFactor(int finCount, double spanToRadius,
+			double mach, double strength) {
+		// The available Basic Finner component anchor is a four-fin dataset.
+		// Keep lower fin counts outside this correlation instead of extrapolating
+		// the four-fin wake deficit into an unvalidated topology.
+		if (finCount < 4 || !(spanToRadius > 0) || mach < 0.2) return 1;
+		double machFactor;
+		if (mach < 0.8) {
+			machFactor = 0.30 * (mach - 0.2) / 0.6;
+		} else if (mach < 1.3) {
+			machFactor = 0.30 + 0.70 * (mach - 0.8) / 0.5;
+		} else if (mach < 3.0) {
+			machFactor = 1;
+		} else {
+			machFactor = 3.0 / mach;
+		}
+		double fourFinAnchor = 1 - Math.exp(-4.0 / 1.4);
+		double finFactor = (1 - Math.exp(-finCount / 1.4)) / fourFinAnchor;
+		finFactor = MathUtil.clamp(finFactor, 0, 1.25);
+		double spanFactor = MathUtil.clamp(spanToRadius, 0.3, 1);
+		return 1 + strength * finFactor * spanFactor * machFactor;
+	}
+
+	private static boolean hasExpandingFinCanSleeve(SymmetricComponent component) {
+		if (!(component instanceof BodyTube) || component.getParent() == null) return false;
+		RocketComponent previous = null;
+		for (int index = 0; index < component.getParent().getChildCount(); index++) {
+			RocketComponent child = component.getParent().getChild(index);
+			if (child == component && previous instanceof Transition shoulder) {
+				double radiusStep = shoulder.getAftRadius() - shoulder.getForeRadius();
+				return radiusStep > 0
+						&& Math.abs(shoulder.getAftRadius() - component.getForeRadius()) < 0.003
+						&& shoulder.getLength() <= 0.035;
+			}
+			previous = child;
+		}
+		return false;
+	}
+
+	private static boolean finTrailingEdgeNearAftFace(SymmetricComponent component, FinSet fin) {
+		double tolerance = Math.max(0.05, 2.5 * component.getAftRadius());
+		double baseX = component.toAbsolute(new Coordinate(component.getLength(), 0, 0))[0].getX();
+		double leadingX = fin.toAbsolute(Coordinate.ZERO)[0].getX();
+		double trailingX = fin.toAbsolute(new Coordinate(fin.getLength(), 0, 0))[0].getX();
+		return Math.abs(trailingX - baseX) < tolerance
+				|| (leadingX < baseX && trailingX >= baseX - tolerance);
+	}
+
+	static double calculateBoattailFactor(double foreRadius, double aftRadius,
+			double length, double mach) {
+		if (aftRadius >= foreRadius || length <= 0) return 1;
+		double diameterRatio = aftRadius / foreRadius;
+		double angle = Math.atan2(foreRadius - aftRadius, length);
+		double angleFactor;
+		if (angle <= Math.toRadians(12)) {
+			angleFactor = 1;
+		} else if (angle < Math.toRadians(20)) {
+			angleFactor = (Math.toRadians(20) - angle) / Math.toRadians(8);
+		} else {
+			angleFactor = 0;
+		}
+		double reduction = mach <= 1 ? 0.25 : 0.25 + 0.15 * Math.min(mach - 1, 1);
+		return MathUtil.clamp(1 - angleFactor * reduction * (1 - diameterRatio), 0.3, 1);
+	}
+
+	static double calculateThickBLBaseMultiplier(SymmetricComponent component,
+			ArrayList<InstanceContext> contexts, FlightConfiguration configuration,
+			FlightConditions conditions, double baseRadius) {
+		double mach = conditions.getMach();
+		if (mach <= THICK_BL_MACH_LOW || baseRadius < MathUtil.EPSILON) return 1;
+		double bodyLength = computeBodyTubeLength(configuration);
+		double bodyLD = bodyLength / (2 * baseRadius);
+		if (bodyLD <= THICK_BL_LD_LOW) return 1;
+		double ldRamp = bodyLD >= THICK_BL_LD_HIGH ? 1
+				: smoothstep((bodyLD - THICK_BL_LD_LOW)
+						/ (THICK_BL_LD_HIGH - THICK_BL_LD_LOW));
+		double machRamp;
+		if (mach <= THICK_BL_MACH_HIGH) {
+			machRamp = smoothstep((mach - THICK_BL_MACH_LOW)
+					/ (THICK_BL_MACH_HIGH - THICK_BL_MACH_LOW));
+		} else if (mach >= THICK_BL_MACH_DECAY_END) {
+			return 1;
+		} else {
+			machRamp = 1 - smoothstep((mach - THICK_BL_MACH_HIGH)
+					/ (THICK_BL_MACH_DECAY_END - THICK_BL_MACH_HIGH));
+		}
+		double baseX = computeBaseStationX(component, contexts);
+		double velocity = conditions.getVelocity();
+		double kinematicViscosity = conditions.getAtmosphericConditions().getKinematicViscosity();
+		if (baseX <= MathUtil.EPSILON || velocity < 1.0e-3 || kinematicViscosity < 1.0e-10) return 1;
+		double reynolds = velocity * baseX / kinematicViscosity;
+		if (reynolds < 1.0e4) return 1;
+		double boundaryLayerThickness = baseX * 0.37 / Math.pow(reynolds, 0.2);
+		double excess = Math.max(0,
+				boundaryLayerThickness / baseRadius - THICK_BL_DELTA_R_THRESHOLD);
+		return Math.min(1 + THICK_BL_K * excess * machRamp * ldRamp,
+				THICK_BL_MAX_MULTIPLIER);
+	}
+
+	static double calculateSlenderBodyPressureCD(FlightConfiguration configuration,
+			FlightConditions conditions) {
+		double mach = conditions.getMach();
+		if (mach <= SLENDER_BODY_MACH_LOW || mach >= SLENDER_BODY_MACH_DECAY_END
+				|| conditions.getRefLength() < MathUtil.EPSILON) {
+			return 0;
+		}
+		double bodyLD = computeBodyTubeLength(configuration) / conditions.getRefLength();
+		if (bodyLD <= SLENDER_BODY_LD_THRESHOLD) return 0;
+		double machFactor;
+		if (mach <= SLENDER_BODY_MACH_HIGH) {
+			machFactor = smoothstep((mach - SLENDER_BODY_MACH_LOW)
+					/ (SLENDER_BODY_MACH_HIGH - SLENDER_BODY_MACH_LOW));
+		} else if (mach >= SLENDER_BODY_MACH_DECAY_START) {
+			machFactor = 1 - smoothstep((mach - SLENDER_BODY_MACH_DECAY_START)
+					/ (SLENDER_BODY_MACH_DECAY_END - SLENDER_BODY_MACH_DECAY_START));
+		} else {
+			machFactor = 1;
+		}
+		double ldExcess = Math.min(
+				bodyLD - SLENDER_BODY_LD_THRESHOLD, SLENDER_BODY_LD_EXCESS_CAP);
+		return SLENDER_BODY_PRESSURE_K * ldExcess * machFactor;
+	}
+
+	private static double computeBodyTubeLength(FlightConfiguration configuration) {
+		double total = 0;
+		for (Map.Entry<RocketComponent, ArrayList<InstanceContext>> entry
+				: configuration.getActiveInstances().entrySet()) {
+			if (!(entry.getKey() instanceof SymmetricComponent component)) continue;
+			double maximumRadius = Math.max(component.getForeRadius(), component.getAftRadius());
+			if (maximumRadius > MathUtil.EPSILON
+					&& Math.abs(component.getForeRadius() - component.getAftRadius())
+							/ maximumRadius < 0.01) {
+				total += component.getLength() * entry.getValue().size();
+			}
+		}
+		return total;
+	}
+
+	private static double computeBaseStationX(SymmetricComponent component,
+			ArrayList<InstanceContext> contexts) {
+		if (contexts != null && !contexts.isEmpty()) {
+			CoordinateIF location = contexts.get(0).getLocation();
+			return location.getX() + component.getLength();
+		}
+		return component.getLength();
+	}
+
+	private static double smoothstep(double value) {
+		double bounded = MathUtil.clamp(value, 0, 1);
+		return bounded * bounded * (3 - 2 * bounded);
 	}
 
 	private double calculateOverrideCD(FlightConfiguration configuration,

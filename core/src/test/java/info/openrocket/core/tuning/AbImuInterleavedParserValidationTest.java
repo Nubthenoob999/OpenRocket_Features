@@ -22,6 +22,7 @@ public class AbImuInterleavedParserValidationTest extends BaseTestCase {
 			easyMiniPath = Path.of("core", "src", "test", "java", "info", "openrocket", "core", "tuning",
 					"Govenmnet_Work_launch_1", "subscale_easymini.csv");
 		}
+		TuningTestInfrastructure.requireFixtures(abPath, easyMiniPath);
 
 		TelemetrySeries ab = TelemetryParsers.parse(abPath);
 		TelemetrySeries easyMini = TelemetryParsers.parse(easyMiniPath);

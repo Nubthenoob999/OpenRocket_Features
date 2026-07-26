@@ -8,9 +8,11 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodySegment;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricEdgeStateHistory;
 import info.openrocket.core.aerodynamics.physicsaero.body.BodySegmentType;
+import info.openrocket.core.aerodynamics.physicsaero.body.ForebodyPressureIntegrator;
 import info.openrocket.core.aerodynamics.physicsaero.body.SurfaceStateMarcher;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.ExpansionEvent;
@@ -86,6 +88,67 @@ class SurfaceStateMarcherTest {
 				() -> marcher.march(List.of(cylinder), FlowCondition.fromAngles(2.0, 0.0, 0.0,
 						atmosphere, air, true, "powered")));
 		assertEquals("POWERED_BASE_MODEL_NOT_IMPLEMENTED", powered.getMessage());
+	}
+
+	@Test
+	void numericalZeroTangentRecoversFreestreamBeforeCylinder() {
+		double radius = 0.05;
+		AxisymmetricBodySegment tangentProfile = new AxisymmetricBodySegment(
+				"nose", "tangent-profile", BodySegmentType.SMOOTH_COMPRESSION,
+				0, 1, 0, radius, Math.atan(0.1), 1.0e-10,
+				List.of(new GeometryStation(0, 0, 0.1, 0),
+						new GeometryStation(1, radius, 1.0e-10, 0)),
+				List.of("TANGENT_CONE_AXISYMMETRIC_V1"));
+		AxisymmetricBodySegment cylinder = segment("cylinder",
+				BodySegmentType.CYLINDER, 1, 2, radius, radius, 0, 0);
+
+		AxisymmetricEdgeStateHistory history = new SurfaceStateMarcher()
+				.march(List.of(tangentProfile, cylinder), flow(2));
+		var junction = history.states().stream()
+				.filter(state -> Math.abs(state.xM() - 1) < 1.0e-12)
+				.reduce((first, second) -> second).orElseThrow();
+		assertEquals(101_325, junction.staticState().pressurePa(), 1.0e-6,
+				"an analytic tangent polluted only by sampling noise must not convect suction down the cylinder");
+	}
+
+	@Test
+	void downstreamShoulderStateDoesNotEraseTransonicConePressure() {
+		double length = 0.14605;
+		double radius = 0.0508;
+		double coneAngle = Math.atan(radius / length);
+		AxisymmetricBodySegment cone = segment("cone", BodySegmentType.TRUE_CONE,
+				0, length, 0, radius, coneAngle, coneAngle);
+		AxisymmetricBodySegment shoulder = segment("shoulder",
+				BodySegmentType.DISCRETE_EXPANSION_CORNER,
+				length, length, radius, radius, coneAngle, 0);
+		AxisymmetricBodySegment cylinder = segment("cylinder",
+				BodySegmentType.CYLINDER, length, 1, radius, radius, 0, 0);
+		FlowCondition flow = flow(1.2);
+
+		AxisymmetricEdgeStateHistory history = new SurfaceStateMarcher()
+				.march(List.of(cone, shoulder, cylinder), flow);
+		long terminalStates = history.states().stream()
+				.filter(state -> Math.abs(state.xM() - length) < 1.0e-12)
+				.count();
+		assertTrue(terminalStates >= 2,
+				"the regression requires coincident forebody and downstream shoulder states");
+		var coneWallState = history.states().stream()
+				.filter(state -> Math.abs(state.xM() - length) < 1.0e-12)
+				.filter(state -> state.methodId().equals(
+						"TAYLOR_MACCOLL_PERFECT_GAS_V1"))
+				.findFirst().orElseThrow();
+		double expectedForce = Math.PI
+				* (coneWallState.staticState().pressurePa()
+						- flow.atmosphere().pressurePa())
+				* radius * radius;
+
+		var contribution = new ForebodyPressureIntegrator().integrate(cone, history,
+				flow.atmosphere().pressurePa(), PhysicalTerm.BODY_PRESSURE_FOREBODY);
+		assertEquals(expectedForce, contribution.forceBodyN().x,
+				1.0e-10 * expectedForce,
+				"the high-pressure cone wall state must own the analytic pressure-area load");
+		assertEquals("TAYLOR_MACCOLL_PERFECT_GAS_V1",
+				contribution.methodId().value());
 	}
 
 	private static AxisymmetricBodySegment segment(String id, BodySegmentType type, double x0, double x1,

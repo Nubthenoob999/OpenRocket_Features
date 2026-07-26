@@ -126,6 +126,8 @@ docs/build
 **/*.zip
 
 # Redistributable, pinned Physics Aero benchmark fixtures.
+!core/src/test/resources/physicsaero/dtic_ad0487365_cone_drag_alpha0.csv
+!core/src/test/resources/physicsaero/nasa_tn_d5089_flat_plate_cf.csv
 !core/src/test/resources/physicsaero/rasaero/**/*.csv
 !core/src/test/resources/physicsaero/rasaero/**/*.json
 core/src/test/resources/physicsaero/rasaero/cdx1-local/*

@@ -15,4 +15,7 @@ public final class PhysicsAeroTableCalculator {
 		this.table = table;
 	}
 	public QueryResult query(double mach, double alphaRad, double betaRad) { return new TableQueryEngine().query(table, mach, alphaRad, betaRad); }
+	public QueryResult query(double mach, double alphaRad, double betaRad, double poweredFraction) {
+		return new TableQueryEngine().query(table, mach, alphaRad, betaRad, poweredFraction);
+	}
 }

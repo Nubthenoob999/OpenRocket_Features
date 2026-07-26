@@ -22,7 +22,11 @@ public final class DatcomFinLiftModel {
 				"ENGINEERING_FALLBACK_NOT_SOURCE_CASE_LOCKED");
 	}
 	public boolean isValid(double mach, double aspectRatio, double incidenceRad) {
-		return mach >= 1.2 && mach <= 5 && aspectRatio > 0 && aspectRatio <= 12 && Math.abs(incidenceRad) <= Math.toRadians(15);
+		// The table axis includes exactly +/-15 degrees.  Vector-to-angle
+		// roundoff can exceed the mathematical boundary by a few ulps; retain
+		// the declared closed interval without extending its physical domain.
+		return mach >= 1.2 && mach <= 5 && aspectRatio > 0 && aspectRatio <= 12
+				&& Math.abs(incidenceRad) <= Math.toRadians(15) + 1.0e-12;
 	}
 	public Result evaluate(double mach, double aspectRatio, double halfChordSweepRad, double incidenceRad) {
 		if (!isValid(mach, aspectRatio, incidenceRad)) throw new IllegalArgumentException("DATCOM fallback outside declared domain");

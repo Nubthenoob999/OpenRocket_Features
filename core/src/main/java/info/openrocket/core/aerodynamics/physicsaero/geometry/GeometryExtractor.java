@@ -5,16 +5,59 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import info.openrocket.core.rocketcomponent.*;
 import info.openrocket.core.util.Coordinate;
 
-/** Snapshots supported single-stage external geometry from OpenRocket's component tree. */
+/** Snapshots supported external geometry from a rocket or active staged flight configuration. */
 public final class GeometryExtractor {
 	private static final int PROFILE_INTERVALS = 64;
 	public AeroGeometry extract(Rocket rocket, double roughnessM, String wallModelId, String settingsFingerprint) {
-		if (rocket.getStageList().size() != 1) throw new IllegalArgumentException("UNSUPPORTED_GEOMETRY:MULTI_STAGE");
+		return extract(rocket, null, roughnessM, wallModelId, settingsFingerprint, false);
+	}
+	public AeroGeometry extract(Rocket rocket, double roughnessM, String wallModelId,
+			String settingsFingerprint, boolean forceTurbulentBoundaryLayer) {
+		return extract(rocket, null, roughnessM, wallModelId, settingsFingerprint,
+				forceTurbulentBoundaryLayer);
+	}
+	public AeroGeometry extractWithComponentRoughness(Rocket rocket,
+			String wallModelId, String settingsFingerprint) {
+		return extractWithComponentRoughness(rocket, wallModelId, settingsFingerprint, false);
+	}
+	public AeroGeometry extractWithComponentRoughness(Rocket rocket,
+			String wallModelId, String settingsFingerprint, boolean forceTurbulentBoundaryLayer) {
+		return extract(rocket, null, null, wallModelId, settingsFingerprint,
+				forceTurbulentBoundaryLayer);
+	}
+	public AeroGeometry extract(FlightConfiguration configuration, double roughnessM,
+			String wallModelId, String settingsFingerprint) {
+		configuration.update();
+		return extract(configuration.getRocket(), configuration.getActiveInstances().keySet(),
+				roughnessM, wallModelId, settingsFingerprint, false);
+	}
+	public AeroGeometry extract(FlightConfiguration configuration, double roughnessM,
+			String wallModelId, String settingsFingerprint, boolean forceTurbulentBoundaryLayer) {
+		configuration.update();
+		return extract(configuration.getRocket(), configuration.getActiveInstances().keySet(),
+				roughnessM, wallModelId, settingsFingerprint, forceTurbulentBoundaryLayer);
+	}
+	public AeroGeometry extractWithComponentRoughness(FlightConfiguration configuration,
+			String wallModelId, String settingsFingerprint) {
+		configuration.update();
+		return extract(configuration.getRocket(), configuration.getActiveInstances().keySet(),
+				null, wallModelId, settingsFingerprint, false);
+	}
+	public AeroGeometry extractWithComponentRoughness(FlightConfiguration configuration,
+			String wallModelId, String settingsFingerprint, boolean forceTurbulentBoundaryLayer) {
+		configuration.update();
+		return extract(configuration.getRocket(), configuration.getActiveInstances().keySet(),
+				null, wallModelId, settingsFingerprint, forceTurbulentBoundaryLayer);
+	}
+	private AeroGeometry extract(Rocket rocket, Set<RocketComponent> active, Double roughnessOverrideM,
+			String wallModelId, String settingsFingerprint, boolean forceTurbulentBoundaryLayer) {
 		List<RocketComponent> supported = new ArrayList<>();
 		for (RocketComponent c : rocket) {
+			if (active != null && !active.contains(c)) continue;
 			String classification = GeometryClassifier.classify(c);
 			if (!classification.equals("UNSUPPORTED")) supported.add(c);
 			else if (c instanceof ExternalComponent) throw new IllegalArgumentException("UNSUPPORTED_GEOMETRY:" + c.getClass().getSimpleName());
@@ -27,7 +70,8 @@ public final class GeometryExtractor {
 		for (int order = 0; order < supported.size(); order++) {
 			RocketComponent source = supported.get(order);
 			double start = source.getComponentLocations()[0].getX(), end = start + source.getLength();
-			String id = source.getID().toString(), classification = GeometryClassifier.classify(source);
+			String id = String.format(java.util.Locale.ROOT, "aero-component-%04d", order);
+			String classification = GeometryClassifier.classify(source);
 			AxisymmetricProfile profile = null; FinGeometry fin = null; ProtuberanceGeometry protuberance = null;
 			double radius = 0, wet = 0, projected = 0, base = 0;
 			Map<String, Double> local = new LinkedHashMap<>();
@@ -40,8 +84,17 @@ public final class GeometryExtractor {
 			} else if (source instanceof FinSet fs) {
 				radius = parentRadius(source); wet = 2 * fs.getPlanformArea() * fs.getFinCount();
 				projected = fs.getPlanformArea() * fs.getFinCount();
-				List<GeometryStation> outline = java.util.Arrays.stream(fs.getFinPoints())
-						.map(point -> new GeometryStation(point.getX(), point.getY(), 0, 0)).toList();
+				List<GeometryStation> outline = new ArrayList<>();
+				var finPoints = fs.getFinPoints();
+				for (int index = 0; index < finPoints.length; index++) {
+					var point = finPoints[index];
+					try {
+						outline.add(new GeometryStation(point.getX(), point.getY(), 0, 0));
+					} catch (IllegalArgumentException exception) {
+						throw new IllegalArgumentException("INVALID_FIN_OUTLINE:" + path(source)
+								+ ":point=" + index + ":x=" + point.getX() + ":y=" + point.getY(), exception);
+					}
+				}
 				String section = switch (fs.getCrossSection()) {
 					case AIRFOIL -> "SYMMETRIC_DIAMOND";
 					case ROUNDED -> "ROUNDED_LEADING_EDGE";
@@ -50,19 +103,57 @@ public final class GeometryExtractor {
 				fin = new FinGeometry(classification.substring(4), section, fs.getFinCount(), fs.getLength(), fs.getSpan(),
 						fs.getPlanformArea(), fs.getCantAngle(), outline);
 				local.put("thicknessM", fs.getThickness()); local.put("spanM", fs.getSpan()); local.put("baseRotationRad", fs.getBaseRotation());
+				if ("Hexagonal".equalsIgnoreCase(fs.getDetailedAirfoilSection())) {
+					if (Double.isFinite(fs.getLeadingEdgeAirfoilLength())) {
+						local.put("sectionLeadingRampLengthM",
+								fs.getLeadingEdgeAirfoilLength());
+					}
+					if (Double.isFinite(fs.getTrailingEdgeAirfoilLength())) {
+						local.put("sectionTrailingRampLengthM",
+								fs.getTrailingEdgeAirfoilLength());
+					}
+				}
+				if (Double.isFinite(fs.getLeadingEdgeRadius())) {
+					local.put("leadingEdgeRadiusM", fs.getLeadingEdgeRadius());
+				}
 			} else if (source instanceof LaunchLug lug) {
-				radius = parentRadius(source); wet = 2 * Math.PI * lug.getOuterRadius() * lug.getLength();
-				projected = 2 * lug.getOuterRadius() * lug.getLength();
-				protuberance = new ProtuberanceGeometry("LAUNCH_LUG", lug.getLength(), projected, Math.PI * lug.getOuterRadius() * lug.getOuterRadius());
+				int count = lug.getInstanceCount();
+				radius = parentRadius(source); wet = count * 2 * Math.PI * lug.getOuterRadius() * lug.getLength();
+				projected = count * 2 * lug.getOuterRadius() * lug.getLength();
+				double innerArea = Math.PI * lug.getInnerRadius() * lug.getInnerRadius();
+				double annularArea = Math.PI * (lug.getOuterRadius() * lug.getOuterRadius()
+						- lug.getInnerRadius() * lug.getInnerRadius());
+				protuberance = new ProtuberanceGeometry("LAUNCH_LUG", lug.getInstanceCount(), start,
+						lug.getLength(), 2 * lug.getOuterRadius(), projected,
+						count * annularArea);
+				local.put("innerAreaM2", innerArea);
+				local.put("innerDiameterM", 2 * lug.getInnerRadius());
 			} else if (source instanceof RailButton rb) {
+				int count = rb.getInstanceCount();
 				radius = parentRadius(source); double d = rb.getOuterDiameter();
-				wet = Math.PI * d * rb.getTotalHeight(); projected = d * rb.getTotalHeight();
-				protuberance = new ProtuberanceGeometry("RAIL_BUTTON", d, projected, Math.PI * d * d / 4);
+				double solidProjectedAreaEach = d * rb.getTotalHeight()
+						- (d - rb.getInnerDiameter()) * rb.getInnerHeight();
+				wet = count * Math.PI * d * rb.getTotalHeight();
+				projected = count * solidProjectedAreaEach;
+				String protuberanceType = "Launch Shoe".equals(rb.getName())
+						? "LAUNCH_SHOE" : "RAIL_BUTTON";
+				protuberance = new ProtuberanceGeometry(protuberanceType, rb.getInstanceCount(), start,
+						d, rb.getTotalHeight(), projected, count * Math.PI * d * d / 4);
 				end = start + d;
 			}
-			String stageId = findStage(source);
+			if (forceTurbulentBoundaryLayer
+					&& (profile != null || fin != null)) {
+				local.put("forceFullyTurbulent", 1.0);
+			}
+			String stageId = findStage(rocket, source);
+			double componentRoughnessM = roughnessOverrideM != null
+					? roughnessOverrideM
+					: source instanceof ExternalComponent external
+							? external.getFinish().getRoughnessSize()
+							: 0;
 			AeroComponent component = new AeroComponent(id, path(source), source.getClass().getSimpleName(), classification,
-					stageId, order, new Coordinate(start, 0, 0), start, end, radius, wet, projected, base, roughnessM,
+					stageId, order, new Coordinate(start, 0, 0), start, end, radius, wet, projected, base,
+					componentRoughnessM,
 					wallModelId, local, List.of(), profile, fin, protuberance);
 			components.add(component); wetted.put(id, wet); maxRadius = Math.max(maxRadius, radius); maxEnd = Math.max(maxEnd, end);
 		}
@@ -82,9 +173,32 @@ public final class GeometryExtractor {
 			double x = length * i / PROFILE_INTERVALS, h = Math.max(length * 1e-5, 1e-9);
 			double left = Math.max(0, x - h), right = Math.min(length, x + h);
 			double r = component.getRadius(x), rl = component.getRadius(left), rr = component.getRadius(right);
-			double slope = (rr - rl) / (right - left);
+			/*
+			 * A first-order one-sided derivative leaves a false nonzero tangent
+			 * at analytic component boundaries (notably the aft end of a
+			 * tangent ogive).  That residual angle is then convected down a
+			 * cylinder and contaminates a later shoulder shock.  Use the
+			 * second-order boundary stencil; the central interior stencil is
+			 * already second order.
+			 */
+			double slope;
+			if (i == 0) {
+				double r2 = component.getRadius(Math.min(length, 2 * h));
+				slope = (-3 * r + 4 * rr - r2) / (2 * h);
+			} else if (i == PROFILE_INTERVALS) {
+				double r2 = component.getRadius(Math.max(0, length - 2 * h));
+				slope = (3 * r - 4 * rl + r2) / (2 * h);
+			} else {
+				slope = (rr - rl) / (right - left);
+			}
 			double second = (i == 0 || i == PROFILE_INTERVALS) ? 0 : (rr - 2 * r + rl) / (h * h);
-			stations.add(new GeometryStation(start + x, r, slope, second));
+			try {
+				stations.add(new GeometryStation(start + x, r, slope, second));
+			} catch (IllegalArgumentException exception) {
+				throw new IllegalArgumentException("INVALID_AXISYMMETRIC_PROFILE:" + path(component)
+						+ ":station=" + i + ":x=" + (start + x) + ":radius=" + r
+						+ ":slope=" + slope + ":secondDerivative=" + second, exception);
+			}
 		}
 		List<GeometryEvent> events = new ArrayList<>();
 		events.add(new GeometryEvent(start, component instanceof NoseCone ? GeometryEvent.Type.NOSE_TIP
@@ -96,8 +210,18 @@ public final class GeometryExtractor {
 	private static double parentRadius(RocketComponent component) {
 		return component.getParent() instanceof SymmetricComponent s ? s.getRadius(Math.max(0, Math.min(s.getLength(), component.getAxialOffset()))) : 0;
 	}
-	private static String findStage(RocketComponent c) {
-		for (RocketComponent p = c; p != null; p = p.getParent()) if (p instanceof AxialStage) return p.getID().toString();
+	private static String findStage(Rocket rocket, RocketComponent c) {
+		AxialStage owningStage = null;
+		for (RocketComponent p = c; p != null; p = p.getParent()) {
+			if (p instanceof AxialStage stage) {
+				owningStage = stage;
+				break;
+			}
+		}
+		if (owningStage == null) return "UNKNOWN_STAGE";
+		for (int index = 0; index < rocket.getStageCount(); index++) {
+			if (rocket.getStage(index) == owningStage) return "stage-" + index;
+		}
 		return "UNKNOWN_STAGE";
 	}
 	private static String path(RocketComponent c) {

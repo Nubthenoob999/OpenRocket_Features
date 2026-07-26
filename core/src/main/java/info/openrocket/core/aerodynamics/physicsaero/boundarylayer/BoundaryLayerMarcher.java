@@ -2,13 +2,17 @@ package info.openrocket.core.aerodynamics.physicsaero.boundarylayer;
 
 import java.util.ArrayList;
 import java.util.List;
+import info.openrocket.core.aerodynamics.physicsaero.blending.RegimeOverlap;
 import info.openrocket.core.aerodynamics.physicsaero.force.ForceContribution;
 import info.openrocket.core.aerodynamics.physicsaero.force.SkinFrictionForceIntegrator;
 import info.openrocket.core.aerodynamics.physicsaero.roughness.RoughWallSkinFrictionCorrection;
 import info.openrocket.core.aerodynamics.physicsaero.roughness.RoughnessRegime;
 import info.openrocket.core.aerodynamics.physicsaero.thermal.EckertReferenceTemperature;
+import info.openrocket.core.aerodynamics.physicsaero.thermal.RecoveryTemperatureModel;
 import info.openrocket.core.aerodynamics.physicsaero.thermal.SutherlandViscosity;
 import info.openrocket.core.aerodynamics.physicsaero.thermal.VanDriestIICorrection;
+import info.openrocket.core.aerodynamics.physicsaero.thermal.VanDriestIITransformation;
+import info.openrocket.core.aerodynamics.physicsaero.thermal.WallThermalBoundary;
 import info.openrocket.core.aerodynamics.physicsaero.transition.AbuGhannamShawModel;
 import info.openrocket.core.aerodynamics.physicsaero.transition.IntermittencyModel;
 import info.openrocket.core.aerodynamics.physicsaero.transition.MichelTransitionCheck;
@@ -19,6 +23,9 @@ import info.openrocket.core.util.Coordinate;
 
 /** One-way attached boundary-layer solver: edge history in, viscous history and wall-shear force out. */
 public final class BoundaryLayerMarcher {
+	private static final RegimeOverlap SKIN_FRICTION_HANDOFF = new RegimeOverlap(0.9, 1.1,
+			VanDriestIICorrection.METHOD_ID, VanDriestIITransformation.METHOD_ID);
+
 	private final EdgeStateHistoryValidator validator = new EdgeStateHistoryValidator();
 	private final LaminarClosure laminarClosure = new LaminarClosure();
 	private final BoundaryLayerThicknessModel thickness = new BoundaryLayerThicknessModel();
@@ -40,6 +47,19 @@ public final class BoundaryLayerMarcher {
 		for (int i = start + 1; i < track.stations().size(); i++) {
 			BoundaryLayerStation a = track.stations().get(i-1), b = track.stations().get(i);
 			TransitionMode mode = configuration.transitionMode(); boolean trigger = mode == TransitionMode.FULLY_TURBULENT || (mode == TransitionMode.USER_TRIPPED && b.forcedTrip());
+			if (turbulent == null && trigger && "FORCED_TRIP".equals(b.event()) && b.sM() > a.sM()) {
+				// March the upstream interval as laminar and initialize the turbulent
+				// closure exactly at the prescribed station.  Stepping Head's model
+				// over this same interval would move the trip one grid cell upstream.
+				theta = Math.sqrt(thwaites.nextThetaSquared(a, b, theta * theta));
+				BoundaryLayerState onset = laminarState(b, theta, 0, TransitionState.TRANSITIONAL, configuration);
+				transitionS = b.sM();
+				turbulent = head.initialize(theta, onset.displacementThicknessM(),
+						Math.max(b.streamwiseVelocityMS(), configuration.minimumVelocityMS()),
+						Math.max(onset.reynoldsTheta(), 1));
+				output.add(onset);
+				continue;
+			}
 			if (!"NONE".equals(b.event())) {
 				BoundaryLayerState upstream = output.get(output.size() - 1);
 				if ("FORCED_TRIP".equals(b.event())) trigger = true;
@@ -93,12 +113,34 @@ public final class BoundaryLayerMarcher {
 		return finish(s,state.thetaM(),state.h(),state.h1(),state.cf(),gamma,gamma<0.99?TransitionState.TRANSITIONAL:TransitionState.TURBULENT,c,HeadEntrainmentModel.METHOD_ID,0);
 	}
 	private BoundaryLayerState finish(BoundaryLayerStation s,double theta,double h,double h1,double baseCf,double gamma,TransitionState ts,BoundaryLayerConfiguration c,String method,double lambda) {
-		double tStar=new EckertReferenceTemperature().temperatureK(s.temperatureK(),s.wallTemperatureK(),s.mach()); double muStar=new SutherlandViscosity().viscosityPaS(tStar);
-		double rhoStar=s.pressurePa()/(287.05287*tStar); double cf=new VanDriestIICorrection().apply(baseCf,s.densityKgM3(),s.viscosityPaS(),rhoStar,muStar);
+		double wallTemperature = c.wallMode() == WallThermalBoundary.ADIABATIC
+				? new RecoveryTemperatureModel().recoveryTemperatureK(s.temperatureK(), s.mach(),
+						c.gamma(), c.prandtl(), gamma)
+				: s.wallTemperatureK();
+		double tStar=new EckertReferenceTemperature().temperatureK(s.temperatureK(),wallTemperature,s.mach()); double muStar=new SutherlandViscosity().viscosityPaS(tStar);
+		double rhoStar=s.pressurePa()/(287.05287*tStar);
+		double eckertCf=new VanDriestIICorrection().apply(baseCf,s.densityKgM3(),s.viscosityPaS(),rhoStar,muStar);
+		double reS=s.streamwiseVelocityMS()*s.sM()/s.kinematicViscosityM2S();
+		double cf=eckertCf;
+		String compressibilityMethod=VanDriestIICorrection.METHOD_ID;
+		if (c.skinFrictionCompressibilityMode()==SkinFrictionCompressibilityMode.VAN_DRIEST_II_TRANSITION
+				&& s.mach()>SKIN_FRICTION_HANDOFF.startMach()) {
+			VanDriestIITransformation vanDriest=new VanDriestIITransformation();
+			double transformedCf=baseCf*vanDriest.compressibilityFactor(
+					s.mach(),Math.max(1_000,reS),s.temperatureK(),wallTemperature);
+			if (s.mach()>=SKIN_FRICTION_HANDOFF.endMach()) {
+				cf=transformedCf;
+				compressibilityMethod=VanDriestIITransformation.METHOD_ID;
+			} else {
+				double weight=SKIN_FRICTION_HANDOFF.smoothWeight(s.mach());
+				cf=eckertCf+(transformedCf-eckertCf)*weight;
+				compressibilityMethod=VanDriestIICorrection.METHOD_ID+"+"+VanDriestIITransformation.METHOD_ID;
+			}
+		}
 		double tau=0.5*cf*s.densityKgM3()*s.streamwiseVelocityMS()*s.streamwiseVelocityMS(); double uTau=Math.sqrt(Math.max(0,tau/s.densityKgM3()));
-		double nuWall=new SutherlandViscosity().viscosityPaS(s.wallTemperatureK())/(s.pressurePa()/(287.05287*s.wallTemperatureK())); double ksPlus=uTau*s.roughnessM()/nuWall;
+		double nuWall=new SutherlandViscosity().viscosityPaS(wallTemperature)/(s.pressurePa()/(287.05287*wallTemperature)); double ksPlus=uTau*s.roughnessM()/nuWall;
 		cf=roughWall.apply(cf,ksPlus); tau=0.5*cf*s.densityKgM3()*s.streamwiseVelocityMS()*s.streamwiseVelocityMS(); RoughnessRegime rr=roughWall.regime(ksPlus);
-		double deltaStar=h*theta, delta99=thickness.delta99M(theta,h,ts), reS=s.streamwiseVelocityMS()*s.sM()/s.kinematicViscosityM2S(), reTheta=s.streamwiseVelocityMS()*theta/s.kinematicViscosityM2S();
-		return new BoundaryLayerState(theta,deltaStar,delta99,h,h1,cf,tau,reS,reTheta,lambda,gamma,ts,health.evaluate(lambda,h,ts),rr,s.wallTemperatureK(),method+"+"+VanDriestIICorrection.METHOD_ID);
+		double deltaStar=h*theta, delta99=thickness.delta99M(theta,h,ts), reTheta=s.streamwiseVelocityMS()*theta/s.kinematicViscosityM2S();
+		return new BoundaryLayerState(theta,deltaStar,delta99,h,h1,cf,tau,reS,reTheta,lambda,gamma,ts,health.evaluate(lambda,h,ts),rr,wallTemperature,method+"+"+compressibilityMethod);
 	}
 }

@@ -113,6 +113,31 @@ class FlightConditionsTest {
 	}
 
 	@Test
+	void testBetaFloorAndContinuityAcrossMachOne() {
+		for (double mach = 0; mach <= 7; mach += 0.001) {
+			conditions.setMach(mach);
+			assertTrue(conditions.getBeta() >= 0.25,
+					"beta floor violated at Mach " + mach);
+		}
+
+		for (double mach : new double[] {0.97, 0.99, 1.0, 1.01, 1.03}) {
+			conditions.setMach(mach);
+			assertEquals(0.25, conditions.getBeta(), 0,
+					"transonic beta floor at Mach " + mach);
+		}
+
+		double epsilon = 1.0e-9;
+		conditions.setMach(1 - epsilon);
+		double left = conditions.getBeta();
+		conditions.setMach(1);
+		double center = conditions.getBeta();
+		conditions.setMach(1 + epsilon);
+		double right = conditions.getBeta();
+		assertEquals(center, left, 0);
+		assertEquals(center, right, 0);
+	}
+
+	@Test
 	void testSetAndGetVelocity() {
 		AtmosphericConditions atm = new AtmosphericConditions();
 		conditions.setAtmosphericConditions(atm);

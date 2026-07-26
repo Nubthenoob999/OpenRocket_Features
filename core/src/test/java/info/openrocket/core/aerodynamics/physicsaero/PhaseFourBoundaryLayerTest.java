@@ -34,6 +34,11 @@ class PhaseFourBoundaryLayerTest {
 	@Test void transitionModelsUsePercentConventionAndRemainIndependent() {
 		AbuGhannamShawModel ags=new AbuGhannamShawModel();
 		assertTrue(ags.evaluate(1e6,2000,2.59,0,.2).triggered());
+		double zeroGradientCriticalAtPointTwoPercent=163+Math.exp(6.91-.2);
+		assertEquals(0,ags.evaluate(1e6,zeroGradientCriticalAtPointTwoPercent,2.59,0,.2).margin(),1e-12);
+		assertFalse(ags.evaluate(1e6,850,2.59,0,.2).triggered());
+		assertTrue(ags.evaluate(1e6,850,2.59,0,.5).triggered(),
+				"higher freestream turbulence must move natural transition upstream");
 		assertEquals("OUTSIDE_VALIDITY_DOMAIN",ags.evaluate(1e6,2000,2.59,0,.002).reason());
 		MichelTransitionCheck michel=new MichelTransitionCheck();
 		double expected=1.174*(1+22400.0/1e6)*Math.pow(1e6,.46);
@@ -43,11 +48,30 @@ class PhaseFourBoundaryLayerTest {
 
 	@Test void thermalModelsRecoverReferenceAndAdiabaticWall() {
 		assertEquals(SutherlandViscosity.MU0_PA_S,new SutherlandViscosity().viscosityPaS(SutherlandViscosity.T0_K),1e-15);
-		double tr=new RecoveryTemperatureModel().recoveryTemperatureK(250,2,1.4,.72,true);
+		RecoveryTemperatureModel recovery=new RecoveryTemperatureModel();
+		double laminar=recovery.recoveryTemperatureK(250,2,1.4,.72,false);
+		double tr=recovery.recoveryTemperatureK(250,2,1.4,.72,true);
 		assertTrue(tr>250);
+		assertTrue(tr>laminar);
+		assertEquals(.5*(laminar+tr),recovery.recoveryTemperatureK(250,2,1.4,.72,.5),1e-12);
 		assertEquals(300,new EckertReferenceTemperature().temperatureK(300,300,0),1e-12);
 		double cf=.003;
 		assertEquals(cf,new VanDriestIICorrection().apply(cf,1.2,1.8e-5,1.2,1.8e-5),1e-15);
+	}
+
+	@Test void adiabaticWallRecoveryFollowsBoundaryLayerTransitionState() {
+		SurfaceTrack track=planarTrack(40,300,0);
+		BoundaryLayerConfiguration defaults=BoundaryLayerConfiguration.defaults();
+		BoundaryLayerConfiguration turbulent=new BoundaryLayerConfiguration(TransitionMode.FULLY_TURBULENT,
+				defaults.turbulencePercent(),defaults.transitionBlendLengthM(),defaults.intermittencyExponent(),
+				WallThermalBoundary.ADIABATIC,defaults.gamma(),defaults.prandtl(),defaults.minimumVelocityMS(),
+				defaults.totalStateRelativeTolerance(),defaults.skinFrictionCompressibilityMode());
+		BoundaryLayerResult result=new BoundaryLayerMarcher().march(track,turbulent,new Coordinate());
+		BoundaryLayerState terminal=result.history().states().get(result.history().states().size()-1);
+		double expected=new RecoveryTemperatureModel().recoveryTemperatureK(
+				track.stations().get(track.stations().size()-1).temperatureK(),
+				track.stations().get(track.stations().size()-1).mach(),1.4,.72,true);
+		assertEquals(expected,terminal.wallTemperatureK(),1e-12);
 	}
 
 	@Test void marcherProducesFiniteHistoryAndExclusiveVectorForce() {
@@ -55,7 +79,7 @@ class PhaseFourBoundaryLayerTest {
 		BoundaryLayerResult result=new BoundaryLayerMarcher().march(track,BoundaryLayerConfiguration.defaults(),new Coordinate());
 		assertEquals(track.stations().size(),result.history().states().size());
 		assertTrue(result.history().states().stream().allMatch(s->s.thetaM()>0&&s.skinFrictionCoefficient()>0));
-		assertTrue(result.skinFriction().forceBodyN().x<0); assertEquals(0,result.skinFriction().forceBodyN().y,1e-12);
+		assertTrue(result.skinFriction().forceBodyN().x>0); assertEquals(0,result.skinFriction().forceBodyN().y,1e-12);
 		ContributionLedger ledger=new ContributionLedger();
 		new ViscousContributionAssembler().assemble(result.history(),new Coordinate(),ledger);
 		assertThrows(IllegalStateException.class,()->new ViscousContributionAssembler().assemble(result.history(),new Coordinate(),ledger));
@@ -69,12 +93,59 @@ class PhaseFourBoundaryLayerTest {
 		assertEquals(BoundaryLayerException.Reason.NON_MONOTONE_TRACK,ex.reason());
 	}
 
+	@Test void prescribedTransitionReynoldsCreatesOneUserTripAtFirstCrossing() {
+		SurfaceTrack original=planarTrack(101,50,0);
+		BoundaryLayerStation first=original.stations().get(0);
+		double transitionReynolds=1_000_000;
+		SurfaceTrack tripped=new SurfaceTrackBuilder().withForcedTransitionReynolds(original,transitionReynolds,
+				first.densityKgM3(),first.streamwiseVelocityMS(),first.viscosityPaS());
+		List<BoundaryLayerStation> trips=tripped.stations().stream().filter(BoundaryLayerStation::forcedTrip).toList();
+		assertEquals(1,trips.size());
+		double reynoldsPerM=first.densityKgM3()*first.streamwiseVelocityMS()/first.viscosityPaS();
+		assertEquals(transitionReynolds,trips.get(0).sM()*reynoldsPerM,1e-9);
+		int tripIndex=tripped.stations().indexOf(trips.get(0));
+		assertTrue(tripIndex==0||tripped.stations().get(tripIndex-1).sM()*reynoldsPerM<transitionReynolds);
+
+		BoundaryLayerConfiguration d=BoundaryLayerConfiguration.defaults();
+		BoundaryLayerConfiguration userTrip=new BoundaryLayerConfiguration(TransitionMode.USER_TRIPPED,
+				d.turbulencePercent(),d.transitionBlendLengthM(),d.intermittencyExponent(),d.wallMode(),
+				d.gamma(),d.prandtl(),d.minimumVelocityMS(),d.totalStateRelativeTolerance(),
+				d.skinFrictionCompressibilityMode());
+		BoundaryLayerResult result=new BoundaryLayerMarcher().march(tripped,userTrip,new Coordinate());
+		assertEquals(trips.get(0).sM(),result.transitionLocationM(),0);
+		assertTrue(result.history().states().stream().anyMatch(s->s.transition()!=TransitionState.LAMINAR));
+	}
+
 	@Test void roughnessIsAppliedInsideWallShearExactlyOnce() {
 		BoundaryLayerResult smooth=new BoundaryLayerMarcher().march(planarTrack(80,60,0),BoundaryLayerConfiguration.defaults(),new Coordinate());
 		BoundaryLayerResult rough=new BoundaryLayerMarcher().march(planarTrack(80,60,2e-3),BoundaryLayerConfiguration.defaults(),new Coordinate());
 		double smoothDrag=Math.abs(smooth.skinFriction().forceBodyN().x),roughDrag=Math.abs(rough.skinFriction().forceBodyN().x);
 		assertTrue(roughDrag>smoothDrag);
 		assertTrue(rough.history().states().stream().anyMatch(s->s.roughnessRegime()!=RoughnessRegime.HYDRAULICALLY_SMOOTH));
+	}
+
+	@Test void compressibilityCorrectionModeIsExplicitAndSelectsVanDriestAboveMachOne() {
+		SurfaceTrack track=planarTrack(80,680,0);
+		BoundaryLayerConfiguration d=BoundaryLayerConfiguration.defaults();
+		BoundaryLayerConfiguration eckertOnly=new BoundaryLayerConfiguration(
+				TransitionMode.FULLY_TURBULENT,d.turbulencePercent(),d.transitionBlendLengthM(),
+				d.intermittencyExponent(),d.wallMode(),d.gamma(),d.prandtl(),
+				d.minimumVelocityMS(),d.totalStateRelativeTolerance(),
+				SkinFrictionCompressibilityMode.ECKERT_REFERENCE_ONLY);
+		BoundaryLayerConfiguration vanDriest=new BoundaryLayerConfiguration(
+				TransitionMode.FULLY_TURBULENT,d.turbulencePercent(),d.transitionBlendLengthM(),
+				d.intermittencyExponent(),d.wallMode(),d.gamma(),d.prandtl(),
+				d.minimumVelocityMS(),d.totalStateRelativeTolerance(),
+				SkinFrictionCompressibilityMode.VAN_DRIEST_II_TRANSITION);
+		BoundaryLayerState eckertTerminal=new BoundaryLayerMarcher().march(
+				track,eckertOnly,new Coordinate()).history().states().get(track.stations().size()-1);
+		BoundaryLayerState vanDriestTerminal=new BoundaryLayerMarcher().march(
+				track,vanDriest,new Coordinate()).history().states().get(track.stations().size()-1);
+
+		assertTrue(eckertTerminal.methodId().contains(VanDriestIICorrection.METHOD_ID));
+		assertTrue(vanDriestTerminal.methodId().contains(VanDriestIITransformation.METHOD_ID));
+		assertNotEquals(eckertTerminal.skinFrictionCoefficient(),
+				vanDriestTerminal.skinFrictionCoefficient());
 	}
 
 	private static SurfaceTrack planarTrack(int count,double velocity,double roughness) {

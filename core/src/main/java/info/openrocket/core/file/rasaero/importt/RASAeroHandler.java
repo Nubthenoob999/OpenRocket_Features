@@ -110,7 +110,7 @@ public class RASAeroHandler extends AbstractElementHandler {
             }
             // Rocket design
             else if (RASAeroCommonConstants.ROCKET_DESIGN.equals(element)) {
-                return new RocketDesignHandler(context, rocket.getChild(0));
+                return new RocketDesignHandler(context, rocket.getChild(0), launchSiteSettings);
             }
             // LaunchSite
             else if (RASAeroCommonConstants.LAUNCH_SITE.equals(element)) {
@@ -156,11 +156,14 @@ public class RASAeroHandler extends AbstractElementHandler {
          * The top-level component, from which all child components are added.
          */
         private final RocketComponent component;
+        private final SimulationOptions launchSiteSettings;
 
-        public RocketDesignHandler(DocumentLoadingContext context, RocketComponent component) {
+        public RocketDesignHandler(DocumentLoadingContext context, RocketComponent component,
+                SimulationOptions launchSiteSettings) {
             super();
             this.context = context;
             this.component = component;
+            this.launchSiteSettings = launchSiteSettings;
         }
 
         @Override
@@ -195,6 +198,10 @@ public class RASAeroHandler extends AbstractElementHandler {
             else if (RASAeroCommonConstants.SURFACE_FINISH.equals(element)) {
                 return PlainTextHandler.INSTANCE;
             }
+            else if (RASAeroCommonConstants.TURBULENCE.equals(element)
+                    || RASAeroCommonConstants.MODIFIED_BARROWMAN.equals(element)) {
+                return PlainTextHandler.INSTANCE;
+            }
 
             // Comments
             else if (RASAeroCommonConstants.COMMENTS.equals(element)) {
@@ -212,10 +219,37 @@ public class RASAeroHandler extends AbstractElementHandler {
             if (RASAeroCommonConstants.SURFACE_FINISH.equals(element)) {
                 SurfaceFinishHandler.setSurfaceFinishes(component.getRocket(), content, warnings);
             }
+            else if (RASAeroCommonConstants.TURBULENCE.equals(element)) {
+                Boolean value = parseBoolean(content);
+                if (value == null) {
+                    warnings.add("Invalid RASAero Turbulence value '" + content + "', ignoring.");
+                } else {
+                    launchSiteSettings.setForceTurbulentBoundaryLayer(value);
+                    if (value) {
+                        warnings.add("RASAero Turbulence=True imported as a fully turbulent boundary layer.");
+                    }
+                }
+            }
+            else if (RASAeroCommonConstants.MODIFIED_BARROWMAN.equals(element)) {
+                Boolean value = parseBoolean(content);
+                if (value == null) {
+                    warnings.add("Invalid RASAero ModifiedBarrowman value '" + content + "', ignoring.");
+                } else if (value) {
+                    warnings.add("RASAero ModifiedBarrowman=True is not supported; standard OpenRocket "
+                            + "stability aerodynamics will be used.");
+                }
+            }
             // Comments
             else if (RASAeroCommonConstants.COMMENTS.equals(element)) {
                 component.getRocket().setComment(content);
             }
+        }
+
+        private static Boolean parseBoolean(String content) {
+            String normalized = content == null ? "" : content.trim();
+            if ("true".equalsIgnoreCase(normalized)) return true;
+            if ("false".equalsIgnoreCase(normalized)) return false;
+            return null;
         }
     }
 }

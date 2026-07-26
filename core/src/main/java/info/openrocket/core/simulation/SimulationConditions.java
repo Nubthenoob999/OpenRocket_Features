@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import info.openrocket.core.aerodynamics.AerodynamicCalculator;
-import info.openrocket.core.aerodynamics.RomAerodynamicCalculator;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.masscalc.MassCalculator;
 import info.openrocket.core.models.atmosphere.AtmosphericModel;
@@ -57,13 +56,16 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private GravityModel gravityModel;
 
 	private AerodynamicCalculator aerodynamicCalculator;
-	private RomAerodynamicCalculator romAerodynamicCalculator;
 	private MassCalculator massCalculator;
 
 	private double timeStep = RK4SimulationStepper.RECOMMENDED_TIME_STEP;
 	private double maxSimulationTime = RK4SimulationStepper.RECOMMENDED_MAX_TIME;
 	private double maximumAngleStep = RK4SimulationStepper.RECOMMENDED_ANGLE_STEP;
 
+	/** Nozzle exit diameters in meters by RASAero axial stage number. */
+	private double sustainerNozzleExitDiameter = Double.NaN;
+	private double booster1NozzleExitDiameter = Double.NaN;
+	private double booster2NozzleExitDiameter = Double.NaN;
 
 	private List<SimulationListener> simulationListeners = new ArrayList<>();
 
@@ -73,13 +75,6 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private ModID modIDadd = ModID.INVALID;
 
 	public AerodynamicCalculator getAerodynamicCalculator() {
-		if (romAerodynamicCalculator != null && romAerodynamicCalculator.isEnabled()) {
-			return romAerodynamicCalculator;
-		}
-		return aerodynamicCalculator;
-	}
-
-	public AerodynamicCalculator getBaselineAerodynamicCalculator() {
 		return aerodynamicCalculator;
 	}
 
@@ -87,17 +82,6 @@ public class SimulationConditions implements Monitorable, Cloneable {
 		if (this.aerodynamicCalculator != null)
 			this.modIDadd = new ModID();
 		this.aerodynamicCalculator = aerodynamicCalculator;
-	}
-
-	public RomAerodynamicCalculator getRomAerodynamicCalculator() {
-		return romAerodynamicCalculator;
-	}
-
-	public void setRomAerodynamicCalculator(RomAerodynamicCalculator romAerodynamicCalculator) {
-		if (this.romAerodynamicCalculator != null) {
-			this.modIDadd = new ModID();
-		}
-		this.romAerodynamicCalculator = romAerodynamicCalculator;
 	}
 
 	public MassCalculator getMassCalculator() {
@@ -261,6 +245,28 @@ public class SimulationConditions implements Monitorable, Cloneable {
 
 	public void setMaximumAngleStep(double maximumAngle) {
 		this.maximumAngleStep = maximumAngle;
+		this.modID = new ModID();
+	}
+
+	public double getNozzleExitDiameterForStage(int stageNumber) {
+		return switch (stageNumber) {
+			case 0 -> sustainerNozzleExitDiameter;
+			case 1 -> booster1NozzleExitDiameter;
+			case 2 -> booster2NozzleExitDiameter;
+			default -> Double.NaN;
+		};
+	}
+
+	public void setNozzleExitDiameterForStage(int stageNumber, double diameter) {
+		if (Double.isFinite(diameter) && diameter < 0) {
+			throw new IllegalArgumentException("Nozzle exit diameter must be non-negative");
+		}
+		switch (stageNumber) {
+			case 0 -> sustainerNozzleExitDiameter = diameter;
+			case 1 -> booster1NozzleExitDiameter = diameter;
+			case 2 -> booster2NozzleExitDiameter = diameter;
+			default -> throw new IllegalArgumentException("Unsupported axial stage number: " + stageNumber);
+		}
 		this.modID = new ModID();
 	}
 

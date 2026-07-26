@@ -17,6 +17,10 @@ import org.slf4j.LoggerFactory;
 
 import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
+import info.openrocket.core.aerodynamics.PhysicsAeroAerodynamicCalculator;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver;
+import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.formatting.RocketDescriptor;
 import info.openrocket.core.l10n.Translator;
@@ -28,7 +32,6 @@ import info.openrocket.core.simulation.BasicEventSimulationEngine;
 import info.openrocket.core.simulation.DefaultSimulationOptionFactory;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.RK4SimulationStepper;
-import info.openrocket.core.simulation.RomSimulationLogExporter;
 import info.openrocket.core.simulation.SimulationConditions;
 import info.openrocket.core.simulation.SimulationEngine;
 import info.openrocket.core.simulation.SimulationOptions;
@@ -172,6 +175,7 @@ public class Simulation implements ChangeSource, Cloneable {
 	private String simulatedConfigurationDescription = null;
 	private FlightData simulatedData = null;
 	private ModID simulatedConfigurationModID = ModID.INVALID;
+	private PhysicsAeroRuntimeReport physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
 
 	/**
 	 * Create a new simulation for the rocket. Parent document should also be provided.
@@ -480,6 +484,7 @@ public class Simulation implements ChangeSource, Cloneable {
 		SimulationEngine simulator = null;
 		SimulationConditions simulationConditions = null;
 		simulatedData = null;
+		physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
 		try {
 			
 			if (this.status == Status.EXTERNAL) {
@@ -496,11 +501,13 @@ public class Simulation implements ChangeSource, Cloneable {
 				throw new RuntimeException(e);
 			}
 
-			simulationConditions = options.toSimulationConditions();
-			simulationConditions.setSimulation(this);
-			if (simulationConditions.getRomAerodynamicCalculator() != null) {
-				simulationConditions.getRomAerodynamicCalculator().clearComputationSnapshots();
+			AerodynamicTable resolvedPhysicsAeroTable = null;
+			if (options.getPhysicsAeroSettings().isEnabled()) {
+				resolvedPhysicsAeroTable = new PhysicsAeroTableResolver().resolve(
+						getActiveConfiguration(), options.getPhysicsAeroSettings());
 			}
+			simulationConditions = options.toSimulationConditions(resolvedPhysicsAeroTable);
+			simulationConditions.setSimulation(this);
 			initializeNativeAirbrakes(simulationConditions);
 			
 			for (SimulationExtension extension : simulationExtensions) {
@@ -528,13 +535,11 @@ public class Simulation implements ChangeSource, Cloneable {
 			if (simulator != null) {
 				simulatedData = simulator.getFlightData();
 			}
-			if (simulationConditions != null && simulationConditions.getRomAerodynamicCalculator() != null) {
-				try {
-					RomSimulationLogExporter.exportIfAvailable(this, options, simulatedConditions,
-							simulationConditions.getRomAerodynamicCalculator());
-				} catch (NoClassDefFoundError | ExceptionInInitializerError exportUnavailable) {
-					log.debug("ROM simulation log export unavailable, continuing without export", exportUnavailable);
-				}
+			if (simulationConditions != null && simulationConditions.getAerodynamicCalculator()
+					instanceof PhysicsAeroAerodynamicCalculator calculator) {
+				physicsAeroRuntimeReport = calculator.getRuntimeReport();
+			} else {
+				physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
 			}
 			
 			status = Status.UPTODATE;
@@ -542,6 +547,12 @@ public class Simulation implements ChangeSource, Cloneable {
 
 			mutex.unlock("simulate");
 		}
+	}
+
+	/** Report from the last simulation; runtime events are not persisted in the document. */
+	public PhysicsAeroRuntimeReport getPhysicsAeroRuntimeReport() {
+		mutex.verify();
+		return physicsAeroRuntimeReport;
 	}
 
 	private void initializeNativeAirbrakes(SimulationConditions simulationConditions) throws SimulationException {
@@ -570,6 +581,10 @@ public class Simulation implements ChangeSource, Cloneable {
 					Math.max(1e-9, config.getReferenceArea()),
 					config);
 			simulationConditions.getSimulationListenerList().add(listener);
+		} catch (IllegalArgumentException e) {
+			// A missing or unreadable optional CFD surface must not prevent the
+			// underlying rocket simulation from running.
+			log.warn("Native airbrakes disabled for this simulation: {}", e.getMessage());
 		} catch (Exception e) {
 			throw new SimulationException("Failed to initialize native airbrakes", e);
 		}
@@ -676,6 +691,7 @@ public class Simulation implements ChangeSource, Cloneable {
 			copy.simulatedConditions = null;
 			copy.simulatedConfigurationDescription = null;
 			copy.simulatedData = null;
+			copy.physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
 			copy.simulatedConfigurationModID = ModID.INVALID;
 			
 			return copy;

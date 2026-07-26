@@ -3,10 +3,12 @@ package info.openrocket.core.aerodynamics.physicsaero.fin;
 import java.util.*;
 import info.openrocket.core.aerodynamics.physicsaero.api.*;
 import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
+import info.openrocket.core.aerodynamics.physicsaero.flow.GasState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.ShockEvent;
 import info.openrocket.core.aerodynamics.physicsaero.force.*;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.*;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricEdgeStateHistory;
+import info.openrocket.core.aerodynamics.physicsaero.body.HartTn3393SupersonicBasePressureCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.interaction.*;
 import info.openrocket.core.util.Coordinate;
 
@@ -23,6 +25,8 @@ public final class SupersonicFinSolver {
 		ContributionLedger ledger = new ContributionLedger(); List<FinLocalFlow> localFlows = new ArrayList<>(); Map<String, String> diagnostics = new LinkedHashMap<>();
 		FinGeometryAdapter adapter = new FinGeometryAdapter(); FinStripDiscretizer discretizer = new FinStripDiscretizer();
 		AckeretThinFinModel ackeret = new AckeretThinFinModel(); DatcomFinLiftModel datcom = new DatcomFinLiftModel(); FinMethodSelector selector = new FinMethodSelector();
+		SingleWedgeWaveDragModel singleWedgeWaveDrag = new SingleWedgeWaveDragModel();
+		FinTrailingEdgeBaseDragModel finBaseDrag = new FinTrailingEdgeBaseDragModel();
 		List<AeroComponent> finSets = geometry.components().stream().filter(c -> c.finGeometry() != null)
 				.sorted(Comparator.comparingDouble(AeroComponent::axialStartM)).toList();
 		if (finSets.size() > 1) diagnostics.put("interactionTopology", "CANARD_AFT_FIN_INTERACTION_PENDING");
@@ -30,8 +34,18 @@ public final class SupersonicFinSolver {
 				finSets.size() > 1 && component == finSets.get(0) ? FinRole.CANARD : FinRole.FIN)) {
 			List<FinStrip> strips = discretizer.discretize(fin, stripCount); List<FinLocalFlow> finFlows = new ArrayList<>();
 			List<FinLocalFlow> isolatedFlows = new ArrayList<>(), upwashedFlows = new ArrayList<>();
+			List<SingleWedgeWaveDragModel.Result> singleWedgeProfileResults = new ArrayList<>();
+			List<SymmetricSectionWaveDragFallbackModel.Result>
+					symmetricSectionFallbackResults = new ArrayList<>();
 			FinSectionFamily family = strips.get(0).sectionFamily();
 			boolean allPressureValid = true; double totalN = 0, upwashedN = 0, isolatedN = 0; double totalWaveDrag = 0; double weightedX = 0;
+			if (family == FinSectionFamily.FLAT_PLATE
+					|| family == FinSectionFamily.ROUNDED_LEADING_EDGE) {
+				double leadingEdgeCd = new FinLeadingEdgePressureDragModel().dragCoefficientPerFin(
+						component, flow.mach(), geometry.references().referenceAreaM2());
+				totalWaveDrag += flow.dynamicPressurePa()
+						* geometry.references().referenceAreaM2() * leadingEdgeCd;
+			}
 			for (FinStrip strip : strips) {
 				BodyUpwashModel.UpwashResult upwash = new SlenderCircularBodyUpwashModel().evaluate(geometry, strip, flow, bodyHistory);
 				Coordinate upwashVelocity = upwash.valid() ? upwash.velocityIncrementBody() : new Coordinate();
@@ -49,10 +63,32 @@ public final class SupersonicFinSolver {
 					}
 				}
 				isolatedFlows.add(isolated); upwashedFlows.add(upwashed); finFlows.add(local); localFlows.add(local);
-				PressureLoad actualLoad = pressureLoad(family, local, strip, flow, ackeret);
-				PressureLoad upwashedLoad = pressureLoad(family, upwashed, strip, flow, ackeret);
-				PressureLoad isolatedLoad = pressureLoad(family, isolated, strip, flow, ackeret);
+				if (family == FinSectionFamily.SINGLE_WEDGE) {
+					double wedgeAngle = component.localReferences().getOrDefault(
+							"leadingEdgeWedgeAngleRad", Math.atan(strip.thicknessToChord()));
+					SingleWedgeWaveDragModel.Result profile = singleWedgeWaveDrag.evaluate(
+							isolated, strip, flow.thermodynamics(), wedgeAngle);
+					singleWedgeProfileResults.add(profile);
+					if (profile.valid()) totalWaveDrag += profile.axialForceN();
+				}
+				PressureLoad actualLoad = pressureLoad(component, family, local, strip, flow, ackeret);
+				PressureLoad upwashedLoad = pressureLoad(component, family, upwashed, strip, flow, ackeret);
+				PressureLoad isolatedLoad = pressureLoad(component, family, isolated, strip, flow, ackeret);
 				allPressureValid &= actualLoad.valid();
+				if (!actualLoad.valid()
+						&& family == FinSectionFamily.SYMMETRIC_DIAMOND) {
+					var layout = new FinSectionPanelGeometry().layout(
+							component, strip);
+					var fallback =
+							new SymmetricSectionWaveDragFallbackModel().evaluate(
+									local, strip, layout,
+									flow.thermodynamics(),
+									"ATTACHED_SHOCK_EXPANSION_INVALID");
+					symmetricSectionFallbackResults.add(fallback);
+					if (fallback.valid()) {
+						totalWaveDrag += fallback.axialForceN();
+					}
+				}
 				if (actualLoad.valid()) { totalN += actualLoad.normalN(); totalWaveDrag += actualLoad.axialN(); weightedX += actualLoad.normalN() * strip.centroidBodyM().x; }
 				if (upwashedLoad.valid()) upwashedN += upwashedLoad.normalN();
 				if (isolatedLoad.valid()) isolatedN += isolatedLoad.normalN();
@@ -90,7 +126,11 @@ public final class SupersonicFinSolver {
 				diagnostics.put(fin.id() + ":cp", "HALF_MAC_LOW_CONFIDENCE");
 			} else if (selection.authoritative() == FinMethodSelector.Method.ACKERET) method = new MethodId(AckeretThinFinModel.METHOD_ID);
 			else if (selection.authoritative() == FinMethodSelector.Method.SHOCK_EXPANSION) method = new MethodId(WedgeDiamondShockExpansionModel.METHOD_ID);
-			else throw new IllegalArgumentException("NO_VALID_FIN_METHOD:" + fin.id());
+			else throw new IllegalArgumentException("NO_VALID_FIN_METHOD:" + fin.id()
+					+ ":family=" + family + ":mach=" + flow.mach()
+					+ ":aspectRatio=" + ar + ":isolatedIncidenceRad="
+					+ meanIsolatedIncidence + ":pressureValid=" + allPressureValid
+					+ ":datcomValid=" + datcomValid);
 			double xcp = Math.abs(totalN) > 1e-12 ? weightedX / totalN : strips.stream().mapToDouble(s -> s.centroidBodyM().x).average().orElse(component.axialStartM());
 			Coordinate forceNormal = (Coordinate) fin.frame().normal().multiply(isolatedN);
 			String region = fin.id(); PhysicalOwner liftOwner = new PhysicalOwner(PhysicalTerm.FIN_LIFT, OwnershipMode.REPLACES, region, null);
@@ -118,16 +158,61 @@ public final class SupersonicFinSolver {
 			ledger.add(new ForceContribution(fin.id(), new PhysicalOwner(PhysicalTerm.FIN_LIFT_DEPENDENT_DRAG, OwnershipMode.REPLACES, region, null),
 					method, new Coordinate(drag, 0, 0), new Coordinate(), new Coordinate(xcp, 0, 0), region,
 					List.of("PROJECTED_FROM_AUTHORITATIVE_LIFT"), 0.75, 0.2, null));
-			if (totalWaveDrag > 0) ledger.add(new ForceContribution(fin.id(),
-					new PhysicalOwner(PhysicalTerm.FIN_ZERO_LIFT_WAVE_DRAG, OwnershipMode.REPLACES, region, null), method,
-					new Coordinate(totalWaveDrag, 0, 0), new Coordinate(), new Coordinate(xcp, 0, 0), region,
-					List.of("PRESSURE_INTEGRATED_WAVE_DRAG"), 0.8, 0.15, null));
+			if (totalWaveDrag > 0) {
+				ProfileDragAttribution profileAttribution = family == FinSectionFamily.SINGLE_WEDGE
+						? profileDragAttribution(singleWedgeProfileResults)
+						: family == FinSectionFamily.FLAT_PLATE
+								|| family == FinSectionFamily.ROUNDED_LEADING_EDGE
+								? new ProfileDragAttribution(
+										new MethodId(FinLeadingEdgePressureDragModel.METHOD_ID),
+										List.of("PROJECTED_LEADING_EDGE_FRONTAL_AREA",
+												"SWEPT_EDGE_PRESSURE_RELIEF",
+												"TRAILING_EDGE_BASE_PRESSURE_EXCLUDED"),
+										0.75, 0.20, null)
+						: !symmetricSectionFallbackResults.isEmpty()
+								? symmetricSectionFallbackAttribution(
+										symmetricSectionFallbackResults,
+										strips.size())
+								: new ProfileDragAttribution(method,
+										List.of("PRESSURE_INTEGRATED_WAVE_DRAG"),
+										0.8, 0.15, null);
+				ledger.add(new ForceContribution(fin.id(),
+						new PhysicalOwner(PhysicalTerm.FIN_ZERO_LIFT_WAVE_DRAG, OwnershipMode.REPLACES, region, null),
+						profileAttribution.method(), new Coordinate(totalWaveDrag, 0, 0), new Coordinate(),
+						new Coordinate(xcp, 0, 0), region, profileAttribution.validityFlags(),
+						profileAttribution.confidence(), profileAttribution.uncertainty(),
+						profileAttribution.fallbackReason()));
+				diagnostics.put(fin.id() + ":profileDrag", profileAttribution.method().value());
+				if (profileAttribution.fallbackReason() != null) diagnostics.put(
+						fin.id() + ":profileDragFallback", profileAttribution.fallbackReason());
+			}
+			double finBaseArea = finBaseDrag.trailingEdgeAreaPerFinM2(component);
+			if (finBaseArea > 0) {
+				double baseCpMagnitude = -new HartTn3393SupersonicBasePressureCorrelation()
+						.basePressureCoefficient(flow.mach(), flow.thermodynamics().gamma(flow.atmosphere().temperatureK()));
+				double baseForce = baseCpMagnitude * flow.dynamicPressurePa() * finBaseArea;
+				ledger.add(new ForceContribution(fin.id(), new PhysicalOwner(PhysicalTerm.FIN_BASE_PRESSURE_DRAG,
+						OwnershipMode.REPLACES, region, null), new MethodId(FinTrailingEdgeBaseDragModel.METHOD_ID),
+						new Coordinate(baseForce, 0, 0), new Coordinate(),
+						new Coordinate(component.axialEndM(), 0, 0), region,
+						List.of("ACTUAL_FIN_TRAILING_EDGE_AREA",
+								"BODY_AND_FIN_BASE_PRESSURE_EQUAL_A53D02",
+								"SHARED_PRIMARY_BASE_PRESSURE_CORRELATION"),
+						0.65, 0.30,
+						"FIN_BASE_PRESSURE_USES_A53D02_EQUAL_PRESSURE_ASSUMPTION"));
+			}
 			diagnostics.put(fin.id(), selection.authoritative().name());
+			if (family == FinSectionFamily.SYMMETRIC_DIAMOND) {
+				diagnostics.put(fin.id() + ":sectionGeometry",
+						new FinSectionPanelGeometry().layout(component,
+								strips.get(0)).methodId());
+			}
 		}
 		ReferenceState reference = new ReferenceState(flow.dynamicPressurePa(), geometry.references().referenceAreaM2(), geometry.references().referenceLengthM(), geometry.references().momentOriginM());
 		return new FinResult(CoefficientAssembler.assemble(ledger, reference), ledger.entries(), localFlows, diagnostics);
 	}
-	private static PressureLoad pressureLoad(FinSectionFamily family, FinLocalFlow local, FinStrip strip,
+	private static PressureLoad pressureLoad(AeroComponent component,
+			FinSectionFamily family, FinLocalFlow local, FinStrip strip,
 			FlowCondition flow, AckeretThinFinModel ackeret) {
 		if (family == FinSectionFamily.FLAT_PLATE) {
 			boolean valid = ackeret.isValid(local.normalMach(), strip.thicknessToChord(), local.effectiveIncidenceRad(), local.effectiveIncidenceRad());
@@ -135,11 +220,100 @@ public final class SupersonicFinSolver {
 					: new PressureLoad(false, 0, 0);
 		}
 		if (family == FinSectionFamily.SYMMETRIC_DIAMOND && local.leadingEdge() == LeadingEdgeClassification.SUPERSONIC_LEADING_EDGE) {
-			double angle = Math.atan(strip.thicknessToChord()); var result = new WedgeDiamondShockExpansionModel().evaluate(local.staticState(), flow.thermodynamics(),
-					local.effectiveIncidenceRad(), new double[] {angle,-angle}, new double[] {angle,-angle}, new double[] {.5,.5}, strip.areaM2());
-			return new PressureLoad(result.valid(), result.normalForceN(), result.axialForceN());
+			// Apply the supersonic swept-wing independence principle.  The
+			// shock-expansion march sees the velocity and section slopes normal to
+			// the leading edge, while the resulting gauge pressures still project
+			// onto the actual fin-panel slopes in the rocket axial direction.
+			double streamMach = local.staticState().mach();
+			double normalMach = local.normalMach();
+			double normalVelocityFraction = normalMach / streamMach;
+			double normalVelocity = local.staticState().velocityMS() * normalVelocityFraction;
+			GasState normalState = new GasState(normalMach,
+					local.staticState().pressurePa(), local.staticState().temperatureK(),
+					local.staticState().densityKgM3(), normalVelocity);
+			FinSectionPanelGeometry.PanelLayout layout =
+					new FinSectionPanelGeometry().layout(component, strip);
+			double[] actualPanelAngles = layout.surfaceAnglesRad();
+			double[] normalPanelAngles = new double[actualPanelAngles.length];
+			for (int i = 0; i < actualPanelAngles.length; i++) {
+				normalPanelAngles[i] = Math.atan(
+						Math.tan(actualPanelAngles[i])
+								/ normalVelocityFraction);
+			}
+			double normalIncidence = Math.atan(
+					Math.tan(local.effectiveIncidenceRad()) / normalVelocityFraction);
+			double[] fractions = layout.chordFractions();
+			var result = new WedgeDiamondShockExpansionModel().evaluate(
+					normalState, flow.thermodynamics(), normalIncidence,
+					normalPanelAngles, normalPanelAngles, fractions, strip.areaM2());
+			if (!result.valid()) return new PressureLoad(false, 0, 0);
+			double normalForce = 0;
+			double axialForce = 0;
+			for (int i = 0; i < fractions.length; i++) {
+				double panelArea = strip.areaM2() * fractions[i];
+				double upperGauge = result.upper().panelStates().get(i).pressurePa()
+						- normalState.pressurePa();
+				double lowerGauge = result.lower().panelStates().get(i).pressurePa()
+						- normalState.pressurePa();
+				normalForce += (lowerGauge - upperGauge) * panelArea;
+				axialForce += (upperGauge * Math.tan(actualPanelAngles[i])
+						+ lowerGauge * Math.tan(actualPanelAngles[i])) * panelArea;
+			}
+			return new PressureLoad(true, normalForce, Math.max(0, axialForce));
 		}
 		return new PressureLoad(false, 0, 0);
 	}
+	private static ProfileDragAttribution profileDragAttribution(
+			List<SingleWedgeWaveDragModel.Result> results) {
+		List<SingleWedgeWaveDragModel.Result> valid = results.stream()
+				.filter(SingleWedgeWaveDragModel.Result::valid).toList();
+		if (valid.isEmpty()) throw new IllegalArgumentException("no valid single-wedge profile-drag strips");
+		Set<String> methodIds = new LinkedHashSet<>();
+		LinkedHashSet<String> flags = new LinkedHashSet<>();
+		for (SingleWedgeWaveDragModel.Result result : valid) {
+			methodIds.add(result.methodId()); flags.addAll(result.validityFlags());
+		}
+		if (valid.size() != results.size()) flags.add("PARTIAL_PROFILE_DRAG_LOCAL_STATE_UNAVAILABLE");
+		String methodId = methodIds.size() == 1 ? methodIds.iterator().next()
+				: SingleWedgeWaveDragModel.MIXED_METHOD_ID;
+		List<String> fallbackReasons = valid.stream().map(SingleWedgeWaveDragModel.Result::fallbackReason)
+				.filter(Objects::nonNull).distinct().toList();
+		String fallbackReason = fallbackReasons.isEmpty() ? null : fallbackReasons.size() == 1
+				? fallbackReasons.get(0) : "MIXED_LOCAL_LEADING_EDGE_PROFILE_DRAG_FALLBACK";
+		boolean fallback = fallbackReason != null || valid.size() != results.size();
+		return new ProfileDragAttribution(new MethodId(methodId), List.copyOf(flags), fallback ? 0.55 : 0.8,
+				fallback ? 0.35 : 0.15, fallbackReason);
+	}
+	private static ProfileDragAttribution symmetricSectionFallbackAttribution(
+			List<SymmetricSectionWaveDragFallbackModel.Result> results,
+			int stripCount) {
+		List<SymmetricSectionWaveDragFallbackModel.Result> valid =
+				results.stream().filter(
+						SymmetricSectionWaveDragFallbackModel.Result::valid)
+						.toList();
+		if (valid.isEmpty()) {
+			throw new IllegalArgumentException(
+					"no valid symmetric-section profile-drag fallback strips");
+		}
+		LinkedHashSet<String> flags = new LinkedHashSet<>();
+		for (var result : valid) flags.addAll(result.validityFlags());
+		boolean mixed = valid.size() < stripCount;
+		if (mixed) flags.add(
+				"PARTIAL_EXACT_PARTIAL_LINEARIZED_PROFILE_DRAG");
+		String fallbackReason = valid.stream()
+				.map(SymmetricSectionWaveDragFallbackModel.Result::fallbackReason)
+				.filter(Objects::nonNull).distinct()
+				.collect(java.util.stream.Collectors.joining("|"));
+		return new ProfileDragAttribution(
+				new MethodId(mixed
+						? SymmetricSectionWaveDragFallbackModel.MIXED_METHOD_ID
+						: SymmetricSectionWaveDragFallbackModel.METHOD_ID),
+				List.copyOf(flags), 0.5, 0.4,
+				fallbackReason.isBlank()
+						? "SYMMETRIC_SECTION_PROFILE_DRAG_FALLBACK"
+						: fallbackReason);
+	}
 	private record PressureLoad(boolean valid, double normalN, double axialN) {}
+	private record ProfileDragAttribution(MethodId method, List<String> validityFlags,
+			double confidence, double uncertainty, String fallbackReason) {}
 }

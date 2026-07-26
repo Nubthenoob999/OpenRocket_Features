@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
@@ -44,8 +45,6 @@ import info.openrocket.core.l10n.DebugTranslator;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.preferences.ApplicationPreferences;
-import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
-import info.openrocket.core.aerodynamics.rom.RomMode;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.TestRockets;
 import info.openrocket.swing.ServicesForTesting;
@@ -98,49 +97,6 @@ public class SimulationOptionsPanelTest {
 		assertTrue(airbrakePanel.isVisible());
 
 		assertFalse(menuContainsText(panel.extensionMenu, "AirBrakes Simulation"));
-	}
-
-	@Test
-	public void testPhaseIRomControlsUpdateOptionsAndMethodLabel() throws Exception {
-		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
-		Simulation simulation = new Simulation(document.getRocket());
-		document.addSimulation(simulation);
-
-		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
-		SwingUtilities.invokeAndWait(() -> holder[0] = new SimulationOptionsPanel(document, simulation));
-		SimulationOptionsPanel panel = holder[0];
-		assertNotNull(panel);
-
-		JCheckBox enableRom = findCheckBox(panel, "Enable Phase I pathline ROM");
-		JCheckBox diagnostics = field(panel, "romDiagnosticsCheckBox", JCheckBox.class);
-		@SuppressWarnings("unchecked")
-		JComboBox<RomMode> modeCombo = field(panel, "romModeCombo", JComboBox.class);
-		@SuppressWarnings("unchecked")
-		JComboBox<RomFallbackMode> fallbackCombo = field(panel, "romFallbackCombo", JComboBox.class);
-		JLabel methodLabel = field(panel, "aerodynamicMethodValue", JLabel.class);
-		JTextArea romSummary = field(panel, "romStatusArea", JTextArea.class);
-
-		assertTrue(methodLabel.getText().contains("Pathline ROM disabled"));
-		assertFalse(modeCombo.isEnabled());
-
-		SwingUtilities.invokeAndWait(enableRom::doClick);
-		assertTrue(simulation.getOptions().isRomEnabled());
-		assertTrue(modeCombo.isEnabled());
-
-		SwingUtilities.invokeAndWait(() -> {
-			modeCombo.setSelectedItem(RomMode.DIAGNOSTIC);
-			fallbackCombo.setSelectedItem(RomFallbackMode.FORCE_ROM);
-			diagnostics.doClick();
-		});
-
-		assertEquals(RomMode.DIAGNOSTIC, simulation.getOptions().getRomMode());
-		assertEquals(RomFallbackMode.FORCE_ROM, simulation.getOptions().getRomFallbackMode());
-		assertFalse(simulation.getOptions().isRomDiagnosticsEnabled());
-		assertTrue(methodLabel.getText().contains("Pathline ROM"));
-		assertTrue(methodLabel.getText().contains("Diagnostic"));
-		assertTrue(romSummary.getText().contains("Force ROM"));
-		assertTrue(romSummary.getText().contains("ignored"));
-		assertTrue(romSummary.getText().contains("Seed plan"));
 	}
 
 	@Test
@@ -212,6 +168,74 @@ public class SimulationOptionsPanelTest {
 	}
 
 	@Test
+	public void testOptionsAndExtensionsSitSideBySideAndTopAligned() throws Exception {
+		JPanel panel = layoutPanel(1000, 900);
+		JPanel options = findTitledPanel(panel, "Simopt");
+		JPanel extensions = findTitledPanel(panel, "SimExt");
+		assertNotNull(options);
+		assertNotNull(extensions);
+
+		Point optionsOrigin = SwingUtilities.convertPoint(options.getParent(), options.getLocation(), panel);
+		Point extensionsOrigin = SwingUtilities.convertPoint(
+				extensions.getParent(), extensions.getLocation(), panel);
+
+		assertEquals(optionsOrigin.y, extensionsOrigin.y,
+				"Both tiles of the two-panel layout should start at the same height");
+		assertTrue(extensionsOrigin.x >= optionsOrigin.x + options.getWidth(),
+				"Simulation extensions should be the right-hand panel, not stacked or overlapping");
+	}
+
+	@Test
+	public void testExtensionsTileHugsItsContentInsteadOfCentringIt() throws Exception {
+		JPanel panel = layoutPanel(1000, 900);
+		JPanel options = findTitledPanel(panel, "Simopt");
+		JPanel extensions = findTitledPanel(panel, "SimExt");
+		assertNotNull(options);
+		assertNotNull(extensions);
+		Container columns = extensions.getParent().getParent();
+		assertTrue(columns.getHeight() > extensions.getHeight(),
+				"Expected unused vertical space beside the extensions tile, but the row is "
+						+ columns.getHeight() + "px and the tile is " + extensions.getHeight()
+						+ "px (options tile is " + options.getHeight() + "px)");
+
+		int contentTop = Integer.MAX_VALUE;
+		int contentBottom = 0;
+		for (Component child : extensions.getComponents()) {
+			contentTop = Math.min(contentTop, child.getY());
+			contentBottom = Math.max(contentBottom, child.getY() + child.getHeight());
+		}
+
+		int spaceAbove = contentTop;
+		int spaceBelow = extensions.getHeight() - contentBottom;
+		assertTrue(spaceAbove <= 40,
+				"Extensions content should start at the top of its tile, but sat " + spaceAbove + "px down");
+		assertTrue(Math.abs(spaceAbove - spaceBelow) <= 24,
+				"Extensions content looks vertically centred: " + spaceAbove + "px above, "
+						+ spaceBelow + "px below");
+	}
+
+	@Test
+	public void testWrappingDescriptionReportsAMultiLineHeightWhenNarrow() throws Exception {
+		final JTextArea[] holder = new JTextArea[1];
+		SwingUtilities.invokeAndWait(() -> holder[0] = SimulationTabLayoutUtils.createBoundedWrappingText(
+				"<html><i>Simulation extensions</i> enable advanced features and custom functionality "
+						+ "during flight simulations.  You can for example do hardware-in-the-loop "
+						+ "testing with them.", null));
+		JTextArea description = holder[0];
+
+		assertFalse(description.getText().contains("<"),
+				"HTML markup from the translation should not be shown literally");
+		assertEquals(0, description.getPreferredSize().width,
+				"A description should never widen the tile it sits in");
+
+		description.setSize(new Dimension(200, 10));
+		int lineHeight = description.getFontMetrics(description.getFont()).getHeight();
+		assertTrue(description.getPreferredSize().height >= 3 * lineHeight,
+				"A wrapped description should report the height of every line it renders, but asked for "
+						+ description.getPreferredSize().height + "px with a line height of " + lineHeight);
+	}
+
+	@Test
 	public void testCompactValueLabelDoesNotExposeLongPathAsPreferredText() {
 		String longPath = "/Users/opteron92/Projects/OpenRocket_Features/build/reports/phase-three/phase-three-analysis.csv";
 		JLabel label = SimulationTabLayoutUtils.createCompactValueLabel(longPath);
@@ -240,6 +264,23 @@ public class SimulationOptionsPanelTest {
 		assertTrue(pathField.getPreferredSize().width < 260,
 				"Airbrake CSV path field should not publish the full path as preferred width");
 		assertEquals(longPath, pathField.getToolTipText());
+	}
+
+	private static JPanel layoutPanel(int width, int height) throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> {
+			holder[0] = new SimulationOptionsPanel(document, simulation);
+			holder[0].setSize(new Dimension(width, height));
+			layoutTree(holder[0]);
+			// A second pass lets the wrapped text report its real height now that
+			// the columns have been given their final width.
+			layoutTree(holder[0]);
+		});
+		return holder[0];
 	}
 
 	private static JCheckBox findCheckBox(Container root, String text) {

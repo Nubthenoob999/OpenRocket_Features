@@ -14,8 +14,9 @@ public final class GeometryHasher {
 			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 			try (DataOutputStream out = new DataOutputStream(bytes)) {
 				out.writeUTF(settingsFingerprint);
-				for (AeroComponent c : geometry.components().stream().sorted((a, b) -> a.id().compareTo(b.id())).toList()) {
-					out.writeUTF(c.id()); out.writeUTF(c.sourcePath()); out.writeUTF(c.type()); out.writeUTF(c.classification());
+				for (AeroComponent c : geometry.components().stream()
+						.sorted(java.util.Comparator.comparingInt(AeroComponent::axialOrder)).toList()) {
+					out.writeUTF(c.id()); out.writeUTF(c.type()); out.writeUTF(c.classification());
 					writeDouble(out, c.axialStartM()); writeDouble(out, c.axialEndM()); writeDouble(out, c.rootRadiusM());
 					writeDouble(out, c.wettedAreaM2()); writeDouble(out, c.projectedAreaM2()); writeDouble(out, c.baseAreaM2());
 					writeDouble(out, c.roughnessM()); out.writeUTF(c.wallTemperatureModelId());
@@ -59,7 +60,9 @@ public final class GeometryHasher {
 	}
 	private static void writeProtuberance(DataOutputStream out, ProtuberanceGeometry p) throws IOException {
 		out.writeBoolean(p != null); if (p == null) return;
-		out.writeUTF(p.type()); writeDouble(out, p.lengthM()); writeDouble(out, p.projectedAreaM2()); writeDouble(out, p.frontalAreaM2());
+		out.writeUTF(p.type()); out.writeInt(p.count()); writeDouble(out, p.axialPositionM());
+		writeDouble(out, p.lengthM()); writeDouble(out, p.heightM());
+		writeDouble(out, p.projectedAreaM2()); writeDouble(out, p.frontalAreaM2());
 	}
 	private static final class HashFailure extends RuntimeException { HashFailure(Throwable cause) { super(cause); } }
 }

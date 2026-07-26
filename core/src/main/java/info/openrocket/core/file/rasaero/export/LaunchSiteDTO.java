@@ -6,6 +6,7 @@ import info.openrocket.core.file.rasaero.CustomDoubleAdapter;
 import info.openrocket.core.file.rasaero.RASAeroCommonConstants;
 import info.openrocket.core.logging.ErrorSet;
 import info.openrocket.core.logging.WarningSet;
+import info.openrocket.core.models.atmosphere.ExtendedISAModel;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.preferences.ApplicationPreferences;
@@ -53,7 +54,8 @@ public class LaunchSiteDTO {
             }
 
             setAltitude(options.getLaunchAltitude() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ALTITUDE);
-            setPressure(options.getLaunchPressure() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_PRESSURE);
+            setPressure(toRasaeroBarometricPressure(options.getLaunchAltitude(),
+                    options.getLaunchPressure()));
             setTemperature(RASAeroCommonConstants.OPENROCKET_TO_RASAERO_TEMPERATURE(options.getLaunchTemperature()));
             setRodAngle(options.getLaunchRodAngle() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ANGLE);
             setRodLength(options.getLaunchRodLength() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ALTITUDE);     // It's a length, but stored in RASAero in feet instead of inches
@@ -64,11 +66,26 @@ public class LaunchSiteDTO {
         // If we can't get settings from the sims, use the launch site settings from the preferences
         ApplicationPreferences prefs = Application.getPreferences();
         setAltitude(prefs.getLaunchAltitude() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ALTITUDE);
-        setPressure(prefs.getLaunchPressure() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_PRESSURE);
+        setPressure(toRasaeroBarometricPressure(prefs.getLaunchAltitude(),
+                prefs.getLaunchPressure()));
         setTemperature(RASAeroCommonConstants.OPENROCKET_TO_RASAERO_TEMPERATURE(prefs.getLaunchTemperature()));
         setRodAngle(prefs.getLaunchRodAngle() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ANGLE);
         setRodLength(prefs.getLaunchRodLength() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ALTITUDE);     // It's a length, but stored in RASAero in feet instead of inches
         setWindSpeed(prefs.getAverageWindModel().getAverage() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_SPEED);
+    }
+
+    /**
+     * RASAero's pressure field is sea-level-corrected barometric pressure
+     * (in-Hg); OpenRocket stores actual pressure at the launch elevation.
+     */
+    private static double toRasaeroBarometricPressure(double altitudeM,
+            double sitePressurePa) {
+        double standardSitePressure = new ExtendedISAModel()
+                .getConditions(altitudeM).getPressure();
+        double seaLevelPressure = sitePressurePa
+                * ExtendedISAModel.STANDARD_PRESSURE / standardSitePressure;
+        return seaLevelPressure
+                * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_PRESSURE;
     }
 
     public Double getAltitude() {

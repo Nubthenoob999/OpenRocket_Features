@@ -9,19 +9,12 @@ import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.document.Simulation.Status;
-import info.openrocket.core.aerodynamics.rom.DragSurface;
-import info.openrocket.core.aerodynamics.rom.DragSurfaceSerializer;
-import info.openrocket.core.aerodynamics.rom.RomGeometryParameters;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
-import info.openrocket.core.aerodynamics.rom.core.io.AeroSurfaceSerializer;
-import info.openrocket.core.aerodynamics.rom.core.surface.AeroSurface4D;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceHashUtil;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
 import info.openrocket.core.file.DocumentLoadingContext;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
 import info.openrocket.core.file.simplesax.ElementHandler;
 import info.openrocket.core.file.simplesax.PlainTextHandler;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
-import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.simulation.extension.SimulationExtension;
@@ -47,14 +40,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 	private SimulationConditionsHandler conditionHandler;
 	private ConfigHandler configHandler;
 	private FlightDataHandler dataHandler;
-	private DragSurface romDragSurface;
-	private AeroSurface4D romDragSurface4D;
-	private String romGeometryHash;
-	private String romGeometryHash4D;
-	private double romLooRmse;
-	private long romBuildTimestamp;
-	private long romBuildTimestamp4D;
-	private int romFinCount4D;
+	private boolean legacyAerodynamicsEncountered;
 
 	private final List<SimulationExtension> extensions = new ArrayList<>();
 
@@ -102,59 +88,17 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			}
 		} else if (element.equals("calculator")) {
 			String calc = content.trim();
-			if (!calc.equals("BarrowmanCalculator") && !calc.equals("RomAerodynamicCalculator")) {
+			if (calc.equals("RomAerodynamicCalculator") || calc.equals("PathlineROMCalculator")) {
+				legacyAerodynamicsEncountered = true;
+				warnings.add(SimulationConditionsHandler.LEGACY_AERODYNAMICS_WARNING);
+			} else if (!calc.equals("BarrowmanCalculator") && !calc.equals("PhysicsAeroAerodynamicCalculator")) {
 				warnings.add("Unknown calculator '" + content.trim() + "' specified, ignoring.");
 			}
 		} else if (element.equals("listener") && content.trim().length() > 0) {
 			extensions.add(compatibilityExtension(content.trim()));
-		} else if (element.equals("romdragsurface")) {
-			String payload = content != null ? content.trim() : "";
-			if (!payload.isEmpty()) {
-				romGeometryHash = attributes.get("geometryhash");
-				try {
-					romLooRmse = Double.parseDouble(attributes.getOrDefault("looRmse", "0"));
-				} catch (RuntimeException ex) {
-					romLooRmse = 0.0;
-				}
-				try {
-					romBuildTimestamp = Long.parseLong(attributes.getOrDefault("builttimestamp", "0"));
-				} catch (RuntimeException ex) {
-					romBuildTimestamp = 0L;
-				}
-				try {
-					romDragSurface = DragSurfaceSerializer.deserializeFromBase64Gzip(
-							payload,
-							romGeometryHash,
-							romLooRmse,
-							romBuildTimestamp);
-				} catch (IllegalStateException ex) {
-					warnings.add("Failed to parse romdragsurface, ignoring. Reason: " + ex.getMessage());
-				}
-			}
-		} else if (element.equals("romdragsurface4d")) {
-			String payload = content != null ? content.trim() : "";
-			if (!payload.isEmpty()) {
-				romGeometryHash4D = attributes.get("geometryhash");
-				try {
-					romBuildTimestamp4D = Long.parseLong(attributes.getOrDefault("builttimestamp", "0"));
-				} catch (RuntimeException ex) {
-					romBuildTimestamp4D = 0L;
-				}
-				try {
-					romFinCount4D = Integer.parseInt(attributes.getOrDefault("fincount", "0"));
-				} catch (RuntimeException ex) {
-					romFinCount4D = 0;
-				}
-				try {
-					romDragSurface4D = AeroSurfaceSerializer.deserialize(
-							payload.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-							romGeometryHash4D,
-							romBuildTimestamp4D,
-							romFinCount4D);
-				} catch (RuntimeException | java.io.IOException ex) {
-					warnings.add("Failed to parse romdragsurface4d, ignoring. Reason: " + ex.getMessage());
-				}
-			}
+		} else if (element.equals("romdragsurface") || element.equals("romdragsurface4d")) {
+			legacyAerodynamicsEncountered = true;
+			warnings.add(SimulationConditionsHandler.LEGACY_AERODYNAMICS_WARNING);
 		} else if (element.equals("extension") && !StringUtils.isEmpty(attributes.get("extensionid"))) {
 			String id = attributes.get("extensionid");
 			id = id.replace("net.sf.openrocket", "info.openrocket.core");
@@ -202,40 +146,8 @@ class SingleSimulationHandler extends AbstractElementHandler {
 			options = new SimulationOptions();
 		}
 
-		if (romDragSurface != null) {
-			String expectedHash;
-			if (idToSet != null && !idToSet.hasError()) {
-				FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
-				expectedHash = RomGeometryParameters.fromRocket(config).geometryHash();
-			} else {
-				expectedHash = RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration()).geometryHash();
-			}
-			if (RomSurfaceHashUtil.matchesGeometry(romGeometryHash, expectedHash)) {
-				options.setRomDragSurface(romDragSurface);
-				if (conditionHandler == null || !conditionHandler.wasRomSurfaceModeSpecified()) {
-					options.setRomSurfaceMode(RomSurfaceMode.THREE_D);
-				}
-			} else {
-				warnings.add("Ignoring romdragsurface due to geometry hash mismatch.");
-			}
-		}
-
-		if (romDragSurface4D != null) {
-			String expectedHash;
-			if (idToSet != null && !idToSet.hasError()) {
-				FlightConfiguration config = doc.getRocket().getFlightConfiguration(idToSet);
-				expectedHash = RomGeometryParameters.fromRocket(config).geometryHash();
-			} else {
-				expectedHash = RomGeometryParameters.fromRocket(doc.getRocket().getSelectedConfiguration()).geometryHash();
-			}
-			if (RomSurfaceHashUtil.matchesGeometry(romGeometryHash4D, expectedHash)) {
-				options.setRomAeroSurface4D(romDragSurface4D);
-				if (conditionHandler == null || !conditionHandler.wasRomSurfaceModeSpecified()) {
-					options.setRomSurfaceMode(RomSurfaceMode.FOUR_D);
-				}
-			} else {
-				warnings.add("Ignoring romdragsurface4d due to geometry hash mismatch.");
-			}
+		if (legacyAerodynamicsEncountered) {
+			options.setPhysicsAeroMode(PhysicsAeroMode.OFF);
 		}
 
 		if (name == null)

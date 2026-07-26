@@ -5,6 +5,7 @@ import info.openrocket.core.file.rasaero.RASAeroCommonConstants;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
 import info.openrocket.core.file.simplesax.ElementHandler;
 import info.openrocket.core.file.simplesax.PlainTextHandler;
+import info.openrocket.core.models.atmosphere.ExtendedISAModel;
 import info.openrocket.core.simulation.SimulationOptions;
 import org.xml.sax.SAXException;
 
@@ -19,6 +20,7 @@ import java.util.HashMap;
  */
 public class LaunchSiteHandler extends AbstractElementHandler {
     private final SimulationOptions launchSiteSettings;
+    private Double seaLevelBarometricPressurePa;
 
     public LaunchSiteHandler(final SimulationOptions launchSiteSettings) {
         this.launchSiteSettings = launchSiteSettings;
@@ -46,9 +48,16 @@ public class LaunchSiteHandler extends AbstractElementHandler {
             if (RASAeroCommonConstants.LAUNCH_ALTITUDE.equals(element)) {
                 launchSiteSettings.setLaunchAltitude(
                         Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ALTITUDE);
+                applyRasaeroAtmosphere();
             } else if (RASAeroCommonConstants.LAUNCH_PRESSURE.equals(element)) {
-                launchSiteSettings.setLaunchPressure(
-                        Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_PRESSURE);
+                double pressureInHg = Double.parseDouble(content);
+                // A zero CDX1 value represents the blank optional field.  A
+                // nonzero RASAero value is sea-level-corrected barometric
+                // pressure, not the local station pressure OpenRocket stores.
+                seaLevelBarometricPressurePa = pressureInHg > 0
+                        ? pressureInHg / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_PRESSURE
+                        : null;
+                applyRasaeroAtmosphere();
             } else if (RASAeroCommonConstants.LAUNCH_ROD_ANGLE.equals(element)) {
                 launchSiteSettings.setLaunchRodAngle(
                         Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_ANGLE);
@@ -58,6 +67,7 @@ public class LaunchSiteHandler extends AbstractElementHandler {
             } else if (RASAeroCommonConstants.LAUNCH_TEMPERATURE.equals(element)) {
                 launchSiteSettings.setLaunchTemperature(
                         RASAeroCommonConstants.RASAERO_TO_OPENROCKET_TEMPERATURE(Double.parseDouble(content)));
+                applyRasaeroAtmosphere();
             } else if (RASAeroCommonConstants.LAUNCH_WIND_SPEED.equals(element)) {
                 launchSiteSettings.getAverageWindModel().setAverage(
                         Double.parseDouble(content) / RASAeroCommonConstants.OPENROCKET_TO_RASAERO_SPEED);
@@ -65,5 +75,23 @@ public class LaunchSiteHandler extends AbstractElementHandler {
         } catch (NumberFormatException e) {
             warnings.add("Invalid number format for element " + element + ", ignoring.");
         }
+    }
+
+    /**
+     * RASAero II User's Manual pp. 78-80: elevation supplies standard-day
+     * pressure when barometric pressure is blank, while the entered launch
+     * temperature independently anchors temperature and density.  When
+     * present, the pressure input is sea-level-corrected barometric pressure.
+     */
+    private void applyRasaeroAtmosphere() {
+        double altitude = launchSiteSettings.getLaunchAltitude();
+        double standardSitePressure = new ExtendedISAModel()
+                .getConditions(altitude).getPressure();
+        double sitePressure = seaLevelBarometricPressurePa == null
+                ? standardSitePressure
+                : seaLevelBarometricPressurePa * standardSitePressure
+                        / ExtendedISAModel.STANDARD_PRESSURE;
+        launchSiteSettings.setISAAtmosphere(false);
+        launchSiteSettings.setLaunchPressure(sitePressure);
     }
 }

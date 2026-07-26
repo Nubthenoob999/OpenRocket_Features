@@ -10,7 +10,9 @@ import info.openrocket.core.util.Coordinate;
 
 public final class BaseDragModel {
 	private final BasePressureCorrelation correlation;
-	public BaseDragModel() { this(new OpenRocketSupersonicBasePressureCorrelation()); }
+	public BaseDragModel() {
+		this(new HartTn3393SupersonicBasePressureCorrelation());
+	}
 	public BaseDragModel(BasePressureCorrelation correlation) { this.correlation = correlation; }
 	public ForceContribution evaluate(ReferenceGeometry geometry, FlowCondition flow, String componentId) {
 		BasePressureCorrelation.Validity validity = correlation.validity(flow.mach(), flow.powered());

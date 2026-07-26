@@ -21,24 +21,40 @@ public final class ForebodyPressureIntegrator {
 		double forceX = 0, weightedX = 0;
 		List<info.openrocket.core.aerodynamics.physicsaero.geometry.GeometryStation> stations = segment.quadratureStations();
 		if (stations.size() < 2) {
-			double dp = local.get(local.size() - 1).staticState().pressurePa() - freestreamPressurePa;
+			double dp = terminalSurfaceState(local).staticState().pressurePa() - freestreamPressurePa;
 			forceX = Math.PI * dp * (segment.endRadiusM() * segment.endRadiusM() - segment.startRadiusM() * segment.startRadiusM());
 			weightedX = forceX * 0.5 * (segment.startXM() + segment.endXM());
 		} else {
 			for (int i = 1; i < stations.size(); i++) {
 				var a = stations.get(i - 1); var b = stations.get(i); double xm = 0.5 * (a.xM() + b.xM());
 				double pressure = segment.type() == BodySegmentType.SMOOTH_COMPRESSION
-						? interpolatedPressure(local, xm) : local.get(local.size() - 1).staticState().pressurePa();
+						? interpolatedPressure(local, xm) : terminalSurfaceState(local).staticState().pressurePa();
 				double dp = pressure - freestreamPressurePa;
 				double dForce = Math.PI * dp * (b.radiusM() * b.radiusM() - a.radiusM() * a.radiusM());
 				forceX += dForce; weightedX += dForce * xm;
 			}
 		}
 		double applicationX = Math.abs(forceX) > 1e-15 ? weightedX / forceX : 0.5 * (segment.startXM() + segment.endXM());
-		SurfaceState provenance = local.get(local.size() - 1);
+		SurfaceState provenance = terminalSurfaceState(local);
 		return new ForceContribution(segment.componentId(), new PhysicalOwner(term, OwnershipMode.REPLACES, segment.regionId(), null),
 				new MethodId(provenance.methodId()), new Coordinate(forceX, 0, 0), new Coordinate(),
 				new Coordinate(applicationX, 0, 0), segment.regionId(), List.of(), 0.9, 0.05, null);
+	}
+	/*
+	 * A zero-length corner immediately after a forebody shares the forebody's
+	 * terminal x-coordinate.  The state marcher records the forebody wall state
+	 * first and the downstream corner state second.  Selecting the last state
+	 * therefore erased the complete constant-pressure cone load whenever the
+	 * post-cone wall Mach was subsonic.  At the terminal coordinate, the first
+	 * surface-owning state belongs to this segment; later duplicates belong to
+	 * downstream events.
+	 */
+	private static SurfaceState terminalSurfaceState(List<SurfaceState> states) {
+		double terminalX = states.get(states.size() - 1).xM();
+		for (SurfaceState state : states) {
+			if (Math.abs(state.xM() - terminalX) <= 1.0e-12) return state;
+		}
+		return states.get(states.size() - 1);
 	}
 	private static SurfaceState nearest(List<SurfaceState> states, double x) {
 		return states.stream().min(Comparator.comparingDouble(s -> Math.abs(s.xM() - x))).orElseThrow();
@@ -61,7 +77,8 @@ public final class ForebodyPressureIntegrator {
 		return switch (type) {
 			case TRUE_CONE -> methodId.contains("TAYLOR_MACCOLL") || methodId.contains("MODIFIED_NEWTONIAN");
 			case SMOOTH_COMPRESSION -> methodId.contains("TANGENT_CONE") || methodId.contains("MODIFIED_NEWTONIAN");
-			case DISCRETE_COMPRESSION_CORNER -> methodId.contains("OBLIQUE_SHOCK");
+			case DISCRETE_COMPRESSION_CORNER -> methodId.contains("OBLIQUE_SHOCK")
+					|| methodId.contains("MODIFIED_NEWTONIAN");
 			case BOATTAIL, SMOOTH_EXPANSION -> methodId.contains("PRANDTL_MEYER");
 			default -> false;
 		};

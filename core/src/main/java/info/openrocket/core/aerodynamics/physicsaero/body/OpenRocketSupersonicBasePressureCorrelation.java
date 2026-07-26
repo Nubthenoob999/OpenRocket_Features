@@ -3,7 +3,7 @@ package info.openrocket.core.aerodynamics.physicsaero.body;
 /**
  * Historical OpenRocket supersonic blunt-base correlation extracted from
  * BarrowmanDragCalculator: -Cp,b = 0.25/M. It is independently owned here and
- * does not import the legacy ROM implementation.
+ * remains independent of removed experimental aerodynamic implementations.
  */
 public final class OpenRocketSupersonicBasePressureCorrelation implements BasePressureCorrelation {
 	public static final String METHOD_ID = "OPENROCKET_SUPERSONIC_BASE_CP_V1";

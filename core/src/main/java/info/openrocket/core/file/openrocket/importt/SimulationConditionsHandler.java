@@ -9,19 +9,20 @@ import info.openrocket.core.file.DocumentLoadingContext;
 import info.openrocket.core.file.simplesax.AbstractElementHandler;
 import info.openrocket.core.file.simplesax.ElementHandler;
 import info.openrocket.core.file.simplesax.PlainTextHandler;
-import info.openrocket.core.aerodynamics.rom.RomFallbackMode;
-import info.openrocket.core.aerodynamics.rom.RomMode;
-import info.openrocket.core.aerodynamics.rom.RomSettings;
 import info.openrocket.core.models.wind.WindModelType;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.simulation.SimulationStepperMethod;
-import info.openrocket.core.aerodynamics.rom.RomSurfaceMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroSettings;
 import java.util.List;
 
 class SimulationConditionsHandler extends AbstractElementHandler {
+	static final String LEGACY_AERODYNAMICS_WARNING =
+			"Legacy ROM/pathline settings were ignored. Build a Physics-Based Aerodynamics table before enabling the experimental model.";
+
 	private final DocumentLoadingContext context;
 	public FlightConfigurationId idToSet = FlightConfigurationId.ERROR_FCID;
 	private final SimulationOptions options;
@@ -30,7 +31,7 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 	private GravityHandler gravityHandler;
 	private CsvLookupHandler dragLookupHandler;
 	private CsvLookupHandler stabilityLookupHandler;
-	private boolean romSurfaceModeSpecified;
+	private boolean legacyAerodynamicsEncountered;
 
 	public SimulationConditionsHandler(Rocket rocket, DocumentLoadingContext context) {
 		this.context = context;
@@ -41,10 +42,6 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 
 	public SimulationOptions getConditions() {
 		return options;
-	}
-
-	public boolean wasRomSurfaceModeSpecified() {
-		return romSurfaceModeSpecified;
 	}
 
 	@Override
@@ -72,14 +69,17 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 	@Override
 	public void closeElement(String element, HashMap<String, String> attributes,
 			String content, WarningSet warnings) {
+		if (isLegacyAerodynamicsElement(element)) {
+			legacyAerodynamicsEncountered = true;
+			warnings.add(LEGACY_AERODYNAMICS_WARNING);
+			return;
+		}
 
 		double d = Double.NaN;
 		try {
 			d = Double.parseDouble(content);
 		} catch (NumberFormatException ignore) {
 		}
-		final double parsedValue = d;
-
 		switch (element) {
 			case "configid" -> this.idToSet = new FlightConfigurationId(content);
 			case "launchrodlength" -> {
@@ -253,153 +253,24 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 					warnings.add("Unknown Simulation Stepper '" + content + "'");
 				}
 			}
-			case "romsurfacemode" -> {
-				options.setRomSurfaceMode(RomSurfaceMode.fromStorageValue(content));
-				romSurfaceModeSpecified = true;
+			case "physicsaeromode" -> {
+				PhysicsAeroMode mode = "hybrid".equalsIgnoreCase(content.trim())
+						? PhysicsAeroMode.DIAGNOSTIC_HYBRID
+						: (PhysicsAeroMode) DocumentConfig.findEnum(content, PhysicsAeroMode.class);
+				if (mode != null) updatePhysicsAeroSettings(settings -> settings.setMode(mode));
+				else warnings.add("Unknown physics-aero mode '" + content + "', ignoring.");
 			}
-			case "romenabled" -> updateRomSettings(settings -> settings.setEnabled(Boolean.parseBoolean(content)));
-			case "rommode" -> {
-				RomMode romMode = (RomMode) DocumentConfig.findEnum(content, RomMode.class);
-				if (romMode != null) {
-					updateRomSettings(settings -> settings.setMode(romMode));
+			case "physicsaerogeometryhash" -> updatePhysicsAeroSettings(settings -> settings.setGeometryHash(content));
+			case "physicsaerosettingshash" -> updatePhysicsAeroSettings(settings -> settings.setSettingsHash(content));
+			case "physicsaerotablehash" -> updatePhysicsAeroSettings(settings -> settings.setTableContentHash(content));
+			case "physicsaeroforceturbulentboundarylayer" -> {
+				String normalized = content.trim();
+				if ("true".equalsIgnoreCase(normalized) || "false".equalsIgnoreCase(normalized)) {
+					updatePhysicsAeroSettings(settings ->
+							settings.setForceTurbulentBoundaryLayer(Boolean.parseBoolean(normalized)));
 				} else {
-					warnings.add("Unknown ROM mode '" + content + "', ignoring.");
-				}
-			}
-			case "romfallbackmode" -> {
-				RomFallbackMode fallbackMode = (RomFallbackMode) DocumentConfig.findEnum(content, RomFallbackMode.class);
-				if (fallbackMode != null) {
-					updateRomSettings(settings -> settings.setFallbackMode(fallbackMode));
-				} else {
-					warnings.add("Unknown ROM fallback mode '" + content + "', ignoring.");
-				}
-			}
-			case "romdiagnosticsenabled" -> updateRomSettings(
-					settings -> settings.setDiagnosticsEnabled(Boolean.parseBoolean(content)));
-			case "rombodymeridianseedcount" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM body meridian seed count defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setBodyMeridianSeedCount((int) Math.round(parsedValue)));
-				}
-			}
-			case "romfinsurfaceseedcount" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM fin surface seed count defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setFinSurfaceSeedCount((int) Math.round(parsedValue)));
-				}
-			}
-			case "romtransonicbandhalfwidth" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM transonic band half-width defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setTransonicBandHalfWidth(parsedValue));
-				}
-			}
-			case "romhighangledeg" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM high-angle threshold defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setHighAngleDeg(parsedValue));
-				}
-			}
-			case "rommaxtrustedseparationfraction" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM separation fraction defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setMaxTrustedSeparationFraction(parsedValue));
-				}
-			}
-			case "romprestepmach" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM pre-step Mach defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPrestepMach(parsedValue));
-				}
-			}
-			case "romprestepaoadeg" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM pre-step angle of attack defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPrestepAngleOfAttackDeg(parsedValue));
-				}
-			}
-			case "romprestepthetadeg" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM pre-step theta defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPrestepThetaDeg(parsedValue));
-				}
-			}
-			case "romprestepplumestate" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM pre-step plume state defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPrestepPlumeState(parsedValue));
-				}
-			}
-			case "rompreviewmachmin" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview Mach min defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewMachMin(parsedValue));
-				}
-			}
-			case "rompreviewmachmax" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview Mach max defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewMachMax(parsedValue));
-				}
-			}
-			case "rompreviewmachstep" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview Mach step defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewMachStep(parsedValue));
-				}
-			}
-			case "rompreviewaoadegmin" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview AoA min defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewAoADegMin(parsedValue));
-				}
-			}
-			case "rompreviewaoadegmax" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview AoA max defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewAoADegMax(parsedValue));
-				}
-			}
-			case "rompreviewaoadegstep" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview AoA step defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewAoADegStep(parsedValue));
-				}
-			}
-			case "rompreviewthetadeg" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview theta defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewThetaDeg(parsedValue));
-				}
-			}
-			case "rompreviewplumestate" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview plume state defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewPlumeState(parsedValue));
-				}
-			}
-			case "rompreviewmaxrows" -> {
-				if (Double.isNaN(parsedValue)) {
-					warnings.add("Illegal ROM preview row cap defined, ignoring.");
-				} else {
-					updateRomSettings(settings -> settings.setPreviewMaxRows((int) Math.round(parsedValue)));
+					warnings.add("Illegal fully turbulent boundary-layer setting '" + content
+							+ "', ignoring.");
 				}
 			}
 			case "atmosphere" -> atmosphereHandler.storeSettings(options, warnings);
@@ -453,9 +324,20 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 		}
 	}
 
-	private void updateRomSettings(Consumer<RomSettings> updater) {
-		RomSettings settings = options.getRomSettings();
+	private void updatePhysicsAeroSettings(Consumer<PhysicsAeroSettings> updater) {
+		PhysicsAeroSettings settings = options.getPhysicsAeroSettings();
 		updater.accept(settings);
-		options.setRomSettings(settings);
+		options.setPhysicsAeroSettings(settings);
+	}
+
+	@Override
+	public void endHandler(String element, HashMap<String, String> attributes, String content, WarningSet warnings) {
+		if (legacyAerodynamicsEncountered) {
+			updatePhysicsAeroSettings(settings -> settings.setMode(PhysicsAeroMode.OFF));
+		}
+	}
+
+	private static boolean isLegacyAerodynamicsElement(String element) {
+		return element != null && element.startsWith("rom");
 	}
 }

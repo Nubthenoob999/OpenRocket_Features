@@ -58,6 +58,25 @@ public interface BodyTubeDTOAdapter {
                             * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
                 }
             } else if (child instanceof RailButton) {
+                RailButton button = (RailButton) child;
+                if ("Launch Shoe".equals(button.getName())) {
+                    if (!MathUtil.equals(getLaunchLugDiameter(), 0)
+                            || !MathUtil.equals(getLaunchLugLength(), 0)
+                            || !MathUtil.equals(getRailGuideDiameter(), 0)
+                            || !MathUtil.equals(getRailGuideHeight(), 0)) {
+                        warnings.add(String.format(trans.get("RASAeroExport.warning7"), child.getName()));
+                        continue;
+                    }
+                    double areaScale = RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH
+                            * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH;
+                    setLaunchShoeArea(button.getOuterDiameter()
+                            * button.getTotalHeight() * areaScale);
+                    if (button.getInstanceCount() != 2) {
+                        warnings.add(String.format(trans.get("RASAeroExport.warning8"), button.getName(),
+                                button.getInstanceCount()));
+                    }
+                    continue;
+                }
                 if (!MathUtil.equals(getLaunchLugDiameter(), 0) || !MathUtil.equals(getLaunchLugLength(), 0)) { // only
                                                                                                                 // one
                                                                                                                 // check
@@ -80,7 +99,6 @@ public interface BodyTubeDTOAdapter {
                     continue;
                 }
 
-                RailButton button = (RailButton) child;
                 setRailGuideDiameter(button.getOuterDiameter() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
                 setRailGuideHeight(button.getTotalHeight() * RASAeroCommonConstants.OPENROCKET_TO_RASAERO_LENGTH);
 

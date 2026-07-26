@@ -86,7 +86,7 @@ class PhaseFiveSeparationSwbliTest {
 		var baseState=new BaseFlowBoundaryLayerAdapter().adapt(SeparationState.SEPARATED,terminal,1,.003,.6);
 		ForceContribution plain=new BaseDragModel().evaluate(geometry,flow,"base");ForceContribution coupled=new BaseDragModel().evaluate(geometry,flow,"base",baseState);
 		assertEquals(PhysicalTerm.BASE_PRESSURE_DRAG,coupled.owner().term());assertTrue(Math.abs(coupled.forceBodyN().x)>Math.abs(plain.forceBodyN().x));
-		double expected=-new OpenRocketSupersonicBasePressureCorrelation().basePressureCoefficient(2,1.4)*flow.dynamicPressurePa()*.003;
+		double expected=-new HartTn3393SupersonicBasePressureCorrelation().basePressureCoefficient(2,1.4)*flow.dynamicPressurePa()*.003;
 		assertEquals(expected,plain.forceBodyN().x,1e-12);
 	}
 

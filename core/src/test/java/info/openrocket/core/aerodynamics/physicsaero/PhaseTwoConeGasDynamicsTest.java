@@ -77,6 +77,38 @@ class PhaseTwoConeGasDynamicsTest {
 	}
 
 	@Test
+	void shallowConesSelectContinuousWeakShockAcrossBenchmarkMachRange() {
+		TaylorMaccollSolver solver = new TaylorMaccollSolver();
+		double[] machNumbers = {1.2, 1.5, 2.0, 2.3};
+		double[] coneAnglesDeg = {0.5, 0.75, 1.0};
+		for (double mach : machNumbers) {
+			GasState freestream = state(mach);
+			double machAngle = Math.asin(1.0 / mach);
+			double previousShockAngle = machAngle;
+			double previousCp = 0;
+			for (double coneAngleDeg : coneAnglesDeg) {
+				TaylorMaccollSolution solution = solver.solve(
+						freestream, Math.toRadians(coneAngleDeg), AIR);
+				String context = "M=" + mach + ", cone=" + coneAngleDeg + " deg";
+
+				assertTrue(solution.attached(), context);
+				assertEquals(ShockSolution.Attachment.ATTACHED, solution.attachment(), context);
+				assertTrue(solution.shockAngleRad() > machAngle, context);
+				assertTrue(solution.shockAngleRad() < (machAngle + Math.PI / 2.0) / 2.0,
+						"strong shock branch selected for " + context);
+				assertTrue(solution.shockAngleRad() > previousShockAngle, context);
+				assertTrue(solution.shockAngleRad() - previousShockAngle < Math.toRadians(2.0), context);
+				assertTrue(solution.wallPressureCoefficient() > previousCp, context);
+				assertTrue(solution.wallTangencyResidual() < 1.0e-7, context);
+				assertTrue(solution.totalPressureRatio() > 0.999, context);
+
+				previousShockAngle = solution.shockAngleRad();
+				previousCp = solution.wallPressureCoefficient();
+			}
+		}
+	}
+
+	@Test
 	void overTurningIsExplicitlyDetachedAndCarriesNoFabricatedWallState() {
 		TaylorMaccollSolution solution = new TaylorMaccollSolver().solve(
 				state(2.0), Math.toRadians(60.0), AIR);

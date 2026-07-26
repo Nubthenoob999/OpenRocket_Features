@@ -6,6 +6,7 @@ import java.util.List;
 
 import info.openrocket.core.logging.Markers;
 import info.openrocket.swing.util.BaseTestCase;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -14,13 +15,13 @@ import ch.qos.logback.classic.LoggerContext;
 
 public class LogLevelBufferLoggerTest extends BaseTestCase {
 	
-	// NOTE cast
-	private final static Logger logger = (Logger) LoggerFactory.getLogger(LogLevelBufferLoggerTest.class);
-	
 	@Test
 	public void testLogger() {
-		// assume SLF4J is bound to logback in the current environment
-		LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+		Object loggerFactory = LoggerFactory.getILoggerFactory();
+		Assumptions.assumeTrue(loggerFactory instanceof LoggerContext,
+				"Logback-specific test requires the Logback SLF4J provider");
+		LoggerContext context = (LoggerContext) loggerFactory;
+		Logger logger = context.getLogger(LogLevelBufferLoggerTest.class);
 		
 		// Call context.reset() to clear any previous configuration, e.g. default 
 		// configuration. For multi-step configuration, omit calling context.reset().

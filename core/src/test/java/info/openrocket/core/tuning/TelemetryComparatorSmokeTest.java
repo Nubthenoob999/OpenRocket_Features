@@ -16,6 +16,7 @@ public class TelemetryComparatorSmokeTest extends BaseTestCase {
 
 	@Test
 	public void comparesAbAgainstItself() throws IOException {
+		TuningTestInfrastructure.requireFixtures(JACKPOT_AB);
 		TelemetrySeries reference = TelemetryParsers.parse(JACKPOT_AB);
 		TelemetrySeries candidate = TelemetryParsers.parse(JACKPOT_AB);
 
@@ -37,6 +38,7 @@ public class TelemetryComparatorSmokeTest extends BaseTestCase {
 
 	@Test
 	public void producesFiniteErrorMetrics() throws IOException {
+		TuningTestInfrastructure.requireFixtures(JACKPOT_FLUCTUS);
 		TelemetrySeries reference = TelemetryParsers.parse(JACKPOT_FLUCTUS);
 		TelemetrySeries candidate = TelemetryParsers.parse(JACKPOT_FLUCTUS);
 

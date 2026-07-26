@@ -110,6 +110,20 @@ public abstract class FinSet extends ExternalComponent
 	 * The cross-section shape of the fins.
 	 */
 	private CrossSection crossSection = CrossSection.SQUARE;
+
+	/*
+	 * Optional detailed airfoil geometry imported from formats that distinguish
+	 * more section families than OpenRocket's three-value CrossSection enum.
+	 *
+	 * RASAero's FX1/FX3 dimensions are the leading- and trailing-edge bevel
+	 * lengths measured parallel to the body axis at half-span.  Retaining the
+	 * source section name as well as the dimensions prevents a hexagonal section
+	 * from being irreversibly collapsed into the generic AIRFOIL representation.
+	 */
+	private String detailedAirfoilSection = null;
+	private double leadingEdgeAirfoilLength = Double.NaN;
+	private double trailingEdgeAirfoilLength = Double.NaN;
+	private double leadingEdgeRadius = Double.NaN;
 	
 	
 	/*
@@ -289,6 +303,85 @@ public abstract class FinSet extends ExternalComponent
 			return;
 		crossSection = cs;
 		fireComponentChangeEvent(ComponentChangeEvent.BOTH_CHANGE);
+	}
+
+	public String getDetailedAirfoilSection() {
+		return detailedAirfoilSection;
+	}
+
+	public void setDetailedAirfoilSection(String section) {
+		for (RocketComponent listener : configListeners) {
+			if (listener instanceof FinSet) {
+				((FinSet) listener).setDetailedAirfoilSection(section);
+			}
+		}
+
+		String normalized = section == null || section.isBlank() ? null : section.trim();
+		if (java.util.Objects.equals(detailedAirfoilSection, normalized)) {
+			return;
+		}
+		detailedAirfoilSection = normalized;
+		fireComponentChangeEvent(ComponentChangeEvent.BOTH_CHANGE);
+	}
+
+	public double getLeadingEdgeAirfoilLength() {
+		return leadingEdgeAirfoilLength;
+	}
+
+	public void setLeadingEdgeAirfoilLength(double length) {
+		for (RocketComponent listener : configListeners) {
+			if (listener instanceof FinSet) {
+				((FinSet) listener).setLeadingEdgeAirfoilLength(length);
+			}
+		}
+		validateOptionalNonnegativeLength(length);
+		if (Double.doubleToLongBits(leadingEdgeAirfoilLength) == Double.doubleToLongBits(length)) {
+			return;
+		}
+		leadingEdgeAirfoilLength = length;
+		fireComponentChangeEvent(ComponentChangeEvent.BOTH_CHANGE);
+	}
+
+	public double getTrailingEdgeAirfoilLength() {
+		return trailingEdgeAirfoilLength;
+	}
+
+	public void setTrailingEdgeAirfoilLength(double length) {
+		for (RocketComponent listener : configListeners) {
+			if (listener instanceof FinSet) {
+				((FinSet) listener).setTrailingEdgeAirfoilLength(length);
+			}
+		}
+		validateOptionalNonnegativeLength(length);
+		if (Double.doubleToLongBits(trailingEdgeAirfoilLength) == Double.doubleToLongBits(length)) {
+			return;
+		}
+		trailingEdgeAirfoilLength = length;
+		fireComponentChangeEvent(ComponentChangeEvent.BOTH_CHANGE);
+	}
+
+	public double getLeadingEdgeRadius() {
+		return leadingEdgeRadius;
+	}
+
+	public void setLeadingEdgeRadius(double radius) {
+		for (RocketComponent listener : configListeners) {
+			if (listener instanceof FinSet) {
+				((FinSet) listener).setLeadingEdgeRadius(radius);
+			}
+		}
+		validateOptionalNonnegativeLength(radius);
+		if (Double.doubleToLongBits(leadingEdgeRadius) == Double.doubleToLongBits(radius)) {
+			return;
+		}
+		leadingEdgeRadius = radius;
+		fireComponentChangeEvent(ComponentChangeEvent.BOTH_CHANGE);
+	}
+
+	private static void validateOptionalNonnegativeLength(double value) {
+		if (!Double.isNaN(value) && (!Double.isFinite(value) || value < 0)) {
+			throw new IllegalArgumentException("airfoil length must be finite and nonnegative");
+		}
 	}
 	
 	public double getTabHeight() {
@@ -1556,6 +1649,10 @@ public abstract class FinSet extends ExternalComponent
 		this.cantRotation = src.cantRotation;
 		this.thickness = src.thickness;
 		this.crossSection = src.crossSection;
+		this.detailedAirfoilSection = src.detailedAirfoilSection;
+		this.leadingEdgeAirfoilLength = src.leadingEdgeAirfoilLength;
+		this.trailingEdgeAirfoilLength = src.trailingEdgeAirfoilLength;
+		this.leadingEdgeRadius = src.leadingEdgeRadius;
 		this.tabHeight = src.tabHeight;
 		this.tabLength = src.tabLength;
 		this.tabOffsetMethod = src.tabOffsetMethod;

@@ -13,6 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class TelemetryTruthSelectorTest extends BaseTestCase {
 	@Test
 	public void prefersBarometricTruthAndIgnoresGeneratedCsvFiles() throws Exception {
+		Path abFixture = resolveFixture("Jackpot_Launch_2", "ab_jackpot_launch_2.csv");
+		TuningTestInfrastructure.requireFixtures(abFixture);
 		Path dir = Files.createTempDirectory("truth-selector");
 		Path reportCsv = dir.resolve("phase-three-analysis.csv");
 		Path dragCsv = dir.resolve("drag-table.csv");
@@ -38,7 +40,7 @@ public class TelemetryTruthSelectorTest extends BaseTestCase {
 						+ "100;20;2;3;21\n"
 						+ "150;2147483647;3;4;21\n",
 				StandardCharsets.UTF_8);
-		Files.copy(resolveFixture("Jackpot_Launch_2", "ab_jackpot_launch_2.csv"), airbrakes);
+		Files.copy(abFixture, airbrakes);
 
 		TelemetryTruthSelector.TruthSelection selection = TelemetryTruthSelector.select(dir);
 

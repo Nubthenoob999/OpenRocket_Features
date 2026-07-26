@@ -12,10 +12,14 @@ import org.junit.jupiter.api.Test;
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodyResult;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodySolver;
+import info.openrocket.core.aerodynamics.physicsaero.body.HartTn3393SupersonicBasePressureCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.ExpansionEvent;
 import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
+import info.openrocket.core.aerodynamics.physicsaero.flow.ShockEvent;
 import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.PerfectGasAir;
+import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.ModifiedNewtonianPressure;
+import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.ShockSolution;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroComponent;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroGeometry;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AxisymmetricProfile;
@@ -65,6 +69,79 @@ class AxisymmetricBodySolverTest {
 		assertEquals(1, result.edgeStateHistory().events().stream().filter(ExpansionEvent.class::isInstance).count());
 		assertTrue(result.edgeStateHistory().events().stream().filter(ExpansionEvent.class::isInstance)
 				.map(ExpansionEvent.class::cast).allMatch(e -> Math.abs(e.totalPressureRatio() - 1.0) < 1.0e-12));
+	}
+
+	@Test
+	void steepSupersonicBoattailIsCappedBySeparatedBasePressureEnvelope() {
+		AeroComponent tube = component("tube", "CYLINDER", 0.0, 1.0, 0.10, 0.10,
+				List.of(station(0.0, 0.10, 0.0), station(1.0, 0.10, 0.0)));
+		double length = 0.10;
+		double slope = -0.5;
+		AeroComponent boattail = component("boattail", "BOATTAIL", 1.0, 1.0 + length,
+				0.10, 0.05, List.of(station(1.0, 0.10, slope),
+						station(1.0 + length, 0.05, slope)));
+		FlowCondition flow = flow(2.0);
+		AeroGeometry geometry = geometry(List.of(tube, boattail), 1.0 + length, 0.05);
+
+		AxisymmetricBodyResult result = new AxisymmetricBodySolver().evaluate(geometry, flow);
+		var contribution = result.contributions().stream()
+				.filter(value -> value.owner().term() == PhysicalTerm.BOATTAIL_PRESSURE_DRAG)
+				.findFirst().orElseThrow();
+		double coefficient = contribution.forceBodyN().x
+				/ (flow.dynamicPressurePa() * geometry.references().referenceAreaM2());
+		double basePressureMagnitude =
+				-new HartTn3393SupersonicBasePressureCorrelation()
+						.basePressureCoefficient(2.0, 1.4);
+		double expected = basePressureMagnitude
+				* (0.10 * 0.10 - 0.05 * 0.05)
+				/ (0.10 * 0.10);
+
+		assertEquals(expected, coefficient, 1e-12);
+		assertEquals("EXTENDED_BARROWMAN_SEPARATED_BOATTAIL_PRESSURE_V1",
+				contribution.methodId().value());
+		assertTrue(contribution.validityFlags()
+				.contains("SEPARATED_BOATTAIL_PRESSURE_CAPPED"));
+	}
+
+	@Test
+	void detachedShoulderOwnsCompressionStateBeforeCoincidentExpansion() {
+		double forwardRadius = 0.05;
+		double aftRadius = 0.05375;
+		double shoulderLength = 0.01;
+		double shoulderSlope = (aftRadius - forwardRadius) / shoulderLength;
+		AeroComponent forward = component("forward", "CYLINDER", 0, 1,
+				forwardRadius, forwardRadius,
+				List.of(station(0, forwardRadius, 0),
+						station(1, forwardRadius, 0)));
+		AeroComponent shoulder = component("shoulder", "TRANSITION", 1,
+				1 + shoulderLength, forwardRadius, aftRadius,
+				List.of(station(1, forwardRadius, shoulderSlope),
+						station(1 + shoulderLength, aftRadius,
+								shoulderSlope)));
+		AeroComponent aft = component("aft", "CYLINDER",
+				1 + shoulderLength, 2, aftRadius, aftRadius,
+				List.of(station(1 + shoulderLength, aftRadius, 0),
+						station(2, aftRadius, 0)));
+
+		AxisymmetricBodyResult result = new AxisymmetricBodySolver().evaluate(
+				geometry(List.of(forward, shoulder, aft), 2, aftRadius),
+				flow(1.5));
+		ShockEvent shock = result.edgeStateHistory().events().stream()
+				.filter(ShockEvent.class::isInstance).map(ShockEvent.class::cast)
+				.findFirst().orElseThrow();
+		assertEquals(ShockSolution.Attachment.DETACHED, shock.attachment());
+		assertEquals(ModifiedNewtonianPressure.METHOD_ID, shock.methodId());
+		assertEquals(1, result.edgeStateHistory().events().stream()
+				.filter(ExpansionEvent.class::isInstance).count(),
+				"the shoulder must still expand back to the aft cylinder");
+		var transition = result.contributions().stream()
+				.filter(value -> value.owner().term()
+						== PhysicalTerm.BODY_PRESSURE_TRANSITION)
+				.findFirst().orElseThrow();
+		assertEquals(ModifiedNewtonianPressure.METHOD_ID,
+				transition.methodId().value());
+		assertTrue(transition.forceBodyN().x > 0,
+				"detached shoulder compression must not integrate the coincident downstream expansion state");
 	}
 
 	private static FlowCondition flow(double mach) {

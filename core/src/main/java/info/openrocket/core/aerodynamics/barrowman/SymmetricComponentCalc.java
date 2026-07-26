@@ -26,10 +26,10 @@ import org.slf4j.LoggerFactory;
  * Calculates the aerodynamic properties of a <code>SymmetricComponent</code>.
  * <p>
  * CP and CNa are calculated by the Barrowman method extended to account for
- * body lift
- * by the method presented by Galejs. Supersonic CNa and CP are assumed to be
- * the
- * same as the subsonic values.
+ * body lift by the method presented by Galejs.  The empirical cylindrical-body
+ * lift term is smoothly removed through the transonic regime because carrying
+ * its low-speed planform-area scaling into supersonic flight can overwhelm fin
+ * normal force on long, slender rockets.
  * 
  * 
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
@@ -39,6 +39,8 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	private final static Logger log = LoggerFactory.getLogger(SymmetricComponentCalc.class);
 
 	public static final double BODY_LIFT_K = 1.1;
+	static final double BODY_LIFT_FADE_START_MACH = 0.8;
+	static final double BODY_LIFT_FADE_END_MACH = 1.3;
 
 	private final double length;
 	private final double foreRadius, aftRadius;
@@ -108,8 +110,9 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	 * This method uses the Barrowman method for CP and CNa calculation and the
 	 * extension presented by Galejs for the effect of body lift.
 	 * <p>
-	 * The CP and CNa at supersonic speeds are assumed to be the same as those at
-	 * subsonic speeds.
+	 * The Galejs body-lift extension is used at low speed and smoothly faded out
+	 * from Mach 0.8 to 1.3.  The underlying Barrowman area-change term remains;
+	 * for a cylinder that term is identically zero.
 	 */
 	@Override
 	public void calculateNonaxialForces(FlightConditions conditions, Transformation transform,
@@ -175,6 +178,25 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 	}
 
 	/**
+	 * Smoothly removes the low-speed cylindrical-body lift model before the fully
+	 * supersonic regime.  A cubic smoothstep avoids discontinuities in both CNa
+	 * and its first derivative at the blend boundaries.
+	 */
+	static double bodyLiftFactor(double mach) {
+		if (mach <= BODY_LIFT_FADE_START_MACH) {
+			return 1;
+		}
+		if (mach >= BODY_LIFT_FADE_END_MACH) {
+			return 0;
+		}
+
+		double fraction = (mach - BODY_LIFT_FADE_START_MACH) /
+				(BODY_LIFT_FADE_END_MACH - BODY_LIFT_FADE_START_MACH);
+		double smoothstep = fraction * fraction * (3 - 2 * fraction);
+		return 1 - smoothstep;
+	}
+
+	/**
 	 * Calculate the body lift effect according to Galejs.
 	 */
 	protected CoordinateIF getLiftCP(FlightConditions conditions, WarningSet warnings) {
@@ -193,8 +215,10 @@ public class SymmetricComponentCalc extends RocketComponentCalc {
 			mul = pow2(conditions.getMach() / 0.05);
 		}
 
-		return new Coordinate(planformCenter, 0, 0, mul * BODY_LIFT_K * planformArea / conditions.getRefArea() *
-				conditions.getSinAOA() * conditions.getSincAOA()); // sin(aoa)^2 / aoa
+		return new Coordinate(planformCenter, 0, 0,
+				bodyLiftFactor(conditions.getMach()) * mul * BODY_LIFT_K * planformArea /
+						conditions.getRefArea() * conditions.getSinAOA() *
+						conditions.getSincAOA()); // sin(aoa)^2 / aoa
 	}
 
 	@Override

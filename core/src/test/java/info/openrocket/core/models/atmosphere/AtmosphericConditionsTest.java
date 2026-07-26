@@ -26,8 +26,8 @@ public class AtmosphericConditionsTest {
 	@Test
 	@DisplayName("Density calculation should be correct for standard conditions")
 	void testDensityCalculation() {
-		// rho = P/(R*T) where R = 287.053
-		double expectedDensity = 101325.0 / (287.053 * 293.15);
+		// rho = P/(R*T) with the same dry-air gas constant used by PerfectGasAir.
+		double expectedDensity = 101325.0 / (AtmosphericConditions.R * 293.15);
 		assertEquals(expectedDensity, conditions.getDensity(), 0.001);
 	}
 
@@ -92,5 +92,32 @@ public class AtmosphericConditionsTest {
 	void testRelativeHumidityBounds() {
 		assertThrows(IllegalArgumentException.class, () -> new AtmosphericConditions(288.15, 101325.0, -0.01));
 		assertThrows(IllegalArgumentException.class, () -> new AtmosphericConditions(288.15, 101325.0, 1.01));
+	}
+
+	@Test
+	@DisplayName("Equality and hash code should include relative humidity")
+	void testEqualityAndHashCodeIncludeRelativeHumidity() {
+		AtmosphericConditions dry = new AtmosphericConditions(288.15, 101325.0, 0.0);
+		AtmosphericConditions dryCopy = new AtmosphericConditions(288.15, 101325.0, 0.0);
+		AtmosphericConditions humid = new AtmosphericConditions(288.15, 101325.0, 0.5);
+
+		assertEquals(dry, dryCopy);
+		assertEquals(dry.hashCode(), dryCopy.hashCode());
+		assertNotEquals(dry, humid);
+		assertNotEquals(dry.hashCode(), humid.hashCode());
+	}
+
+	@Test
+	@DisplayName("Effective gamma should decrease monotonically at high temperature")
+	void testEffectiveGamma() {
+		assertEquals(AtmosphericConditions.GAMMA, AtmosphericConditions.effectiveGamma(800.0), 0.0);
+
+		double previous = AtmosphericConditions.GAMMA;
+		for (double temperatureK = 900.0; temperatureK <= 6000.0; temperatureK += 100.0) {
+			double gamma = AtmosphericConditions.effectiveGamma(temperatureK);
+			assertTrue(gamma >= 1.3 && gamma <= AtmosphericConditions.GAMMA);
+			assertTrue(gamma <= previous);
+			previous = gamma;
+		}
 	}
 }

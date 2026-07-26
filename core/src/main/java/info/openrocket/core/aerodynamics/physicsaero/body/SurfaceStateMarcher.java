@@ -8,6 +8,8 @@ import info.openrocket.core.aerodynamics.physicsaero.geometry.GeometryStation;
 
 /** Cumulative zero-incidence inviscid state marcher; never restarts a corner from freestream. */
 public final class SurfaceStateMarcher {
+	private static final double ZERO_TANGENT_SLOPE = 1.0e-8;
+
 	public AxisymmetricEdgeStateHistory march(List<AxisymmetricBodySegment> segments, FlowCondition flow) {
 		if (segments.isEmpty()) throw new IllegalArgumentException("body segment list is empty");
 		if (flow.powered()) throw new IllegalArgumentException("POWERED_BASE_MODEL_NOT_IMPLEMENTED");
@@ -25,9 +27,34 @@ public final class SurfaceStateMarcher {
 			// isentropic relations (Prandtl-Meyer, oblique/tangent-cone) are undefined there, so continue every remaining
 			// panel with the explicit modified-Newtonian fallback referenced to the freestream instead of aborting.
 			if (current.staticState().mach() <= 1.0) {
-				double surfaceAngle = Math.abs(segment.endTangentRad());
-				current = modifiedNewtonianState(freestreamSurface, segment.endXM(), segment.endRadiusM(), surfaceAngle, model, false);
-				states.add(current); continue;
+				if (segment.type() == BodySegmentType.SMOOTH_COMPRESSION
+						&& segment.quadratureStations().size() >= 2) {
+					/*
+					 * Preserve the pressure distribution over a curved
+					 * forebody inside the detached pocket.  Evaluating only
+					 * the zero-slope endpoint erases the whole ogive load and
+					 * creates a false drag jump when the upstream shock first
+					 * attaches at a higher Mach number.
+					 */
+					for (GeometryStation station
+							: segment.quadratureStations()) {
+						double surfaceAngle = Math.abs(
+								Math.atan(station.slope()));
+						current = modifiedNewtonianState(
+								freestreamSurface, station.xM(),
+								station.radiusM(), surfaceAngle,
+								model, true);
+						states.add(current);
+					}
+				} else {
+					double surfaceAngle = Math.abs(
+							segment.endTangentRad());
+					current = modifiedNewtonianState(freestreamSurface,
+							segment.endXM(), segment.endRadiusM(),
+							surfaceAngle, model, false);
+					states.add(current);
+				}
+				continue;
 			}
 			switch (segment.type()) {
 				case TRUE_CONE -> {
@@ -50,23 +77,56 @@ public final class SurfaceStateMarcher {
 				case SMOOTH_COMPRESSION -> {
 					List<GeometryStation> stations = segment.quadratureStations();
 					SurfaceState segmentUpstream = current;
+					boolean distributedModifiedNewtonian =
+							segment.eligibleMethods().size() == 1
+							&& segment.eligibleMethods().get(0).equals(
+									ModifiedNewtonianPressure.METHOD_ID);
+					if (distributedModifiedNewtonian) {
+						for (GeometryStation station : stations) {
+							double angle = Math.abs(
+									Math.atan(station.slope()));
+							current = modifiedNewtonianState(
+									freestreamSurface, station.xM(),
+									station.radiusM(), angle, model, true);
+							states.add(current);
+						}
+						break;
+					}
 					GeometryStation firstStation = stations.get(0);
-					if (Math.abs(firstStation.slope()) >= 1e-12) {
+					if (Math.abs(firstStation.slope()) >= ZERO_TANGENT_SLOPE) {
 						double firstAngle = Math.atan(firstStation.slope());
 						try { current = new TangentConePressureModel().evaluate(segmentUpstream, firstStation.xM(), firstStation.radiusM(), firstAngle, model); }
-						catch (GasDynamicsException detached) { current = modifiedNewtonianState(segmentUpstream, firstStation.xM(), firstStation.radiusM(), firstAngle, model, true); }
+						catch (GasDynamicsException detached) {
+							current = modifiedNewtonianState(
+									freestreamSurface,
+									firstStation.xM(),
+									firstStation.radiusM(),
+									Math.abs(firstAngle), model, true);
+						}
 						states.add(current);
 					}
 					for (int i = 1; i < stations.size(); i++) {
 						GeometryStation station = stations.get(i);
-						if (Math.abs(station.slope()) < 1e-12) {
+						if (Math.abs(station.slope()) < ZERO_TANGENT_SLOPE) {
 							current = SurfaceState.of(station.xM(), station.radiusM(), segmentUpstream.staticState(),
 									segmentUpstream.totalState(), 0, 0, model, TangentConePressureModel.METHOD_ID);
 							states.add(current); continue;
 						}
 						double angle = Math.atan(station.slope());
 						try { current = new TangentConePressureModel().evaluate(segmentUpstream, station.xM(), station.radiusM(), angle, model); }
-						catch (GasDynamicsException detached) { current = modifiedNewtonianState(segmentUpstream, station.xM(), station.radiusM(), angle, model, true); }
+						catch (GasDynamicsException detached) {
+							/*
+							 * Modified Newtonian is a freestream pressure
+							 * coefficient fallback. Referencing an upstream
+							 * post-shock pocket compounds pressure/total-state
+							 * losses and creates a false jump when that shock
+							 * changes attachment topology.
+							 */
+							current = modifiedNewtonianState(
+									freestreamSurface, station.xM(),
+									station.radiusM(), Math.abs(angle),
+									model, true);
+						}
 						states.add(current);
 					}
 				}

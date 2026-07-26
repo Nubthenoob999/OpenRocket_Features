@@ -16,9 +16,9 @@ This fork is dedicated to Project Imperia. It aims to reconcile some known and p
 
 First a custom Monte Carlo wrapper was implemented to nativley interface with the simulation tab. The regular plugin can be found at: [Plugin Link](https://github.com/NCSU-High-Powered-Rocketry-Club/OpenRocket-Monte-Carlo)
 
-The main objective is to introduce a fully physics based Pathline Reduced Order Model to better calculate various coefficents for a given vehicle configuration. A high level overview is that a ray is shot through the given fluid domain in which the base OpenRocket Configuration is placed in. Then using physics based equations, expereimental derived equations and correlations, and other techniques, the fluid properties are intergated along that ray. 
+The experimental aerodynamics work in this repository builds deterministic, correlation-based coefficient tables offline.  A simulation resolves a table for the active rocket geometry from the local cache and queries its six-axis coefficients at runtime.  The feature remains opt-in, single-stage only, and flight validation is pending an external validation corpus.
 
-Since this a work-in-progress [Technical Documentation]() will be continually updated for the under the hood math. Moreover, this README will be updated once the ROM and all other codes are verified to be accurate for predicting altitude, and the overall ascent profile.
+This remains a work in progress. Technical documentation will be updated alongside the underlying correlations, and flight-accuracy claims will remain pending until the external validation corpus demonstrates acceptable altitude and ascent-profile accuracy.
 
 All credit goes to the original/current creators and maintainers of OpenRocket!
 

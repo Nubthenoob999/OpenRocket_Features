@@ -31,6 +31,25 @@ class PhaseThreeFinPhysicsTest {
 		assertEquals(List.of("COMPRESSION", "EXPANSION"), result.upper().events());
 	}
 
+	@Test void diamondShockExpansionApproachesAckeretWaveDragAtSmallWedgeAngle() {
+		PerfectGasAir air = new PerfectGasAir();
+		GasState state = new GasState(2, 101325, 288.15,
+				101325 / (air.gasConstant() * 288.15), 2 * air.speedOfSound(288.15));
+		double angle = Math.toRadians(0.25);
+		double area = 0.1;
+		var result = new WedgeDiamondShockExpansionModel().evaluate(state, air, 0,
+				new double[] {angle, -angle}, new double[] {angle, -angle},
+				new double[] {.5, .5}, area);
+		double dynamicPressure = 0.5 * state.densityKgM3()
+				* state.velocityMS() * state.velocityMS();
+		double expected = dynamicPressure * area
+				* new FinWaveDragModel().linearizedDiamondCoefficient(
+						state.mach(), Math.tan(angle));
+
+		assertTrue(result.valid());
+		assertEquals(expected, result.axialForceN(), 0.05 * expected);
+	}
+
 	@Test void pnkUsesBoundedVersionedTableAndReturnsOnlyInterferenceIncrement() {
 		PnkFactorTable.Factors node = new PnkFactorTable().interpolate(.5);
 		assertEquals(1.6667, node.wingBodyFactor(), 1e-12); assertEquals(.8889, node.bodyWingFactor(), 1e-12);
@@ -64,6 +83,8 @@ class PhaseThreeFinPhysicsTest {
 	@Test void datcomDistributionExactlyRecoversTotalAndSelectorNeverAddsFullLoads() {
 		double[] loads = new FinForceDistributor().distributeByChord(123.4, new double[] {1,.5,.2}, new double[] {.1,.1,.1});
 		assertEquals(123.4, Arrays.stream(loads).sum(), 0);
+		assertTrue(new DatcomFinLiftModel().isValid(2, 0.826086956521739,
+				-Math.toRadians(15) - Math.ulp(Math.toRadians(15))));
 		var selection = new FinMethodSelector().select(FinSectionFamily.FLAT_PLATE, true, true);
 		assertEquals(FinMethodSelector.Method.ACKERET, selection.authoritative());
 		assertEquals(List.of(FinMethodSelector.Method.DATCOM_DIAGNOSTIC), selection.diagnostics());
