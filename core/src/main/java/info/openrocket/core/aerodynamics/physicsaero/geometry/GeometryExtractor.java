@@ -59,7 +59,18 @@ public final class GeometryExtractor {
 		for (RocketComponent c : rocket) {
 			if (active != null && !active.contains(c)) continue;
 			String classification = GeometryClassifier.classify(c);
-			if (!classification.equals("UNSUPPORTED")) supported.add(c);
+			if (!classification.equals("UNSUPPORTED")) {
+				/*
+				 * Imported RASAero/OpenRocket files may contain zero-length
+				 * transition markers at a diameter discontinuity. They carry no
+				 * wetted area or axial domain, and sampling them produces a 0/0
+				 * derivative. The adjacent physical component represents the
+				 * actual shoulder geometry.
+				 */
+				if (c instanceof ExternalComponent && !(c.getLength() > 0)
+						&& !(c instanceof RailButton)) continue;
+				supported.add(c);
+			}
 			else if (c instanceof ExternalComponent) throw new IllegalArgumentException("UNSUPPORTED_GEOMETRY:" + c.getClass().getSimpleName());
 		}
 		if (supported.isEmpty()) throw new IllegalArgumentException("UNSUPPORTED_GEOMETRY:NO_EXTERNAL_COMPONENTS");
@@ -86,10 +97,14 @@ public final class GeometryExtractor {
 				projected = fs.getPlanformArea() * fs.getFinCount();
 				List<GeometryStation> outline = new ArrayList<>();
 				var finPoints = fs.getFinPoints();
+				double coordinateTolerance = Math.max(1.0e-9,
+						1.0e-6 * Math.max(fs.getLength(), fs.getSpan()));
 				for (int index = 0; index < finPoints.length; index++) {
 					var point = finPoints[index];
 					try {
-						outline.add(new GeometryStation(point.getX(), point.getY(), 0, 0));
+						double radial = point.getY();
+						if (radial < 0 && radial >= -coordinateTolerance) radial = 0;
+						outline.add(new GeometryStation(point.getX(), radial, 0, 0));
 					} catch (IllegalArgumentException exception) {
 						throw new IllegalArgumentException("INVALID_FIN_OUTLINE:" + path(source)
 								+ ":point=" + index + ":x=" + point.getX() + ":y=" + point.getY(), exception);
@@ -131,14 +146,23 @@ public final class GeometryExtractor {
 			} else if (source instanceof RailButton rb) {
 				int count = rb.getInstanceCount();
 				radius = parentRadius(source); double d = rb.getOuterDiameter();
+				boolean rasaeroRailGuide = "Rail Guide".equals(rb.getName());
+				double totalHeightIncludingScrew = rb.getTotalHeight() + rb.getScrewHeight();
 				double solidProjectedAreaEach = d * rb.getTotalHeight()
 						- (d - rb.getInnerDiameter()) * rb.getInnerHeight();
-				wet = count * Math.PI * d * rb.getTotalHeight();
-				projected = count * solidProjectedAreaEach;
+				wet = count * Math.PI * d * totalHeightIncludingScrew;
+				// RASAero's documented rail-guide inputs are the diameter and total
+				// height of one guide; its empirical coefficient already represents
+				// the prescribed pair.  Preserve that input area instead of applying
+				// OpenRocket's reconstructed button void geometry to it.
+				projected = rasaeroRailGuide
+						? d * totalHeightIncludingScrew
+						: count * solidProjectedAreaEach;
 				String protuberanceType = "Launch Shoe".equals(rb.getName())
-						? "LAUNCH_SHOE" : "RAIL_BUTTON";
+						? "LAUNCH_SHOE"
+						: rasaeroRailGuide ? "RASAERO_RAIL_GUIDE" : "RAIL_BUTTON";
 				protuberance = new ProtuberanceGeometry(protuberanceType, rb.getInstanceCount(), start,
-						d, rb.getTotalHeight(), projected, count * Math.PI * d * d / 4);
+						d, totalHeightIncludingScrew, projected, count * Math.PI * d * d / 4);
 				end = start + d;
 			}
 			if (forceTurbulentBoundaryLayer

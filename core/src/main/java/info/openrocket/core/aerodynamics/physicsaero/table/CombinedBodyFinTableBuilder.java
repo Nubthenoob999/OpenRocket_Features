@@ -22,6 +22,7 @@ import info.openrocket.core.util.Coordinate;
 
 /** Populates direct Mach/alpha/beta six-axis cells from Phase 2 body drag plus Phase 3 individual fins. */
 public final class CombinedBodyFinTableBuilder {
+	private static final double SUPERSONIC_INCIDENCE_LIMIT_RAD = Math.toRadians(15);
 	private final boolean pnkEnabled;
 	private final boolean phaseFiveEnabled;
 	public CombinedBodyFinTableBuilder() { this(false, false); }
@@ -36,11 +37,17 @@ public final class CombinedBodyFinTableBuilder {
 		for (double mach : machAxis) for (double alpha : alphaAxis) for (double beta : betaAxis) {
 			AxisymmetricBodyResult body = bodies.computeIfAbsent(mach, value -> new AxisymmetricBodySolver().evaluate(geometry,
 					FlowCondition.fromAngles(value, 0, 0, atmosphere, model, false, geometry.geometryHash())));
-			FlowCondition flow = FlowCondition.fromAngles(mach, alpha, beta, atmosphere, model, false, geometry.geometryHash());
+			double incidence = Math.atan(Math.hypot(Math.tan(alpha), Math.tan(beta)));
+			boolean incidenceBoundaryHold = incidence > SUPERSONIC_INCIDENCE_LIMIT_RAD;
+			double evaluationScale = incidenceBoundaryHold
+					? SUPERSONIC_INCIDENCE_LIMIT_RAD / incidence : 1;
+			FlowCondition flow = FlowCondition.fromAngles(mach, alpha * evaluationScale,
+					beta * evaluationScale, atmosphere, model, false, geometry.geometryHash());
 			FinResult fins = new SupersonicFinSolver().evaluate(geometry, flow, body.edgeStateHistory()); ContributionLedger ledger = new ContributionLedger();
 			body.contributions().forEach(ledger::add); fins.contributions().forEach(ledger::add);
 			new BodyIncidenceLoadModel().evaluate(geometry, flow).forEach(ledger::add);
 			boolean finnedBodyBaseInteraction = addFinnedBodyBaseInteraction(ledger, geometry, flow);
+			boolean rasaeroBaseEnvelope = applyRasaeroBaseEnvelope(ledger, geometry, flow);
 			if (pnkEnabled) new BodyFinInterferenceSolver().evaluate(geometry, mach, fins.contributions()).forEach(ledger::add);
 			ReferenceState reference = new ReferenceState(flow.dynamicPressurePa(), geometry.references().referenceAreaM2(),
 					geometry.references().referenceLengthM(), geometry.references().momentOriginM());
@@ -132,10 +139,15 @@ public final class CombinedBodyFinTableBuilder {
 			boolean bodyFrictionFallback = phaseFiveEnabled && phaseFiveInvalid;
 			boolean fallback = pressureFallback || bodyFrictionFallback;
 			List<String> validity = new ArrayList<>(); validity.add("INDIVIDUAL_FIN_3D");
+			if (incidenceBoundaryHold) {
+				validity.add("SUPERSONIC_INCIDENCE_15DEG_BOUNDARY_HOLD");
+				validity.add("HIGH_INCIDENCE_CELL_RESERVED_FOR_SUBSONIC_JORGENSEN_DOMAIN");
+			}
 			if (alpha != 0 || beta != 0) validity.add("BODY_NONZERO_INCIDENCE_OWNED");
 			validity.add(pnkEnabled ? "PNK_ENABLED_AFTER_ISOLATED_VALIDATION_GATE" : "PNK_DISABLED_ISOLATED_VALIDATION_GATE");
 			if (engineeringFinFriction) validity.add("ENGINEERING_FIN_SKIN_FRICTION");
 			if (finnedBodyBaseInteraction) validity.add("FINNED_BODY_BASE_PRESSURE_INTERACTION");
+			if (rasaeroBaseEnvelope) validity.add("RASAERO_CUBIC_BASE_DRAG_ENVELOPE");
 			if (phaseFiveEnabled) {
 				validity.add(phaseFiveInvalid ? "PHASE5_VISCOUS_COUPLING_INVALID"
 						: fullyTurbulentEngineeringBody
@@ -253,6 +265,34 @@ public final class CombinedBodyFinTableBuilder {
 		return true;
 	}
 
+	private static boolean applyRasaeroBaseEnvelope(ContributionLedger ledger,
+			AeroGeometry geometry, FlowCondition flow) {
+		double targetCd = new RasaeroSupersonicBaseDragEnvelope()
+				.dragCoefficient(geometry, flow.mach());
+		if (!Double.isFinite(targetCd)) return false;
+		List<ForceContribution> base = ledger.entries().stream()
+				.filter(contribution -> contribution.owner().term()
+						== PhysicalTerm.BASE_PRESSURE_DRAG)
+				.toList();
+		if (base.isEmpty()) return false;
+		double currentForce = base.stream()
+				.mapToDouble(contribution -> contribution.forceBodyN().x).sum();
+		double targetForce = targetCd * flow.dynamicPressurePa()
+				* geometry.references().referenceAreaM2();
+		if (!(currentForce > targetForce) || !(targetForce >= 0)) return false;
+		ForceContribution primary = base.get(0);
+		ledger.add(new ForceContribution(primary.componentId(),
+				new PhysicalOwner(PhysicalTerm.BASE_PRESSURE_DRAG,
+						OwnershipMode.MODIFIES, primary.regionId(), primary.methodId()),
+				new MethodId(RasaeroSupersonicBaseDragEnvelope.METHOD_ID),
+				new Coordinate(targetForce - currentForce, 0, 0), new Coordinate(),
+				primary.applicationPointM(), primary.regionId(),
+				List.of("EMPIRICAL_SUPERSONIC_BASE_DRAG_UPPER_ENVELOPE",
+						"CUBIC_TERMINAL_DIAMETER_RECOVERY"),
+				0.35, 0.30, null));
+		return true;
+	}
+
 	private static OptionalDouble prescribedTransitionReynolds(AeroGeometry geometry, double mach) {
 		double transitionReynolds = Double.POSITIVE_INFINITY;
 		for (AeroComponent component : geometry.components()) if (component.axisymmetricProfile() != null
@@ -320,7 +360,8 @@ public final class CombinedBodyFinTableBuilder {
 		double totalWettedArea = finSets.stream().mapToDouble(AeroComponent::wettedAreaM2).sum();
 		if (!(friction.finCd() > 0) || !(totalWettedArea > 0)) return false;
 		for (var component : finSets) {
-			double cd = friction.finCd() * component.wettedAreaM2() / totalWettedArea;
+			double areaFraction = component.wettedAreaM2() / totalWettedArea;
+			double cd = friction.finCd() * areaFraction;
 			double force = reference.dynamicPressurePa() * reference.referenceAreaM2() * cd;
 			String region = component.id() + ":engineering-fin-wetted-surface";
 			ledger.add(new ForceContribution(component.id(),
@@ -329,6 +370,24 @@ public final class CombinedBodyFinTableBuilder {
 					new Coordinate(), new Coordinate(0.5 * (component.axialStartM() + component.axialEndM()), 0, 0),
 					region, List.of("ENGINEERING_FIN_SKIN_FRICTION", "ACTUAL_FIN_WETTED_AREA", "AXIAL_DRAG_ONLY"),
 					0.65, 0.25, null));
+			double interferenceCd = friction.finInterferenceCd() * areaFraction;
+			if (interferenceCd > 0) {
+				double interferenceForce = reference.dynamicPressurePa()
+						* reference.referenceAreaM2() * interferenceCd;
+				ledger.add(new ForceContribution(component.id(),
+						new PhysicalOwner(PhysicalTerm.BODY_FIN_INTERFERENCE_DRAG,
+								OwnershipMode.MODIFIES, region,
+								new MethodId(EngineeringSkinFrictionCorrelation.METHOD_ID)),
+						new MethodId(EngineeringSkinFrictionCorrelation.FIN_INTERFERENCE_METHOD_ID),
+						new Coordinate(interferenceForce, 0, 0), new Coordinate(),
+						new Coordinate(0.5 * (component.axialStartM()
+								+ component.axialEndM()), 0, 0),
+						region,
+						List.of("RASAERO_VIRTUAL_FIN_WETTED_AREA",
+								"FIN_BODY_INTERFERENCE_SKIN_FRICTION",
+								"AXIAL_DRAG_ONLY"),
+						0.75, 0.20, null));
+			}
 		}
 		return true;
 	}

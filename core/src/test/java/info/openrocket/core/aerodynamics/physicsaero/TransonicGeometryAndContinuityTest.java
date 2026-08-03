@@ -22,18 +22,34 @@ import info.openrocket.core.aerodynamics.physicsaero.subsonic.SubsonicBaseDragMo
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.aerodynamics.physicsaero.table.TableMetadata;
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicBaseDragModel;
+import info.openrocket.core.aerodynamics.physicsaero.transonic.BodyCriticalMachEstimator;
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicDragRiseHierarchy;
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicDragRiseModel;
 import info.openrocket.core.util.Coordinate;
 
 class TransonicGeometryAndContinuityTest {
 	@Test
+	void nasaTrR100TipAngleControlsBodyDragRiseOnset() {
+		BodyCriticalMachEstimator estimator = new BodyCriticalMachEstimator();
+		double angle = Math.toRadians(19.2);
+		double expected = 0.95 - 0.15
+				* Math.pow(Math.sin(angle), 0.4);
+		var steepCone = estimator.estimateFromTipHalfAngle(angle);
+		var nearlySharp = estimator.estimateFromTipHalfAngle(0);
+
+		assertEquals(expected, steepCone.criticalMach(), 1e-15);
+		assertTrue(steepCone.criticalMach() < nearlySharp.criticalMach());
+		assertEquals(BodyCriticalMachEstimator.TIP_ANGLE_METHOD_ID,
+				steepCone.methodId());
+	}
+
+	@Test
 	void baseCorrelationsRemainPhysicalInsideTheirDeclaredRanges() {
 		double subsonic = new SubsonicBaseDragModel()
-				.basePressureCoefficient(0.90, 1_000_000);
+				.dragCoefficient(geometry(0.04), 0.05);
 		double transonic = new TransonicBaseDragModel()
 				.basePressureCoefficient(1.05, 0);
-		assertTrue(subsonic < 0 && subsonic >= -0.3);
+		assertTrue(subsonic > 0 && subsonic <= 0.3);
 		assertTrue(transonic < 0 && transonic >= -0.45);
 	}
 

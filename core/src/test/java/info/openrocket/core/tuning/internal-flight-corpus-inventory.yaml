@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "scope": "Physical-flight grouping for the active Phase3_tuning.json corpus. Unconfigured telemetry and ROM trace files are deliberately excluded from scoring coverage.",
+  "sourceConfig": "Phase3_tuning.json",
+  "physicalFlights": [
+    {
+      "id": "dol-serial-13376-flight-0016",
+      "configurationDatasets": ["dol_serial_vs_dolconfig_sim"],
+      "referenceTelemetry": [
+        {"path": "DOL/2025-05-04-serial-13376-flight-0016.csv", "sensor": "EasyMini serial 13376, flight 16", "deploymentTelemetry": "RECOVERY_STATE_AND_CHANNEL_VOLTAGE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": ["AUTHENTICATED_CFD_CURVE_RESTORED"]
+    },
+    {
+      "id": "government-work-launch-1",
+      "configurationDatasets": ["government_work_launch_1_fluctus_vs_subscale_1_sim"],
+      "referenceTelemetry": [
+        {"path": "Govenmnet_Work_launch_1/subscale_fluctus.csv", "sensor": "Fluctus", "deploymentTelemetry": "PYRO_CHANNEL_STATE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": ["SOURCE_DIRECTORY_TYPO", "EXTERNAL_CFD_CURVE_NOT_BUNDLED"]
+    },
+    {
+      "id": "government-work-launch-2",
+      "configurationDatasets": ["government_work_launch_2_fluctus_vs_subscale_2_sim"],
+      "referenceTelemetry": [
+        {"path": "Government_Work_Launch_2/Fluctus_launch_2.csv", "sensor": "Fluctus", "deploymentTelemetry": "PYRO_CHANNEL_STATE"}
+      ],
+      "airbrakesConfigured": false,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": []
+    },
+    {
+      "id": "jackpot-launch-1",
+      "configurationDatasets": ["jackpot_launch_1_easymini_vs_vdf_sim", "jackpot_launch_1_fluctus_vs_openrocket"],
+      "referenceTelemetry": [
+        {"path": "Jackpot_Launch_1/easymini_launch_1.csv", "sensor": "EasyMini serial 13376, flight 29", "deploymentTelemetry": "RECOVERY_STATE_AND_CHANNEL_VOLTAGE"},
+        {"path": "Jackpot_Launch_1/fluctus_launch_1.csv", "sensor": "Fluctus", "deploymentTelemetry": "PYRO_CHANNEL_STATE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": ["Jackpot_Launch_1/ab_jackpot_launch_1.csv"],
+      "qualityFlags": ["ARCHIVED_CFD_CURVE_RESTORED"]
+    },
+    {
+      "id": "jackpot-launch-2",
+      "configurationDatasets": ["jackpot_launch_2_easymini_vs_pdf_sim", "jackpot_launch_2_fluctus_vs_openrocket"],
+      "referenceTelemetry": [
+        {"path": "Jackpot_Launch_2/easymini_launch_2.csv", "sensor": "EasyMini serial 13376, flight 31", "deploymentTelemetry": "RECOVERY_STATE_AND_CHANNEL_VOLTAGE"},
+        {"path": "Jackpot_Launch_2/fluctus_launch_2.csv", "sensor": "Fluctus", "deploymentTelemetry": "PYRO_CHANNEL_STATE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": ["Jackpot_Launch_2/ab_jackpot_launch_2.csv"],
+      "qualityFlags": ["ARCHIVED_CFD_CURVE_RESTORED"]
+    },
+    {
+      "id": "pelencator-launch-1",
+      "configurationDatasets": ["pelencator_launch_1_stratologger_vs_vdf_sim"],
+      "referenceTelemetry": [
+        {"path": "Pelencator_launch_1/Stratologger_Data_02_22_25.csv", "sensor": "Stratologger", "deploymentTelemetry": "NONE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": ["AIRBRAKE_CONFIGURATION_HAS_NO_CONTROL_PARAMETERS", "AUTHENTICATED_CFD_CURVE_RESTORED"]
+    },
+    {
+      "id": "pelencator-launch-2",
+      "configurationDatasets": ["pelencator_launch_2_stratologger_vs_vdf_sim"],
+      "referenceTelemetry": [
+        {"path": "Pelencator_Launch_2/Pelicanator Stratologger Data 03_08_25.csv", "sensor": "Stratologger", "deploymentTelemetry": "NONE"}
+      ],
+      "airbrakesConfigured": false,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": ["ORK_NAME_REUSED_FROM_LAUNCH_1"]
+    },
+    {
+      "id": "pelencator-launch-4-huntsville",
+      "configurationDatasets": ["pelencator_launch_4_perfectflite_vs_dolconfig_sim"],
+      "referenceTelemetry": [
+        {"path": "Pelencator_Launch_Hunts/perfectflite.csv", "sensor": "PerfectFlite", "deploymentTelemetry": "NONE"}
+      ],
+      "airbrakesConfigured": true,
+      "airbrakeControllerTelemetry": [],
+      "qualityFlags": ["DATASET_LABEL_DIRECTORY_MISMATCH", "ORK_NAME_REUSED_FROM_DOL", "AUTHENTICATED_CFD_CURVE_RESTORED"]
+    }
+  ],
+  "unconfiguredTelemetry": [
+    {
+      "id": "jackpot-launch-3",
+      "path": "Jackpot_Launch_3/fluctus_launch_3.csv",
+      "sensor": "Fluctus",
+      "deploymentTelemetry": "PYRO_CHANNEL_STATE",
+      "qualityFlags": ["NOT_IN_ACTIVE_PHASE3_CONFIG"]
+    }
+  ]
+}

@@ -74,6 +74,27 @@ class PhaseFourBoundaryLayerTest {
 		assertEquals(expected,terminal.wallTemperatureK(),1e-12);
 	}
 
+	@Test void fullyTurbulentMarchStartsFromTurbulentMomentumThicknessWithoutIntermittencyRamp() {
+		SurfaceTrack track=planarTrack(40,300,0);
+		BoundaryLayerConfiguration defaults=BoundaryLayerConfiguration.defaults();
+		BoundaryLayerConfiguration turbulent=new BoundaryLayerConfiguration(TransitionMode.FULLY_TURBULENT,
+				defaults.turbulencePercent(),defaults.transitionBlendLengthM(),defaults.intermittencyExponent(),
+				WallThermalBoundary.ADIABATIC,defaults.gamma(),defaults.prandtl(),defaults.minimumVelocityMS(),
+				defaults.totalStateRelativeTolerance(),defaults.skinFrictionCompressibilityMode());
+		BoundaryLayerResult result=new BoundaryLayerMarcher().march(track,turbulent,new Coordinate());
+		int start=0;
+		while (track.stations().get(start).sM() <= 0) start++;
+		BoundaryLayerStation station=track.stations().get(start);
+		double reynoldsS=station.streamwiseVelocityMS()*station.sM()/station.kinematicViscosityM2S();
+		double expectedTheta=0.036*station.sM()/Math.pow(reynoldsS,0.2);
+
+		assertEquals(expectedTheta,result.history().states().get(start).thetaM(),1e-15);
+		assertTrue(result.history().states().stream()
+				.allMatch(state -> state.transition()==TransitionState.TURBULENT));
+		assertTrue(result.history().states().stream()
+				.allMatch(state -> state.intermittency()==1));
+	}
+
 	@Test void marcherProducesFiniteHistoryAndExclusiveVectorForce() {
 		SurfaceTrack track=planarTrack(121,50,0);
 		BoundaryLayerResult result=new BoundaryLayerMarcher().march(track,BoundaryLayerConfiguration.defaults(),new Coordinate());

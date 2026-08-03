@@ -13,6 +13,7 @@ import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodyResult;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodySolver;
 import info.openrocket.core.aerodynamics.physicsaero.body.HartTn3393SupersonicBasePressureCorrelation;
+import info.openrocket.core.aerodynamics.physicsaero.body.RasaeroSupersonicTransitionDragCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.ExpansionEvent;
 import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
@@ -138,7 +139,7 @@ class AxisymmetricBodySolverTest {
 				.filter(value -> value.owner().term()
 						== PhysicalTerm.BODY_PRESSURE_TRANSITION)
 				.findFirst().orElseThrow();
-		assertEquals(ModifiedNewtonianPressure.METHOD_ID,
+		assertEquals(RasaeroSupersonicTransitionDragCorrelation.EXPANSION_METHOD_ID,
 				transition.methodId().value());
 		assertTrue(transition.forceBodyN().x > 0,
 				"detached shoulder compression must not integrate the coincident downstream expansion state");

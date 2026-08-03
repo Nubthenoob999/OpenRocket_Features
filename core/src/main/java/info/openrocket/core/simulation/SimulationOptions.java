@@ -962,9 +962,16 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 
 	public void setRandomSeed(int randomSeed) {
 		if (this.randomSeed == randomSeed) {
+			// A loaded/constructed wind model can predate the stored option seed.
+			// Reapply it so explicit deterministic runs always restart the same
+			// turbulence realization, even when the integer itself is unchanged.
+			averageWindModel.reseed(randomSeed);
+			multiLevelPinkNoiseWindModel.reseed(randomSeed);
 			return;
 		}
 		this.randomSeed = randomSeed;
+		averageWindModel.reseed(randomSeed);
+		multiLevelPinkNoiseWindModel.reseed(randomSeed);
 		/*
 		 * This does not fire an event since we don't want to invalidate simulation
 		 * results

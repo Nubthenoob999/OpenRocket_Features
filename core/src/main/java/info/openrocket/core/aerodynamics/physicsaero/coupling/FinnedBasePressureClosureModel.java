@@ -17,11 +17,12 @@ import info.openrocket.core.aerodynamics.physicsaero.geometry.GeometryStation;
  * smooth-body baseline is joined to the measured Hart NACA RM L52E06
  * transonic base-pressure endpoint; that extrapolation is explicitly flagged.
  *
- * <p>An expanding fin-can sleeve is retained as a diagnostic topology only.
- * No independent source supports increasing the Basic Finner wake scale for
- * that geometry or transporting the four-fin result to a three-fin vehicle.
- * Three-fin sleeves therefore receive no closure, and four-or-more-fin sleeves
- * use the same bounded Basic Finner strength with reduced confidence.
+ * <p>The Basic Finner anchor has a flat cylindrical afterbody.  No independent
+ * source supports transporting its wake increment across a terminal boattail
+ * or an expanding fin-can sleeve.  Those topologies therefore retain the
+ * primary body-base and boattail correlations but receive no Basic Finner
+ * increment.  The same source-domain rule prevents transporting the four-fin
+ * result to a three-fin vehicle.
  *
  * <p>The result is an increment relative to the base suction already present
  * in the caller.  This prevents double counting the independent A53D02
@@ -93,15 +94,30 @@ public final class FinnedBasePressureClosureModel {
 		double machInfluence = machInfluence(mach);
 		boolean expandingSleeve =
 				hasTerminalExpandingFinCanSleeve(geometry);
+		boolean flatCylindricalAfterbody =
+				hasTerminalFlatCylindricalAfterbody(geometry);
 
 		if (finCount < 4
 				|| !(spanToBaseRadius > 0)
-				|| !(machInfluence > 0)) {
+				|| !(machInfluence > 0)
+				|| expandingSleeve
+				|| !flatCylindricalAfterbody) {
+			java.util.ArrayList<String> flags = new java.util.ArrayList<>();
+			if (finCount < 4 || !(spanToBaseRadius > 0)
+					|| !(machInfluence > 0)) {
+				flags.add("FOUR_FIN_SOURCE_TOPOLOGY_NOT_MET");
+			}
+			if (expandingSleeve) {
+				flags.add("EXPANDING_FIN_CAN_SLEEVE_OUTSIDE_BASIC_FINNER_SOURCE_TOPOLOGY");
+			}
+			if (!flatCylindricalAfterbody) {
+				flags.add("TERMINAL_NONCYLINDRICAL_AFTERBODY_OUTSIDE_BASIC_FINNER_SOURCE_TOPOLOGY");
+			}
 			return new Result(currentPressureMagnitude,
 					currentPressureMagnitude, 0,
 					smoothBodyPressureMagnitude(mach), finCount,
 					spanToBaseRadius, machInfluence, expandingSleeve,
-					0, 1, List.of("FOUR_FIN_SOURCE_TOPOLOGY_NOT_MET"));
+					0, 1, flags);
 		}
 
 		double fourFinAnchor = 1 - Math.exp(-4.0 / 1.4);
@@ -125,13 +141,7 @@ public final class FinnedBasePressureClosureModel {
 			flags.add("TN3393_TURBULENT_BASELINE_DIRECT_MACH_RANGE");
 		}
 		double confidence = mach >= TN3393_MINIMUM_MACH ? 0.35 : 0.25;
-		if (expandingSleeve) {
-			flags.add("EXPANDING_FIN_CAN_SLEEVE_GEOMETRY_TRANSPORT");
-			flags.add("NO_ADDITIONAL_SLEEVE_STRENGTH_WITHOUT_SOURCE");
-			confidence = Math.min(confidence, 0.15);
-		} else {
-			flags.add("ADA636861_BASIC_FINNER_WAKE_SCALE");
-		}
+		flags.add("ADA636861_BASIC_FINNER_WAKE_SCALE");
 		if (increment == 0) {
 			flags.add("EXISTING_BASE_SUCTION_MEETS_OR_EXCEEDS_CLOSURE_TARGET");
 		}
@@ -196,6 +206,15 @@ public final class FinnedBasePressureClosureModel {
 						component.axialEndM() >= sleeve.axialStartM()
 						&& component.axialStartM() <= sleeve.axialEndM()
 						&& Math.abs(component.rootRadiusM() - sleeveFore) <= 0.003);
+	}
+
+	private static boolean hasTerminalFlatCylindricalAfterbody(
+			AeroGeometry geometry) {
+		return geometry.components().stream()
+				.filter(component -> component.axisymmetricProfile() != null)
+				.max(Comparator.comparingDouble(AeroComponent::axialEndM))
+				.map(component -> "CYLINDER".equals(component.classification()))
+				.orElse(false);
 	}
 
 	private static double terminalBodyEndM(AeroGeometry geometry) {

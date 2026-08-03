@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Random;
 
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.preferences.ApplicationPreferences;
@@ -104,6 +105,17 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 
 	public void sortLevels() {
 		levels.sort(Comparator.comparingDouble(l -> l.altitude));
+	}
+
+	/**
+	 * Restarts every altitude level with independent, reproducible realizations
+	 * derived from one simulation seed.
+	 */
+	public void reseed(int seed) {
+		Random seeds = new Random(seed);
+		for (LevelWindModel level : levels) {
+			level.model.reseed(seeds.nextInt());
+		}
 	}
 
 	@Override

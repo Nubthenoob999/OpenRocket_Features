@@ -218,7 +218,7 @@ tasks.register('flightDatabaseComparison', Test) {
     useJUnitPlatform {
         includeTags 'flight-database'
     }
-    description = 'Replays Rocket Flight Database CDX1 cases with the diagnostic-hybrid physics-aero runtime.'
+    description = 'Replays the 28-flight Rocket Flight Database with an OpenRocket baseline and strict zero-fallback physics-aero tables.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
@@ -230,6 +230,25 @@ tasks.register('flightDatabaseComparison', Test) {
             systemProperty propertyName, project.property(propertyName)
         }
     }
+}
+
+tasks.register('offlineTableFlightComparison', Test) {
+    useJUnitPlatform {
+        includeTags 'offline-table-flight-comparison'
+    }
+    description = 'Runs every bundled recorded flight through matched baseline and strict offline-table simulations.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/tuning/OfflineTableFlightComparisonHarnessTest.class'
+    systemProperty 'offlineTableComparison.runFlightSuite', 'true'
+    systemProperty 'offlineTableComparison.outputDir',
+            layout.buildDirectory.dir('reports/offline-table-flight-comparison').get().asFile.absolutePath
+    if (project.hasProperty('offlineFlightName')) {
+        systemProperty 'offlineTableComparison.flightName', project.property('offlineFlightName')
+    }
+    shouldRunAfter tasks.named('test')
+    outputs.upToDateWhen { false }
 }
 
 tasks.register('physicsAeroSourceGuard') {

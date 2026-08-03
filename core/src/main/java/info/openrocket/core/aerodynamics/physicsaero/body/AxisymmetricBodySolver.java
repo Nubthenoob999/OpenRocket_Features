@@ -40,6 +40,12 @@ public final class AxisymmetricBodySolver {
 				case BOATTAIL, SMOOTH_EXPANSION -> new BoattailPressureModel().integrate(segment, history, flow.atmosphere().pressurePa());
 				default -> null;
 			};
+			if (contribution != null
+					&& segment.type() == BodySegmentType.DISCRETE_COMPRESSION_CORNER
+					&& segment.endRadiusM() > segment.startRadiusM()) {
+				contribution = applyExpansionCorrelation(contribution, segment,
+						geometry, flow);
+			}
 			if (contribution != null && segment.type() == BodySegmentType.BOATTAIL
 					&& new BoattailPressureModel()
 							.separationRiskPendingBoundaryLayer(segment, flow.mach())) {
@@ -76,6 +82,13 @@ public final class AxisymmetricBodySolver {
 		double capCd = new SeparatedBoattailPressureDragModel().dragCoefficient(
 				segment, geometry.references().referenceAreaM2(),
 				basePressureMagnitude);
+		String capMethod = SeparatedBoattailPressureDragModel.METHOD_ID;
+		double rasaeroCapCd = rasaeroTerminalReducerEnvelope(segment, geometry,
+				flow.mach());
+		if (Double.isFinite(rasaeroCapCd) && rasaeroCapCd < capCd) {
+			capCd = rasaeroCapCd;
+			capMethod = RasaeroSupersonicTransitionDragCorrelation.REDUCER_METHOD_ID;
+		}
 		double capForce = capCd * flow.dynamicPressurePa()
 				* geometry.references().referenceAreaM2();
 		double originalForce = contribution.forceBodyN().x;
@@ -88,7 +101,7 @@ public final class AxisymmetricBodySolver {
 		return new ForceContribution(contribution.componentId(),
 				contribution.owner(),
 				new info.openrocket.core.aerodynamics.physicsaero.api.MethodId(
-						SeparatedBoattailPressureDragModel.METHOD_ID),
+						capMethod),
 				new Coordinate(force.x * scale, force.y * scale, force.z * scale),
 				new Coordinate(moment.x * scale, moment.y * scale, moment.z * scale),
 				contribution.applicationPointM(), contribution.regionId(),
@@ -96,6 +109,49 @@ public final class AxisymmetricBodySolver {
 						List.of("SEPARATED_BOATTAIL_PRESSURE_CAPPED",
 								"BASE_PRESSURE_RECOVERY_ENVELOPE")),
 				0.40, 0.35, null);
+	}
+
+	private ForceContribution applyExpansionCorrelation(
+			ForceContribution contribution, AxisymmetricBodySegment segment,
+			AeroGeometry geometry, FlowCondition flow) {
+		double cd = new RasaeroSupersonicTransitionDragCorrelation()
+				.expansionDragCoefficient(segment.startRadiusM(),
+						segment.endRadiusM(), segment.endXM() - segment.startXM(),
+						flow.mach(), geometry.references().referenceAreaM2());
+		if (!Double.isFinite(cd) || !(contribution.forceBodyN().x > 0)) {
+			return contribution;
+		}
+		double targetForce = cd * flow.dynamicPressurePa()
+				* geometry.references().referenceAreaM2();
+		double scale = targetForce / contribution.forceBodyN().x;
+		Coordinate force = contribution.forceBodyN();
+		Coordinate moment = contribution.intrinsicMomentBodyNm();
+		return new ForceContribution(contribution.componentId(),
+				contribution.owner(),
+				new info.openrocket.core.aerodynamics.physicsaero.api.MethodId(
+						RasaeroSupersonicTransitionDragCorrelation.EXPANSION_METHOD_ID),
+				new Coordinate(force.x * scale, force.y * scale, force.z * scale),
+				new Coordinate(moment.x * scale, moment.y * scale, moment.z * scale),
+				contribution.applicationPointM(), contribution.regionId(),
+				union(contribution.validityFlags(),
+						List.of("EMPIRICAL_SUPERSONIC_EXPANSION_CORRELATION")),
+				0.35, 0.30, null);
+	}
+
+	private double rasaeroTerminalReducerEnvelope(
+			AxisymmetricBodySegment segment, AeroGeometry geometry, double mach) {
+		double terminalXM = geometry.components().stream()
+				.filter(component -> component.axisymmetricProfile() != null)
+				.mapToDouble(component -> component.axialEndM()).max()
+				.orElse(segment.endXM());
+		if (Math.abs(segment.endXM() - terminalXM) > 1.0e-6
+				|| segment.startXM() / (2 * segment.startRadiusM()) < 2.5) {
+			return Double.NaN;
+		}
+		return new RasaeroSupersonicTransitionDragCorrelation()
+				.terminalReducerDragCoefficient(segment.startRadiusM(),
+						segment.endRadiusM(), segment.endXM() - segment.startXM(),
+						mach, geometry.references().referenceAreaM2());
 	}
 
 	private static List<String> union(List<String> first, List<String> second) {

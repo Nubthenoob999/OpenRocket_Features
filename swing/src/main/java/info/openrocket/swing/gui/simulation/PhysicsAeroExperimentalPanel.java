@@ -31,6 +31,7 @@ import info.openrocket.core.aerodynamics.physicsaero.config.PhysicsAeroSettingsF
 import info.openrocket.core.aerodynamics.physicsaero.config.PhysicsConfiguration;
 import info.openrocket.core.aerodynamics.physicsaero.config.SamplingConfiguration;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
+import info.openrocket.core.aerodynamics.physicsaero.flow.PoweredFlowState;
 import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.PerfectGasAir;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroGeometry;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.GeometryExtractor;
@@ -67,11 +68,16 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 	private static final String MARK_ACTIVE = "\u25b6";
 	private static final String MARK_DONE = "\u2714";
 	private static final String MARK_FAILED = "\u2716";
+	private static final PhysicsAeroMode[] SELECTABLE_MODES = {
+			PhysicsAeroMode.OFF,
+			PhysicsAeroMode.DIAGNOSTIC_HYBRID,
+			PhysicsAeroMode.STRICT
+	};
 
 	private final Simulation simulation;
 	private final AtomicBoolean cancelled = new AtomicBoolean();
 
-	private final JComboBox<PhysicsAeroMode> mode = new JComboBox<>(PhysicsAeroMode.values());
+	private final JComboBox<PhysicsAeroMode> mode = new JComboBox<>(SELECTABLE_MODES);
 	private final JTextArea modeDescription =
 			SimulationTabLayoutUtils.createWrappingDisplayText("");
 	private final JCheckBox forceTurbulent = new JCheckBox("Force a fully turbulent boundary layer");
@@ -111,7 +117,11 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 		this.tableDiagnostic = new PhysicsAeroTableDiagnosticPanel(simulation);
 
 		PhysicsAeroSettings settings = simulation.getOptions().getPhysicsAeroSettings();
-		mode.setSelectedItem(settings.getMode());
+		PhysicsAeroMode configuredMode = selectableMode(settings.getMode());
+		mode.setSelectedItem(configuredMode);
+		if (configuredMode != settings.getMode()) {
+			simulation.getOptions().setPhysicsAeroMode(configuredMode);
+		}
 		forceTurbulent.setSelected(settings.isForceTurbulentBoundaryLayer());
 		fidelity.setSelectedItem(Fidelity.STANDARD);
 
@@ -321,11 +331,17 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 
 	private static String modeLabel(PhysicsAeroMode value) {
 		return switch (value) {
-			case OFF -> "Off \u2014 use Barrowman";
-			case STRICT -> "Table only (strict)";
+			case OFF -> "No table";
+			case STRICT -> "Table only";
 			case DIAGNOSTIC_HYBRID -> "Table with Barrowman fallback (diagnostic)";
 			case DIAGNOSTIC_AXIAL_HYBRID -> "Table drag only (diagnostic)";
 		};
+	}
+
+	private static PhysicsAeroMode selectableMode(PhysicsAeroMode configuredMode) {
+		return configuredMode == PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID
+				? PhysicsAeroMode.DIAGNOSTIC_HYBRID
+				: configuredMode;
 	}
 
 	private PhysicsAeroMode selectedMode() {
@@ -357,7 +373,7 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 		double[] mach = sampling.mach();
 		double[] alpha = sampling.alphaRad();
 		double[] beta = sampling.betaRad();
-		expectedCells = mach.length * alpha.length * beta.length;
+		expectedCells = mach.length * alpha.length * beta.length * poweredStatesFor(simulation).length;
 
 		SimulationTabLayoutUtils.setWrappingDisplayText(fidelityDescription, selected.description());
 		setAxis(machAxis, mach, 2, "", "Mach nodes: ");
@@ -369,7 +385,8 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 						&& m <= FullRegimeTableBuilder.SUPERSONIC_STENCIL_MAX_MACH)
 				.count();
 		SimulationTabLayoutUtils.setWrappingDisplayText(solvePoints, String.format(Locale.ROOT,
-				"%,d cells, plus %d supersonic Mach nodes pre-solved at 7-9 Reynolds anchors each. "
+				"%,d cells across explicit coast and powered states, plus %d supersonic Mach nodes "
+						+ "pre-solved at 7-9 Reynolds anchors each. "
 						+ "The anchors are what let the stored table be corrected for air density at "
 						+ "altitude without rebuilding it.",
 				expectedCells, stencils));
@@ -416,7 +433,7 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 		final Fidelity selected = selectedFidelity();
 		final int cells = expectedCells;
 		append("Building a " + selected.label() + " table: " + cells + " cells over Mach "
-				+ "0-7. This runs in the background and the current runtime mode is unchanged.");
+				+ "0-8. This runs in the background and the current runtime mode is unchanged.");
 		setStage(0, MARK_ACTIVE, null);
 
 		new SwingWorker<PhysicsAeroTableService.Result, Integer>() {
@@ -424,15 +441,16 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 			protected PhysicsAeroTableService.Result doInBackground() throws Exception {
 				SamplingConfiguration sampling = selected.sampling();
 				boolean turbulent = simulation.getOptions().isForceTurbulentBoundaryLayer();
+				PoweredFlowState[] poweredStates = poweredStatesFor(simulation);
 				String settingsFingerprint = PhysicsAeroSettingsFingerprint.hash(
 						new PhysicsAeroSettingsFingerprint.Input(sampling,
 								List.of(REFINEMENT_RULE),
 								new PhysicsConfiguration(PhysicsConfiguration.allRegisteredMethods(),
-										WALL_MODEL_ID, 0, false, turbulent),
+										WALL_MODEL_ID, 0, true, turbulent),
 								NumericalTolerances.defaults(),
 								FALLBACK_POLICY,
 								PhysicsAeroValidationGate.CODE_VERSION,
-								PhysicsAeroValidationGate.REGISTRY_VERSION, null));
+								PhysicsAeroValidationGate.REGISTRY_VERSION, poweredStates));
 				AeroGeometry geometry = new GeometryExtractor().extractWithComponentRoughness(
 						simulation.getActiveConfiguration(), WALL_MODEL_ID, settingsFingerprint, turbulent);
 
@@ -449,7 +467,8 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 						REFERENCE_PRESSURE_PA / (air.gasConstant() * REFERENCE_TEMPERATURE_K),
 						air.viscosity(REFERENCE_TEMPERATURE_K));
 				PhysicsAeroTableService.Request request = new PhysicsAeroTableService.Request(
-						geometry, sampling.mach(), sampling.alphaRad(), sampling.betaRad(), atmosphere, air,
+						geometry, sampling.mach(), sampling.alphaRad(), sampling.betaRad(), poweredStates,
+						atmosphere, air,
 						settingsFingerprint, table, report);
 				return new PhysicsAeroTableService().build(request, cancelled, this::publishProgress);
 			}
@@ -498,6 +517,25 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 				}
 			}
 		}.execute();
+	}
+
+	/**
+	 * Defines the complete runtime powered axis used by the GUI table builder.
+	 * A measured/imported nozzle diameter enables the RASAero nozzle-geometry
+	 * correlation.  Otherwise the powered endpoint is deliberately identical to
+	 * coast and is flagged POWERED_INCREMENT_UNMODELED by the table builder; no
+	 * nozzle dimension or powered drag increment is inferred.
+	 */
+	static PoweredFlowState[] poweredStatesFor(Simulation simulation) {
+		double nozzleDiameterM = simulation.getOptions().getNozzleExitDiameterForStage(0);
+		PoweredFlowState powered = Double.isFinite(nozzleDiameterM) && nozzleDiameterM > 0
+				? PoweredFlowState.nozzleGeometryOnly(1,
+						Math.PI * nozzleDiameterM * nozzleDiameterM / 4, REFERENCE_PRESSURE_PA)
+				: PoweredFlowState.unmodeledPoweredBaseline(REFERENCE_PRESSURE_PA);
+		return new PoweredFlowState[] {
+				PoweredFlowState.coast(REFERENCE_PRESSURE_PA),
+				powered
+		};
 	}
 
 	/**
@@ -686,8 +724,8 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 		PREVIEW("Preview", "Coarse grid for a quick look at the drag curve. Fewest solves, "
 				+ "least accurate between nodes.",
 				() -> sampling(
-						new double[] {0, 0.3, 0.6, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.2, 1.3, 1.5, 2, 3, 5, 6, 7},
-						new double[] {-15, -5, 0, 5, 15},
+						new double[] {0, 0.3, 0.6, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.2, 1.3, 1.5, 2, 3, 5, 6, 7, 8},
+						new double[] {-90, -15, -5, 0, 5, 15, 90},
 						new double[] {-5, 0, 5})),
 		STANDARD("Standard", "The validated flight-envelope grid, with extra nodes placed on every "
 				+ "regime handoff. Use this unless you have a reason not to.",
@@ -697,8 +735,9 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 				() -> sampling(
 						new double[] {0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.875, 0.9, 0.925,
 								0.95, 0.975, 1.0, 1.025, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.4, 1.5, 1.75, 2,
-								2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7},
-						new double[] {-15, -12, -10, -7.5, -5, -2.5, 0, 2.5, 5, 7.5, 10, 12, 15},
+								2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 8},
+						new double[] {-90, -75, -60, -45, -15, -12, -10, -7.5, -5, -2.5, 0,
+								2.5, 5, 7.5, 10, 12, 15, 45, 60, 75, 90},
 						new double[] {-5, -2.5, 0, 2.5, 5}));
 
 		private final String label;

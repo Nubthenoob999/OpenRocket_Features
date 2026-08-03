@@ -30,8 +30,8 @@ class FullRegimeReynoldsEnvelopeTest {
 		assertFalse(correction.requiresRebuild());
 		assertTrue(correction.supportsRatio(0.85),
 				"a typical elevated launch site must not immediately force fallback");
-		assertEquals(0.10, correction.minimumRatio(), 0,
-				"a natural-transition topology retains the validated one-decade envelope");
+		assertEquals(0.005, correction.minimumRatio(), 0,
+				"direct anchors resolve the natural-transition branch below two decades");
 		assertEquals(1.25, correction.maximumRatio(), 0);
 	}
 
@@ -55,6 +55,8 @@ class FullRegimeReynoldsEnvelopeTest {
 		assertTrue(correction.supportsRatio(0.85));
 		assertTrue(correction.supportsRatio(0.10),
 				"the zero-speed coefficient limit must not narrow a validated positive-Mach envelope");
+		assertTrue(correction.supportsRatio(0.005),
+				"the zero-speed coefficient limit must preserve the direct low-Reynolds anchor");
 	}
 
 	@Test
@@ -87,13 +89,8 @@ class FullRegimeReynoldsEnvelopeTest {
 			var reference = buildCell(geometry, mach);
 			for (double ratio : new double[] {0.5, 0.25, 0.10}) {
 				var direct = buildCell(geometry, mach, ratio);
-				double logRatio = Math.log(ratio);
 				double predicted = reference.coefficients().ca()
-						+ reference.runtimeCorrection().dCoefficientDLogRe()[0] * logRatio
-						+ reference.runtimeCorrection().dCoefficientDLogReSquared()[0]
-								* logRatio * logRatio
-						+ reference.runtimeCorrection().dCoefficientDLogReCubed()[0]
-								* logRatio * logRatio * logRatio;
+						+ reference.runtimeCorrection().coefficientDelta(ratio, 0);
 				double relativeError = Math.abs(predicted - direct.coefficients().ca())
 						/ Math.max(1e-9, Math.abs(direct.coefficients().ca()));
 				assertTrue(relativeError < 0.05,
@@ -101,6 +98,70 @@ class FullRegimeReynoldsEnvelopeTest {
 								+ " was " + relativeError);
 			}
 		}
+	}
+
+	@Test
+	void directlyValidatedCubicMayCrossNaturalTransitionTopology() {
+		AeroGeometry geometry = geometry(10);
+		double mach = 1.05;
+		var reference = buildCell(geometry, mach);
+		double ratio = 0.026649090734879335;
+		var direct = buildCell(geometry, mach, ratio);
+		double predicted = reference.coefficients().ca()
+				+ reference.runtimeCorrection().coefficientDelta(ratio, 0);
+
+		assertTrue(reference.runtimeCorrection().supportsRatio(ratio),
+				"a directly validated fit must remain usable across a natural-transition crossing");
+		assertTrue(Math.abs(predicted - direct.coefficients().ca())
+				/ Math.max(1e-9, Math.abs(direct.coefficients().ca())) < 0.05);
+	}
+
+	@Test
+	void naturalTransitionPiecewiseCorrectionTracksDirectVeryLowReynoldsSolutions() {
+		AeroGeometry geometry = geometry(10);
+		double mach = 0.1;
+		var reference = buildCell(geometry, mach);
+		for (double ratio : new double[] {0.05623413251903491, 0.03162277660168379,
+				0.01778279410038923, 0.01, 0.005}) {
+			var direct = buildCell(geometry, mach, ratio);
+			double predicted = reference.coefficients().ca()
+					+ reference.runtimeCorrection().coefficientDelta(ratio, 0);
+			double relativeError = Math.abs(predicted - direct.coefficients().ca())
+					/ Math.max(1e-9, Math.abs(direct.coefficients().ca()));
+			assertTrue(relativeError < 0.05,
+					"piecewise correction error at ratio=" + ratio + " was " + relativeError);
+		}
+		assertEquals(0.005, reference.runtimeCorrection().minimumRatio(), 0);
+	}
+
+	@Test
+	void highMachEnvelopeExtendsOnlyAcrossDirectlyValidatedLowReynoldsSolutions() {
+		AeroGeometry geometry = geometry(10);
+		double mach = 7.0;
+		var reference = buildCell(geometry, mach);
+		for (double ratio : new double[] {0.007071067811865476, 0.005}) {
+			var direct = buildCell(geometry, mach, ratio);
+			double predicted = reference.coefficients().ca()
+					+ reference.runtimeCorrection().coefficientDelta(ratio, 0);
+			double relativeError = Math.abs(predicted - direct.coefficients().ca())
+					/ Math.max(1e-9, Math.abs(direct.coefficients().ca()));
+			assertTrue(relativeError < 0.05,
+					"directly validated high-Mach correction error at ratio=" + ratio
+							+ " was " + relativeError);
+		}
+		assertEquals(1.0e-6, reference.runtimeCorrection().minimumRatio(), 0,
+				"the clean high-Mach closure is explicitly Reynolds invariant");
+		assertTrue(reference.runtimeCorrection().supportsRatio(1.0e-6));
+		assertTrue(java.util.Arrays.stream(reference.runtimeCorrection().dCoefficientDLogRe())
+				.allMatch(value -> value == 0));
+	}
+
+	@Test
+	void cleanMachFiveHandoffUsesTheExactReynoldsInvariantEndpoint() {
+		var correction = buildCell(geometry(10), 5.0).runtimeCorrection();
+		assertEquals(1.0e-6, correction.minimumRatio(), 0);
+		assertTrue(correction.supportsRatio(7.0e-6),
+				"interpolation above Mach 5 must not inherit a stale supersonic envelope");
 	}
 
 	@Test
@@ -115,13 +176,8 @@ class FullRegimeReynoldsEnvelopeTest {
 					: new double[] {0.5, 0.25, 0.10, 0.03162277660168379, 0.01};
 			for (double ratio : ratios) {
 				var direct = buildCell(geometry, mach, ratio);
-				double logRatio = Math.log(ratio);
 				double predicted = reference.coefficients().ca()
-						+ reference.runtimeCorrection().dCoefficientDLogRe()[0] * logRatio
-						+ reference.runtimeCorrection().dCoefficientDLogReSquared()[0]
-								* logRatio * logRatio
-						+ reference.runtimeCorrection().dCoefficientDLogReCubed()[0]
-								* logRatio * logRatio * logRatio;
+						+ reference.runtimeCorrection().coefficientDelta(ratio, 0);
 				double relativeError = Math.abs(predicted - direct.coefficients().ca())
 						/ Math.max(1e-9, Math.abs(direct.coefficients().ca()));
 				assertTrue(relativeError < 0.05,

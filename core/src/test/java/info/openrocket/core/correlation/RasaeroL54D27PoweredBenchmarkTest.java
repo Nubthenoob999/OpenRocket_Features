@@ -69,17 +69,22 @@ class RasaeroL54D27PoweredBenchmarkTest {
 	}
 
 	@Test
-	void nozzleGeometryOnlyStateScalesSourceIncrementByExitToBaseArea() {
+	void nozzleGeometryOnlyStateIsOwnedByRasaeroEmpiricalModel() {
 		var geometry = RasaeroBenchmarkFixtures.l54d27();
 		var atmosphere = RasaeroBenchmarkFixtures.standardAtmosphere();
 		double quarterBaseArea = 0.25 * geometry.references().exposedBaseAreaM2();
 		PoweredFlowState inferred = PoweredFlowState.nozzleGeometryOnly(
 				1, quarterBaseArea, atmosphere.pressurePa());
-		var result = new info.openrocket.core.aerodynamics.physicsaero.powered.PoweredBaseFlowModel()
+		var result = new info.openrocket.core.aerodynamics.physicsaero.powered.RasaeroPoweredNozzleDragModel()
 				.evaluate(geometry, 1.075, inferred);
-		assertEquals(0.25 * 0.107, result.totalDeltaCd(), 2e-6);
+		double coefficient = 0.1607 + (1.075 - 1.0) * -0.066666667;
+		assertEquals(-coefficient * quarterBaseArea
+				/ geometry.references().referenceAreaM2(), result.totalDeltaCd(), 2e-9);
 		org.junit.jupiter.api.Assertions.assertTrue(result.validityFlags()
-				.contains("NOZZLE_GEOMETRY_ONLY_REFERENCE_EXIT_MACH"));
+				.contains("RASAERO_NOZZLE_GEOMETRY_ONLY_POWER_ON_CORRELATION"));
+		assertThrows(IllegalArgumentException.class,
+				() -> new info.openrocket.core.aerodynamics.physicsaero.powered.PoweredBaseFlowModel()
+						.evaluate(geometry, 1.075, inferred));
 	}
 
 	@Test

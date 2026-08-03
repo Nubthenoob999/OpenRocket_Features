@@ -76,6 +76,10 @@ public final class TableWriter {
 		for (double value : correction.dCoefficientDLogRe()) out.writeDouble(value);
 		for (double value : correction.dCoefficientDLogReSquared()) out.writeDouble(value);
 		for (double value : correction.dCoefficientDLogReCubed()) out.writeDouble(value);
+		for (double value : correction.dCoefficientDLogReFourth()) out.writeDouble(value);
+		for (double value : correction.dCoefficientDLogReFifth()) out.writeDouble(value);
+		for (double value : correction.dCoefficientDLogReSixth()) out.writeDouble(value);
+		for (double value : correction.dCoefficientDLogReSeventh()) out.writeDouble(value);
 		out.writeBoolean(correction.topologySensitive()); out.writeUTF(correction.methodId());
 	}
 	private static void writeCoefficients(DataOutputStream out, AerodynamicCoefficients c) throws IOException { for (double v : c.toArray()) out.writeDouble(v); }

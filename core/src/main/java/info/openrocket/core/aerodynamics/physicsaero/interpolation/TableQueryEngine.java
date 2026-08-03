@@ -82,9 +82,23 @@ public final class TableQueryEngine {
 			RuntimeCorrectionData upper, double fraction) {
 		double reference = lower.referenceReynolds()
 				+ fraction * (upper.referenceReynolds() - lower.referenceReynolds());
-		if (lower.requiresRebuild() || upper.requiresRebuild()
-				|| !lower.methodId().equals(upper.methodId())) {
+		if (lower.referenceReynolds() == 0 && upper.referenceReynolds() > 0
+				&& !upper.requiresRebuild()) {
+			return scaledCorrection(upper, fraction, reference,
+					Math.max(lower.minimumRatio(), upper.minimumRatio()),
+					Math.min(lower.maximumRatio(), upper.maximumRatio()));
+		}
+		if (upper.referenceReynolds() == 0 && lower.referenceReynolds() > 0
+				&& !lower.requiresRebuild()) {
+			return scaledCorrection(lower, 1 - fraction, reference,
+					Math.max(lower.minimumRatio(), upper.minimumRatio()),
+					Math.min(lower.maximumRatio(), upper.maximumRatio()));
+		}
+		if (lower.requiresRebuild() || upper.requiresRebuild()) {
 			return RuntimeCorrectionData.rebuildRequired(Math.max(0, reference));
+		}
+		if (!lower.methodId().equals(upper.methodId())) {
+			return withReference(fraction < 0.5 ? lower : upper, reference);
 		}
 		/*
 		 * The validity bounds are local ratios Re/Re_ref, not absolute Reynolds
@@ -107,16 +121,60 @@ public final class TableQueryEngine {
 		double[] a = lower.dCoefficientDLogRe(), b = upper.dCoefficientDLogRe();
 		double[] a2 = lower.dCoefficientDLogReSquared(), b2 = upper.dCoefficientDLogReSquared();
 		double[] a3 = lower.dCoefficientDLogReCubed(), b3 = upper.dCoefficientDLogReCubed();
+		double[] a4 = lower.dCoefficientDLogReFourth(), b4 = upper.dCoefficientDLogReFourth();
+		double[] a5 = lower.dCoefficientDLogReFifth(), b5 = upper.dCoefficientDLogReFifth();
+		double[] a6 = lower.dCoefficientDLogReSixth(), b6 = upper.dCoefficientDLogReSixth();
+		double[] a7 = lower.dCoefficientDLogReSeventh(), b7 = upper.dCoefficientDLogReSeventh();
 		double[] sensitivity = new double[6];
 		double[] curvature = new double[6];
 		double[] cubic = new double[6];
+		double[] fourth = new double[6];
+		double[] fifth = new double[6];
+		double[] sixth = new double[6];
+		double[] seventh = new double[6];
 		for (int index = 0; index < sensitivity.length; index++) {
 			sensitivity[index] = a[index] + fraction * (b[index] - a[index]);
 			curvature[index] = a2[index] + fraction * (b2[index] - a2[index]);
 			cubic[index] = a3[index] + fraction * (b3[index] - a3[index]);
+			fourth[index] = a4[index] + fraction * (b4[index] - a4[index]);
+			fifth[index] = a5[index] + fraction * (b5[index] - a5[index]);
+			sixth[index] = a6[index] + fraction * (b6[index] - a6[index]);
+			seventh[index] = a7[index] + fraction * (b7[index] - a7[index]);
 		}
 		return new RuntimeCorrectionData(reference, minimumRatio,
-				maximumRatio, sensitivity, curvature, cubic, false, lower.methodId());
+				maximumRatio, sensitivity, curvature, cubic, fourth, fifth, sixth, seventh,
+				false, lower.methodId());
+	}
+	private static RuntimeCorrectionData scaledCorrection(RuntimeCorrectionData source,
+			double scale, double reference, double minimumRatio, double maximumRatio) {
+		double[] first = source.dCoefficientDLogRe();
+		double[] second = source.dCoefficientDLogReSquared();
+		double[] third = source.dCoefficientDLogReCubed();
+		double[] fourth = source.dCoefficientDLogReFourth();
+		double[] fifth = source.dCoefficientDLogReFifth();
+		double[] sixth = source.dCoefficientDLogReSixth();
+		double[] seventh = source.dCoefficientDLogReSeventh();
+		for (int index = 0; index < first.length; index++) {
+			first[index] *= scale;
+			second[index] *= scale;
+			third[index] *= scale;
+			fourth[index] *= scale;
+			fifth[index] *= scale;
+			sixth[index] *= scale;
+			seventh[index] *= scale;
+		}
+		return new RuntimeCorrectionData(reference, minimumRatio,
+				maximumRatio, first, second, third, fourth, fifth, sixth, seventh,
+				false, source.methodId());
+	}
+	private static RuntimeCorrectionData withReference(RuntimeCorrectionData source,
+			double reference) {
+		return new RuntimeCorrectionData(reference, source.minimumRatio(),
+				source.maximumRatio(), source.dCoefficientDLogRe(),
+				source.dCoefficientDLogReSquared(), source.dCoefficientDLogReCubed(),
+				source.dCoefficientDLogReFourth(), source.dCoefficientDLogReFifth(),
+				source.dCoefficientDLogReSixth(), source.dCoefficientDLogReSeventh(),
+				false, source.methodId());
 	}
 	private static double lowest(TableCell cell) {
 		return java.util.Arrays.stream(cell.confidence()).min().orElse(Double.NaN);

@@ -119,7 +119,6 @@ public class WeathercockingLaunchAuditTest {
 	private static Simulation loadSource(LaunchCase launchCase) throws Exception {
 		ensureApplicationInjector();
 		File file = resolveOrkFile(launchCase);
-		Assumptions.assumeTrue(file.isFile(), "External weathercocking fixture is not available: " + file);
 		GeneralRocketLoader loader = new GeneralRocketLoader(file);
 		OpenRocketDocument document = loader.load();
 		if (document.getSimulations().isEmpty()) {

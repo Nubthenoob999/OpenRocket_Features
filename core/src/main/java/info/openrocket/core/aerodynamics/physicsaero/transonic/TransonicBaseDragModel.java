@@ -1,5 +1,7 @@
 package info.openrocket.core.aerodynamics.physicsaero.transonic;
 
+import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroGeometry;
+
 /**
  * Sting-free, unpowered blunt-base pressure correlation through the transonic
  * overlap.  The baseline is the faired Configuration-A free-flight curve from
@@ -14,7 +16,7 @@ package info.openrocket.core.aerodynamics.physicsaero.transonic;
  * zero.  It is an incremental correction, not part of the Hart baseline.
  */
 public final class TransonicBaseDragModel {
-	public static final String METHOD_ID = "NACA_RM_L52E06_TRANSONIC_BASE_CP_V3";
+	public static final String METHOD_ID = "NACA_RM_L52E06_TRANSONIC_BASE_CP_V4";
 	private static final double[] MACH = {
 			0.70, 0.80, 0.85, 0.90, 0.95, 1.00, 1.05,
 			1.08, 1.10, 1.15, 1.20, 1.25, 1.30
@@ -42,6 +44,26 @@ public final class TransonicBaseDragModel {
 		double baseline = mach <= MACH[MACH.length - 1]
 				? interpolate(mach) : supersonicHandoff(mach);
 		return -Math.min(0.45, baseline + 0.30 * displacementRatio);
+	}
+
+	/**
+	 * Applies the classic cubic base-diameter scaling to Hart's full-caliber
+	 * pressure-drag curve.  The cubic law accounts for both pressure area and
+	 * the reduced wake-pressure deficit of a smaller aft diameter.
+	 */
+	public double dragCoefficient(AeroGeometry geometry, double mach,
+			double displacementRatio) {
+		if (geometry == null) {
+			throw new IllegalArgumentException("geometry is required");
+		}
+		double maximumDiameter = geometry.references().maximumBodyDiameterM();
+		double maximumArea = Math.PI * maximumDiameter * maximumDiameter / 4;
+		double baseDiameter = 2 * Math.sqrt(
+				geometry.references().exposedBaseAreaM2() / Math.PI);
+		double diameterRatio = Math.min(1, baseDiameter / maximumDiameter);
+		return -basePressureCoefficient(mach, displacementRatio)
+				* Math.pow(diameterRatio, 3)
+				* maximumArea / geometry.references().referenceAreaM2();
 	}
 
 	/**

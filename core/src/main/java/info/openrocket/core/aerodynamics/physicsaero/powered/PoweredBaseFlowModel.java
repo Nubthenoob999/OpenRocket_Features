@@ -30,6 +30,10 @@ public final class PoweredBaseFlowModel {
 		if (!powered.powered()) {
 			return new PoweredFlowResult(0, 0, 0, 0, List.of(METHOD_ID), List.of("COAST_STATE"));
 		}
+		if (powered.resolution() == PoweredFlowState.Resolution.NOZZLE_GEOMETRY_ONLY) {
+			throw new IllegalArgumentException(
+					"NOZZLE_GEOMETRY_ONLY_REQUIRES_RASAERO_POWERED_MODEL");
+		}
 		if (!supportsMach(freestreamMach)) {
 			throw new IllegalArgumentException("OUTSIDE_L54D27_POWERED_TRANSONIC_RANGE");
 		}
@@ -40,8 +44,7 @@ public final class PoweredBaseFlowModel {
 				/ geometry.references().referenceAreaM2();
 		double nozzleFillRatio = Math.min(1, powered.nozzleExitAreaM2()
 				/ geometry.references().exposedBaseAreaM2());
-		double exitMachFactor = powered.hasResolvedNozzleState()
-				? powered.nozzleExitMach() / REFERENCE_EXIT_MACH : 1;
+		double exitMachFactor = powered.nozzleExitMach() / REFERENCE_EXIT_MACH;
 		double jetScale = nozzleFillRatio * exitMachFactor;
 		double base = 0.022 * (areaRatio / REFERENCE_BASE_AREA_RATIO) * jetScale;
 
@@ -62,13 +65,8 @@ public final class PoweredBaseFlowModel {
 		base *= powered.poweredFraction() * machWeight;
 		boattail *= powered.poweredFraction() * machWeight;
 		plume *= powered.poweredFraction() * machWeight;
-		List<String> validity = powered.hasResolvedNozzleState()
-				? List.of("SOURCE_CALIBRATED_POWERED_FLOW", "EXPLICIT_POWERED_LEDGER",
-						"NOZZLE_TO_BASE_AREA_SCALING")
-				: List.of("SOURCE_CALIBRATED_POWERED_FLOW", "EXPLICIT_POWERED_LEDGER",
-						"NOZZLE_TO_BASE_AREA_SCALING",
-						"NOZZLE_GEOMETRY_ONLY_REFERENCE_EXIT_MACH",
-						"LOW_CONFIDENCE_POWERED_FLOW");
+		List<String> validity = List.of("SOURCE_CALIBRATED_POWERED_FLOW",
+				"EXPLICIT_POWERED_LEDGER", "NOZZLE_TO_BASE_AREA_SCALING");
 		return new PoweredFlowResult(base + boattail + plume, base, boattail, plume,
 				List.of(METHOD_ID), validity);
 	}

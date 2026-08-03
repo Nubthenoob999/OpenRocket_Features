@@ -58,15 +58,41 @@ class PhysicsAeroRuntimeAdapterTest {
 		assertEquals(0.2 * Math.cos(ALPHA) * Math.cos(BETA)
 				+ 0.2 * Math.sin(ALPHA) * Math.cos(BETA) + 0.3 * Math.sin(BETA),
 				forces.getCD(), 1e-12);
-		assertEquals(0.2, forces.getCN(), 1e-12);
-		assertEquals(0.3, forces.getCside(), 1e-12);
+		assertEquals(0.2 * Math.cos(Math.PI / 4) + 0.3 * Math.sin(Math.PI / 4),
+				forces.getCN(), 1e-12);
+		assertEquals(0.3 * Math.cos(Math.PI / 4) - 0.2 * Math.sin(Math.PI / 4),
+				forces.getCside(), 1e-12);
 		assertEquals(0.01 - 0.2 * conditions.getRollRate() * rateScale, forces.getCroll(), 1e-12);
-		assertEquals(-0.1 - 0.3 * conditions.getPitchRate() * rateScale, forces.getCm(), 1e-12);
-		assertEquals(-0.05 - 0.4 * conditions.getYawRate() * rateScale, forces.getCyaw(), 1e-12);
+		assertEquals(0.15 * Math.sin(Math.PI / 4)
+				- 0.3 * conditions.getPitchRate() * rateScale, forces.getCm(), 1e-12);
+		assertEquals(-0.05 * Math.sin(Math.PI / 4)
+				- 0.4 * conditions.getYawRate() * rateScale, forces.getCyaw(), 1e-12);
 		assertEquals(0.5, forces.getCP().getX(), 1e-12);
 		assertEquals(2.0, forces.getCP().getWeight(), 1e-12);
 		assertEquals(1, calculator.getRuntimeReport().successfulTableQueries());
 		assertEquals(0, calculator.getRuntimeReport().fallbackCount());
+	}
+
+	@Test
+	void convertsPhysicalAftCpPitchTorqueToOpenRocketRestoringMoment() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		conditions.setAOA(ALPHA);
+		conditions.setTheta(0);
+		conditions.setPitchRate(0);
+		PhysicsAeroAerodynamicCalculator calculator = new PhysicsAeroAerodynamicCalculator(
+				table(reynolds(conditions)), "geometry", "settings", "content", PhysicsAeroMode.STRICT, null);
+
+		AerodynamicForces forces = calculator.getAerodynamicForces(configuration, conditions, new WarningSet());
+		double centerOfGravityM = 0.25;
+		double momentAboutCg = forces.getCm()
+				- forces.getCN() * centerOfGravityM / conditions.getRefLength();
+
+		// The source table has CN = 2 alpha and physical Cm = -alpha, i.e. xCP = 0.5 m.
+		assertEquals(0.5, forces.getCP().getX(), 1e-12);
+		assertEquals(0.1, forces.getCm(), 1e-12);
+		assertEquals(0.05, momentAboutCg, 1e-12);
+		assertTrue(momentAboutCg > 0, "an aft CP must produce OpenRocket's restoring pitch moment");
 	}
 
 	@Test
@@ -100,7 +126,7 @@ class PhysicsAeroRuntimeAdapterTest {
 		PhysicsAeroAerodynamicCalculator hybrid = new PhysicsAeroAerodynamicCalculator(
 				table(referenceReynolds), "geometry", "settings", "content",
 				PhysicsAeroMode.DIAGNOSTIC_HYBRID, new BarrowmanCalculator());
-		hybrid.setSimulationAerodynamicsContext(new SimulationAerodynamicsContext(1, true, 100, 1, 101325));
+		hybrid.setSimulationAerodynamicsContext(new SimulationAerodynamicsContext(1, true, 100, 1, 101325, true));
 		hybrid.getAerodynamicForces(configuration, conditions, new WarningSet());
 		assertTrue(hybrid.getRuntimeReport().runtimeFlags()
 				.contains(PhysicsAeroRuntimeFlag.POWERED_STATE_FALLBACK));
@@ -113,6 +139,26 @@ class PhysicsAeroRuntimeAdapterTest {
 		assertEquals(1, corrected.getRuntimeReport().reynoldsCorrectedQueries());
 		assertTrue(corrected.getRuntimeReport().runtimeFlags()
 				.contains(PhysicsAeroRuntimeFlag.RUNTIME_REYNOLDS_CORRECTION_USED));
+	}
+
+	@Test
+	void lowDensityRuntimeHoldsTheLastDirectlyValidatedReynoldsBoundary() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		double runtimeReynolds = reynolds(conditions);
+		double runtimeRatio = 7.0e-6;
+		PhysicsAeroAerodynamicCalculator calculator = new PhysicsAeroAerodynamicCalculator(
+				table(runtimeReynolds / runtimeRatio, 0.01), "geometry", "settings", "content",
+				PhysicsAeroMode.STRICT, null);
+
+		AerodynamicForces forces = calculator.getAerodynamicForces(
+				configuration, conditions, new WarningSet());
+
+		assertEquals(0.2 + 0.01 * Math.log(0.01), forces.getCDaxial(), 1e-12,
+				"the correction must be held at the validated 0.01 anchor, not extrapolated");
+		assertEquals(0, calculator.getRuntimeReport().fallbackCount());
+		assertTrue(calculator.getRuntimeReport().runtimeFlags().contains(
+				PhysicsAeroRuntimeFlag.LOW_DENSITY_REYNOLDS_SOURCE_BOUNDARY_HOLD));
 	}
 
 	@Test
@@ -161,6 +207,67 @@ class PhysicsAeroRuntimeAdapterTest {
 				.contains(PhysicsAeroRuntimeFlag.AXIAL_INCIDENCE_SYMMETRY_PROJECTION));
 	}
 
+	@Test
+	void launchGuideUsesOnlyTableAxialLoadAtAxialDynamicPressure() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		conditions.setAOA(Math.toRadians(60));
+		conditions.setTheta(0);
+		conditions.setRollRate(0);
+		conditions.setPitchRate(0);
+		conditions.setYawRate(0);
+		PhysicsAeroAerodynamicCalculator strict = new PhysicsAeroAerodynamicCalculator(
+				table(reynolds(conditions)), "geometry", "settings", "content",
+				PhysicsAeroMode.STRICT, null);
+		strict.setSimulationAerodynamicsContext(new SimulationAerodynamicsContext(
+				0, false, 0, 0, 101325, false));
+
+		AerodynamicForces forces = strict.getAerodynamicForces(
+				configuration, conditions, new WarningSet());
+
+		assertEquals(0.2 * Math.pow(Math.cos(Math.toRadians(60)), 2),
+				forces.getCDaxial(), 1e-12);
+		assertEquals(0, forces.getCN(), 1e-12);
+		assertEquals(0, forces.getCside(), 1e-12);
+		assertEquals(0, forces.getCm(), 1e-12);
+		assertEquals(0, forces.getCyaw(), 1e-12);
+		assertEquals(1, strict.getRuntimeReport().successfulTableQueries());
+		assertEquals(0, strict.getRuntimeReport().fallbackCount());
+		assertTrue(strict.getRuntimeReport().runtimeFlags().contains(
+				PhysicsAeroRuntimeFlag.LAUNCH_GUIDE_AXIAL_TABLE_PROJECTION));
+	}
+
+	@Test
+	void strictRuntimeReconstructsOutOfRangeBetaFromTotalIncidenceAtAllMach() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		double rawAlpha = Math.toRadians(1.2);
+		double rawBeta = Math.toRadians(5.2);
+		conditions.setMach(1.1);
+		conditions.setAOA(Math.hypot(rawAlpha, rawBeta));
+		conditions.setTheta(Math.atan2(rawBeta, rawAlpha));
+		conditions.setPitchRate(0);
+		conditions.setYawRate(0);
+		double referenceReynolds = reynolds(conditions);
+		AerodynamicTable narrowBeta = table(referenceReynolds, 1.1,
+				new double[] {-Math.toRadians(15), 0, Math.toRadians(15)},
+				new double[] {-Math.toRadians(5), 0, Math.toRadians(5)});
+		PhysicsAeroAerodynamicCalculator strict = new PhysicsAeroAerodynamicCalculator(
+				narrowBeta, "geometry", "settings", "content", PhysicsAeroMode.STRICT, null);
+
+		AerodynamicForces forces = strict.getAerodynamicForces(
+				configuration, conditions, new WarningSet());
+
+		assertEquals(2 * Math.hypot(rawAlpha, rawBeta), forces.getCN(), 2e-4);
+		assertEquals(0, forces.getCside(), 2e-4);
+		assertEquals(Math.hypot(rawAlpha, rawBeta), forces.getCm(), 1e-4);
+		assertEquals(0, forces.getCyaw(), 1e-4);
+		assertEquals(0.5, forces.getCP().getX(), 1e-12);
+		assertEquals(0, strict.getRuntimeReport().fallbackCount());
+		assertTrue(strict.getRuntimeReport().runtimeFlags().contains(
+				PhysicsAeroRuntimeFlag.INCIDENCE_AZIMUTH_RECONSTRUCTION));
+	}
+
 	private static FlightConditions queryConditions(FlightConfiguration configuration) {
 		FlightConditions conditions = new FlightConditions(configuration);
 		conditions.setRefLength(1);
@@ -179,16 +286,33 @@ class PhysicsAeroRuntimeAdapterTest {
 	}
 
 	private static AerodynamicTable table(double referenceReynolds) {
-		return table(referenceReynolds, new double[] {-ALPHA, ALPHA},
+		return table(referenceReynolds, .5, 1, new double[] {-ALPHA, ALPHA},
+				new double[] {-BETA, BETA});
+	}
+
+	private static AerodynamicTable table(double referenceReynolds, double minimumRatio) {
+		return table(referenceReynolds, minimumRatio, 1, new double[] {-ALPHA, ALPHA},
 				new double[] {-BETA, BETA});
 	}
 
 	private static AerodynamicTable table(double referenceReynolds, double[] alphaAxis,
 			double[] betaAxis) {
-		TableAxes axes = new TableAxes(new double[] {1}, alphaAxis, betaAxis, new double[] {0});
+		return table(referenceReynolds, .5, 1, alphaAxis, betaAxis);
+	}
+
+	private static AerodynamicTable table(double referenceReynolds, double mach,
+			double[] alphaAxis, double[] betaAxis) {
+		return table(referenceReynolds, .5, mach, alphaAxis, betaAxis);
+	}
+
+	private static AerodynamicTable table(double referenceReynolds, double minimumRatio,
+			double mach, double[] alphaAxis, double[] betaAxis) {
+		TableAxes axes = new TableAxes(new double[] {mach}, alphaAxis, betaAxis, new double[] {0});
 		List<TableCell> cells = new ArrayList<>();
 		for (double alpha : axes.alphaRad()) {
-			for (double beta : axes.betaRad()) cells.add(cell(alpha, beta, referenceReynolds));
+			for (double beta : axes.betaRad()) {
+				cells.add(cell(alpha, beta, referenceReynolds, minimumRatio));
+			}
 		}
 		TableMetadata metadata = new TableMetadata(TableMetadata.CURRENT_SCHEMA, "geometry", "settings",
 				"code", "registry", TableMetadata.REQUIRED_UNITS,
@@ -198,14 +322,19 @@ class PhysicsAeroRuntimeAdapterTest {
 	}
 
 	private static TableCell cell(double alpha, double beta, double referenceReynolds) {
+		return cell(alpha, beta, referenceReynolds, .5);
+	}
+
+	private static TableCell cell(double alpha, double beta, double referenceReynolds,
+			double minimumRatio) {
 		AerodynamicCoefficients coefficients = new AerodynamicCoefficients(
-				0.2, 2 * alpha, 3 * beta, 0.01, -alpha, -0.5 * beta);
+				0.2, 2 * alpha, 3 * beta, 0.01, -alpha, 0.5 * beta);
 		return new TableCell(coefficients, Map.of("vehicle", coefficients), Map.of("ALL", coefficients),
 				List.of("TEST_SIX_AXIS"), new double[] {.9, .9, .9, .9, .9, .9},
 				new double[] {.1, .1, .1, .1, .1, .1}, List.of("COAST_STATE"),
 				new ReferenceState(1000, 1, 1, new Coordinate()), CellDiagnostics.direct(), true,
 				new AerodynamicDerivatives(-0.2, -0.3, -0.4),
-				new RuntimeCorrectionData(referenceReynolds, .5, 2,
+				new RuntimeCorrectionData(referenceReynolds, minimumRatio, 2,
 						new double[] {.01, 0, 0, 0, 0, 0}, false, "TEST_LOG_RE"));
 	}
 }

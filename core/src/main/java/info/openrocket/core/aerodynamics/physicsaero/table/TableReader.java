@@ -56,7 +56,9 @@ public final class TableReader {
 		boolean directlyGenerated = in.readBoolean();
 		AerodynamicDerivatives derivatives = new AerodynamicDerivatives(in.readDouble(), in.readDouble(), in.readDouble());
 		RuntimeCorrectionData correction = new RuntimeCorrectionData(in.readDouble(), in.readDouble(), in.readDouble(),
-				readSix(in), readSix(in), readSix(in), in.readBoolean(), in.readUTF());
+				readSix(in), readSix(in), readSix(in), readSix(in), readSix(in), readSix(in),
+				readSix(in),
+				in.readBoolean(), in.readUTF());
 		return new TableCell(coefficients, components, owners, methods, confidence, uncertainty, validity, reference,
 				new CellDiagnostics(flags, reasons, fallback, method, reason, messages), directlyGenerated, derivatives,
 				correction);

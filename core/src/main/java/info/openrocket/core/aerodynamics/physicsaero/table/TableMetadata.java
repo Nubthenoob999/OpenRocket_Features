@@ -13,7 +13,7 @@ public record TableMetadata(String schemaVersion, String geometryHash, String se
 		String codeVersion, String correlationRegistryVersion, String units,
 		String axisConvention, Map<String, Double> references,
 		Map<String, Double> tolerances, CertificationState certificationState) {
-	public static final String CURRENT_SCHEMA = "physics-aero-table/5";
+	public static final String CURRENT_SCHEMA = "physics-aero-table/8";
 	public static final String REQUIRED_UNITS = "SI;radians";
 	public static final String REQUIRED_AXIS_CONVENTION = "OPENROCKET_BODY_AXES_V1";
 

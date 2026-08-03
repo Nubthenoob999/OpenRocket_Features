@@ -59,6 +59,40 @@ class ProtuberanceDragModelTest {
 	}
 
 	@Test
+	void rasaeroRailGuideUsesDocumentedPairCorrelationWithoutChangingNativeButtons() {
+		double diameter = 1.5 * 0.0254;
+		double totalHeight = 0.7 * 0.0254;
+		AeroGeometry geometry = geometry(rasaeroRailGuide(
+				"rasaero-guide", diameter, totalHeight));
+		var result = new ProtuberanceDragModel().evaluate(geometry,
+				flow(geometry, 2.0));
+		double referenceArea = Math.PI * 0.05 * 0.05;
+
+		assertEquals(5.625 * diameter * totalHeight / referenceArea,
+				result.totalCd(), 1.0e-12);
+		assertEquals(ProtuberanceDragModel.RASAERO_RAIL_GUIDE_METHOD_ID,
+				result.components().get(0).methodId());
+	}
+
+	@Test
+	void rasaeroRailGuideCorrelationIsContinuousAcrossTransonicJoin() {
+		AeroGeometry geometry = geometry(rasaeroRailGuide(
+				"rasaero-guide", 0.02, 0.01));
+		var model = new ProtuberanceDragModel();
+		double belowNineTenths = model.evaluate(geometry,
+				flow(geometry, 0.9 - 1.0e-9)).totalCd();
+		double aboveNineTenths = model.evaluate(geometry,
+				flow(geometry, 0.9 + 1.0e-9)).totalCd();
+		double belowOneOhFive = model.evaluate(geometry,
+				flow(geometry, 1.05 - 1.0e-9)).totalCd();
+		double aboveOneOhFive = model.evaluate(geometry,
+				flow(geometry, 1.05 + 1.0e-9)).totalCd();
+
+		assertEquals(belowNineTenths, aboveNineTenths, 1.0e-9);
+		assertEquals(belowOneOhFive, aboveOneOhFive, 1.0e-9);
+	}
+
+	@Test
 	void coefficientClosuresRemainFiniteAndContinuousAtSonicMach() {
 		AeroGeometry geometry = geometry(launchLug("lug", 0.08));
 		var model = new ProtuberanceDragModel();
@@ -80,6 +114,15 @@ class ProtuberanceDragModelTest {
 		return component(id, x, diameter,
 				new ProtuberanceGeometry("RAIL_BUTTON", 2, x, diameter, height,
 						2 * diameter * height, 2 * Math.PI * diameter * diameter / 4),
+				Map.of());
+	}
+
+	private static AeroComponent rasaeroRailGuide(String id, double diameter,
+			double totalHeight) {
+		return component(id, 0.4, diameter,
+				new ProtuberanceGeometry("RASAERO_RAIL_GUIDE", 2, 0.4,
+						diameter, totalHeight, diameter * totalHeight,
+						2 * Math.PI * diameter * diameter / 4),
 				Map.of());
 	}
 

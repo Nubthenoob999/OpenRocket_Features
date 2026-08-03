@@ -49,7 +49,7 @@ public class PinkNoiseWindModel implements WindModel {
 	private double direction = Math.PI / 2; // this is an East wind
 	private double standardDeviation = 0;
 
-	private final int seed;
+	private int seed;
 
 	private PinkNoise randomSource = null;
 	private double time1;
@@ -63,7 +63,16 @@ public class PinkNoiseWindModel implements WindModel {
 	 * @param seed the seed value.
 	 */
 	public PinkNoiseWindModel(int seed) {
+		reseed(seed);
+	}
+
+	/**
+	 * Restarts the stochastic wind realization from a caller-selected seed while
+	 * preserving the configured mean, direction, and standard deviation.
+	 */
+	public void reseed(int seed) {
 		this.seed = seed ^ SEED_RANDOMIZATION;
+		reset();
 	}
 
 	public PinkNoiseWindModel() {

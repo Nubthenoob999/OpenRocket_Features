@@ -13,6 +13,9 @@ import java.util.Deque;
 import java.util.function.Predicate;
 
 import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -31,6 +34,7 @@ import com.google.inject.Module;
 import com.google.inject.util.Modules;
 
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.flow.PoweredFlowState;
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.document.OpenRocketDocumentFactory;
 import info.openrocket.core.document.Simulation;
@@ -96,16 +100,54 @@ public class PhysicsAeroExperimentalPanelTest {
 	public void testDomainSummaryReportsTheSolverWorkForTheSelectedGrid() throws Exception {
 		PhysicsAeroExperimentalPanel panel = createPanel(new Simulation(rocketDocument().getRocket()));
 
-		JTextArea solveWork = findTextContaining(panel, "cells, plus");
+		JTextArea solveWork = findTextContaining(panel, "cells across explicit coast and powered states");
 		assertNotNull(solveWork, "The tab should say how many cells the selected grid solves");
-		assertTrue(solveWork.getText().startsWith("462 cells"),
-				"Standard should describe the 22x7x3 flight-domain grid, but said: " + solveWork.getText());
+		assertTrue(solveWork.getText().startsWith("3,450 cells"),
+				"Standard should describe the 23x25x3x2 flight-domain grid, but said: " + solveWork.getText());
 
 		JComboBox<?> grid = findComboBoxOf(panel, Fidelity.class);
 		assertNotNull(grid);
 		SwingUtilities.invokeAndWait(() -> grid.setSelectedItem(Fidelity.PREVIEW));
-		assertTrue(solveWork.getText().startsWith("255 cells"),
+		assertTrue(solveWork.getText().startsWith("756 cells"),
 				"Switching to Preview should update the reported work, but said: " + solveWork.getText());
+	}
+
+	@Test
+	public void testGuiTableAlwaysCoversCoastAndPoweredRuntimeStatesWithoutGuessingNozzleData() {
+		Simulation simulation = new Simulation(rocketDocument().getRocket());
+		PoweredFlowState[] states = PhysicsAeroExperimentalPanel.poweredStatesFor(simulation);
+
+		assertEquals(2, states.length);
+		assertEquals(0, states[0].poweredFraction(), 0);
+		assertEquals(1, states[1].poweredFraction(), 0);
+		assertEquals(PoweredFlowState.Resolution.NONE, states[1].resolution());
+		assertEquals(0, states[1].nozzleExitAreaM2(), 0,
+				"Missing nozzle data must remain missing instead of being estimated");
+	}
+
+	@Test
+	public void testGuiTableUsesSuppliedNozzleDiameterForRasaeroPoweredState() {
+		Simulation simulation = new Simulation(rocketDocument().getRocket());
+		simulation.getOptions().setNozzleExitDiameterForStage(0, 0.038);
+
+		PoweredFlowState powered = PhysicsAeroExperimentalPanel.poweredStatesFor(simulation)[1];
+		assertEquals(PoweredFlowState.Resolution.NOZZLE_GEOMETRY_ONLY, powered.resolution());
+		assertEquals(Math.PI * 0.038 * 0.038 / 4, powered.nozzleExitAreaM2(), 1e-15);
+	}
+
+	@Test
+	public void testModeSelectorOffersOnlyTheThreeUserFacingTableChoices() throws Exception {
+		PhysicsAeroExperimentalPanel panel = createPanel(new Simulation(rocketDocument().getRocket()));
+
+		JComboBox<?> mode = findComboBoxOf(panel, PhysicsAeroMode.class);
+		assertNotNull(mode);
+		assertEquals(3, mode.getItemCount());
+		assertEquals(PhysicsAeroMode.OFF, mode.getItemAt(0));
+		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, mode.getItemAt(1));
+		assertEquals(PhysicsAeroMode.STRICT, mode.getItemAt(2));
+		assertEquals("No table", renderedLabel(mode, 0));
+		assertEquals("Table with Barrowman fallback (diagnostic)", renderedLabel(mode, 1));
+		assertEquals("Table only", renderedLabel(mode, 2));
 	}
 
 	@Test
@@ -120,10 +162,26 @@ public class PhysicsAeroExperimentalPanelTest {
 		assertNotNull(findTextContaining(panel, "built-in Barrowman method"),
 				"The Off mode should be explained in plain language");
 
+		SwingUtilities.invokeAndWait(() -> mode.setSelectedItem(PhysicsAeroMode.DIAGNOSTIC_HYBRID));
+		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, simulation.getOptions().getPhysicsAeroMode());
+
 		SwingUtilities.invokeAndWait(() -> mode.setSelectedItem(PhysicsAeroMode.STRICT));
 		assertEquals(PhysicsAeroMode.STRICT, simulation.getOptions().getPhysicsAeroMode());
 		assertNotNull(findTextContaining(panel, "the simulation stops instead"),
 				"Strict mode should explain that a missing lookup aborts the run");
+	}
+
+	@Test
+	public void testLegacyDragOnlyModeIsMappedToTheUserFacingFallbackMode() throws Exception {
+		Simulation simulation = new Simulation(rocketDocument().getRocket());
+		simulation.getOptions().setPhysicsAeroMode(PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID);
+
+		PhysicsAeroExperimentalPanel panel = createPanel(simulation);
+		JComboBox<?> mode = findComboBoxOf(panel, PhysicsAeroMode.class);
+
+		assertNotNull(mode);
+		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, mode.getSelectedItem());
+		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, simulation.getOptions().getPhysicsAeroMode());
 	}
 
 	@Test
@@ -208,6 +266,14 @@ public class PhysicsAeroExperimentalPanelTest {
 	private static JComboBox<?> findComboBoxOf(Container root, Class<?> itemType) {
 		return find(root, JComboBox.class, combo -> combo.getItemCount() > 0
 				&& itemType.isInstance(combo.getItemAt(0)));
+	}
+
+	@SuppressWarnings("unchecked")
+	private static String renderedLabel(JComboBox<?> combo, int index) {
+		ListCellRenderer<Object> renderer = (ListCellRenderer<Object>) combo.getRenderer();
+		Component rendered = renderer.getListCellRendererComponent(
+				new JList<>(), combo.getItemAt(index), index, false, false);
+		return ((JLabel) rendered).getText();
 	}
 
 	private static JPanel findTitledPanel(Container root, String titleFragment) {

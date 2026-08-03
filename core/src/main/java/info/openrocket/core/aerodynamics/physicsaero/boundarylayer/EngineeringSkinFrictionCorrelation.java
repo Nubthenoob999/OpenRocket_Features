@@ -5,8 +5,6 @@ import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroComponent;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroGeometry;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.FinGeometry;
-import info.openrocket.core.aerodynamics.physicsaero.thermal.RecoveryTemperatureModel;
-import info.openrocket.core.aerodynamics.physicsaero.thermal.VanDriestIITransformation;
 
 /**
  * Average flat-plate skin-friction closure used where a resolved boundary-layer
@@ -20,11 +18,15 @@ import info.openrocket.core.aerodynamics.physicsaero.thermal.VanDriestIITransfor
  * vehicle reference area.</p>
  */
 public final class EngineeringSkinFrictionCorrelation {
-	public static final String METHOD_ID = "PRANDTL_SCHLICHTING_DATCOM_SKIN_FRICTION_V3";
+	public static final String METHOD_ID =
+			"PRANDTL_SCHLICHTING_DATCOM_RASAERO_COMPRESSIBILITY_SKIN_FRICTION_V6";
+	public static final String FIN_INTERFERENCE_METHOD_ID =
+			"RASAERO_VIRTUAL_FIN_WETTED_AREA_INTERFERENCE_V1";
 	public static final double DEFAULT_TRANSITION_REYNOLDS = 500_000;
 	private static final double MINIMUM_REYNOLDS = 1_000;
 	private static final RegimeOverlap SKIN_FRICTION_HANDOFF = new RegimeOverlap(0.9, 1.1,
-			"DATCOM_COMPRESSIBILITY_FACTOR", VanDriestIITransformation.METHOD_ID);
+			"DATCOM_SUBSONIC_COMPRESSIBILITY_FACTOR",
+			"RASAERO_SUPERSONIC_COMPRESSIBILITY_FACTOR");
 
 	public Result evaluate(AeroGeometry geometry, FlowCondition flow) {
 		double referenceArea = geometry.references().referenceAreaM2();
@@ -33,8 +35,7 @@ public final class EngineeringSkinFrictionCorrelation {
 		double speed = flow.velocityBody().length();
 		double viscosity = flow.atmosphere().dynamicViscosityPaS();
 		double edgeTemperature = flow.atmosphere().temperatureK();
-		double wallTemperature = new RecoveryTemperatureModel().recoveryTemperatureK(
-				edgeTemperature, flow.mach(), flow.thermodynamics().gamma(edgeTemperature), 0.72, true);
+		double wallTemperature = edgeTemperature;
 		double bodyReynolds = Math.max(MINIMUM_REYNOLDS, density * speed * bodyLength / viscosity);
 
 		double bodyWettedArea = 0;
@@ -47,6 +48,7 @@ public final class EngineeringSkinFrictionCorrelation {
 		double finRoughness = 0;
 		double finTransitionReynolds = Double.POSITIVE_INFINITY;
 		boolean finFullyTurbulent = false;
+		double finInterferenceRatioWeight = 0;
 		for (AeroComponent component : geometry.components()) {
 			if (component.axisymmetricProfile() != null) {
 				bodyWettedArea += component.wettedAreaM2();
@@ -67,6 +69,8 @@ public final class EngineeringSkinFrictionCorrelation {
 				finTransitionReynolds = Math.min(finTransitionReynolds,
 						transitionReynolds(component, flow.mach()));
 				finFullyTurbulent |= fullyTurbulent(component);
+				finInterferenceRatioWeight += component.wettedAreaM2()
+						* virtualFinOverlapRatio(component);
 			}
 		}
 
@@ -94,7 +98,40 @@ public final class EngineeringSkinFrictionCorrelation {
 						meanFinChord, finRoughness, flow.mach()) : 0;
 		double finFormFactor = 1 + 2 * Math.max(0, meanThicknessRatio);
 		double finCd = finCf * finFormFactor * finWettedArea / referenceArea;
-		return new Result(bodyCd, finCd, bodyCf, finCf, bodyReynolds, finReynolds, METHOD_ID);
+		double finInterferenceCd = finWettedArea > 0
+				? finCd * finInterferenceRatioWeight / finWettedArea : 0;
+		return new Result(bodyCd, finCd, finInterferenceCd, bodyCf, finCf,
+				bodyReynolds, finReynolds, METHOD_ID);
+	}
+
+	private static double virtualFinOverlapRatio(AeroComponent component) {
+		FinGeometry fin = component.finGeometry();
+		if (fin == null || !(component.rootRadiusM() > 0)
+				|| !(fin.spanM() > 0) || !(fin.planformAreaM2() > 0)
+				|| !("TRAPEZOIDAL".equals(fin.planform())
+						|| "RECTANGULAR".equals(fin.planform()))) {
+			return 0;
+		}
+		double tolerance = Math.max(1.0e-9, 1.0e-6 * fin.spanM());
+		double minimumTipX = Double.POSITIVE_INFINITY;
+		double maximumTipX = Double.NEGATIVE_INFINITY;
+		for (var point : fin.outline()) {
+			if (Math.abs(point.radiusM() - fin.spanM()) <= tolerance) {
+				minimumTipX = Math.min(minimumTipX, point.xM());
+				maximumTipX = Math.max(maximumTipX, point.xM());
+			}
+		}
+		if (!Double.isFinite(minimumTipX + maximumTipX)
+				|| maximumTipX < minimumTipX) {
+			return 0;
+		}
+		double tipChord = maximumTipX - minimumTipX;
+		double rootChord = fin.rootChordM();
+		double centerlineChord = rootChord
+				+ (rootChord - tipChord) * component.rootRadiusM() / fin.spanM();
+		double virtualOverlapArea = 0.5 * component.rootRadiusM()
+				* (rootChord + centerlineChord);
+		return Math.max(0, virtualOverlapArea / fin.planformAreaM2());
 	}
 
 	private static double transitionReynolds(AeroComponent component, double mach) {
@@ -141,17 +178,38 @@ public final class EngineeringSkinFrictionCorrelation {
 			double laminar = 1.328 / Math.sqrt(boundedReynolds);
 			mixed = Math.max(laminar, turbulent - transitionOffset / boundedReynolds);
 		}
-		double datcomFactor = 1 / Math.pow(1 + 0.144 * mach * mach, 0.65);
-		if (mach <= SKIN_FRICTION_HANDOFF.startMach()) {
-			return mixed * datcomFactor;
+		return mixed * engineeringCompressibilityFactor(mach);
+	}
+
+	/** Smooth named overlap between the established subsonic DATCOM branch and
+	 * the RASAero supersonic branch. */
+	public static double engineeringCompressibilityFactor(double mach) {
+		if (!Double.isFinite(mach) || mach < 0) {
+			throw new IllegalArgumentException("invalid Mach number");
 		}
-		double vanDriestFactor = new VanDriestIITransformation().compressibilityFactor(
-				mach, boundedReynolds, edgeTemperatureK, wallTemperatureK);
-		if (mach >= SKIN_FRICTION_HANDOFF.endMach()) {
-			return mixed * vanDriestFactor;
-		}
+		double datcom = 1 / Math.pow(1 + 0.144 * mach * mach, 0.65);
+		if (mach <= SKIN_FRICTION_HANDOFF.startMach()) return datcom;
+		double rasaero = rasaeroCompressibilityFactor(mach);
+		if (mach >= SKIN_FRICTION_HANDOFF.endMach()) return rasaero;
 		double weight = SKIN_FRICTION_HANDOFF.smoothWeight(mach);
-		return mixed * (datcomFactor + (vanDriestFactor - datcomFactor) * weight);
+		return datcom + weight * (rasaero - datcom);
+	}
+
+	/**
+	 * RASAero II v1.0.2 engineering compressibility correction.  The Mach
+	 * 1.05--2 branch is the program's linear fit; above Mach 2 it uses the
+	 * standard DATCOM factor and holds its Mach-10 endpoint at still higher
+	 * Mach numbers.  This belongs only to the unresolved engineering closure;
+	 * resolved boundary-layer marches retain their wall-temperature models.
+	 */
+	public static double rasaeroCompressibilityFactor(double mach) {
+		if (!Double.isFinite(mach) || mach < 0) {
+			throw new IllegalArgumentException("invalid Mach number");
+		}
+		if (mach < 1.05) return 1;
+		if (mach <= 2) return 1 - 0.256 * (mach - 1);
+		if (mach <= 10) return 1 / Math.pow(1 + 0.144 * mach * mach, 0.65);
+		return 0.1691;
 	}
 
 	public double roughnessLimitedCf(double smoothCf, double lengthM, double roughnessM) {
@@ -187,17 +245,20 @@ public final class EngineeringSkinFrictionCorrelation {
 		return subsonic + (supersonic - subsonic) * weight;
 	}
 
-	public record Result(double bodyCd, double finCd, double bodyCf, double finCf,
+	public record Result(double bodyCd, double finCd, double finInterferenceCd,
+			double bodyCf, double finCf,
 			double bodyReynolds, double finReynolds, String methodId) {
 		public Result {
-			if (!Double.isFinite(bodyCd + finCd + bodyCf + finCf + bodyReynolds + finReynolds)
-					|| bodyCd < 0 || finCd < 0 || bodyCf < 0 || finCf < 0) {
+			if (!Double.isFinite(bodyCd + finCd + finInterferenceCd + bodyCf
+					+ finCf + bodyReynolds + finReynolds)
+					|| bodyCd < 0 || finCd < 0 || finInterferenceCd < 0
+					|| bodyCf < 0 || finCf < 0) {
 				throw new IllegalArgumentException("invalid skin-friction result");
 			}
 		}
 
 		public double totalCd() {
-			return bodyCd + finCd;
+			return bodyCd + finCd + finInterferenceCd;
 		}
 	}
 }

@@ -8,6 +8,7 @@ import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.AxialStage;
 import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.ExternalComponent;
+import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.util.TestRockets;
 import info.openrocket.core.util.BaseTestCase;
 
@@ -110,5 +111,61 @@ class GeometryFoundationTest extends BaseTestCase {
 		assertEquals(4, anchors.count());
 		assertEquals(4e-4, anchors.projectedAreaM2(), 1e-15);
 		assertEquals(8e-5, anchors.frontalAreaM2(), 1e-15);
+	}
+	@Test void railButtonsUseTheirPhysicalEnvelopeDespiteZeroComponentLength() {
+		Rocket rocket = new Rocket();
+		AxialStage stage = new AxialStage();
+		BodyTube body = new BodyTube(1.0, 0.05);
+		RailButton guide = new RailButton();
+		guide.setOuterDiameter(0.03);
+		guide.setInnerDiameter(0.03);
+		guide.setTotalHeight(0.02);
+		guide.setBaseHeight(0.01);
+		guide.setFlangeHeight(0.01);
+		guide.setScrewHeight(0);
+		guide.setInstanceCount(2);
+		rocket.addChild(stage);
+		stage.addChild(body);
+		body.addChild(guide);
+
+		AeroGeometry geometry = new GeometryExtractor().extract(
+				rocket, 0, "ADIABATIC", "rail-guide-envelope");
+		AeroComponent extracted = geometry.components().stream()
+				.filter(component -> component.protuberanceGeometry() != null)
+				.findFirst().orElseThrow();
+		ProtuberanceGeometry protuberance = extracted.protuberanceGeometry();
+		assertEquals("RAIL_BUTTON", protuberance.type());
+		assertEquals(2, protuberance.count());
+		assertEquals(0.03, extracted.axialEndM() - extracted.axialStartM(), 1e-12);
+		assertEquals(2 * 0.03 * 0.02, protuberance.projectedAreaM2(), 1e-12);
+	}
+
+	@Test void rasaeroRailGuidePreservesDiameterAndHeightInputArea() {
+		Rocket rocket = new Rocket();
+		AxialStage stage = new AxialStage();
+		BodyTube body = new BodyTube(1.0, 0.05);
+		RailButton guide = new RailButton();
+		guide.setName("Rail Guide");
+		guide.setOuterDiameter(0.03);
+		guide.setInnerDiameter(0.015);
+		guide.setTotalHeight(0.012);
+		guide.setBaseHeight(0.003);
+		guide.setFlangeHeight(0.003);
+		guide.setScrewHeight(0.004);
+		guide.setInstanceCount(2);
+		rocket.addChild(stage);
+		stage.addChild(body);
+		body.addChild(guide);
+
+		AeroGeometry geometry = new GeometryExtractor().extract(
+				rocket, 0, "ADIABATIC", "rasaero-rail-guide-input");
+		ProtuberanceGeometry protuberance = geometry.components().stream()
+				.map(AeroComponent::protuberanceGeometry)
+				.filter(java.util.Objects::nonNull)
+				.findFirst().orElseThrow();
+
+		assertEquals("RASAERO_RAIL_GUIDE", protuberance.type());
+		assertEquals(0.016, protuberance.heightM(), 1e-12);
+		assertEquals(0.03 * 0.016, protuberance.projectedAreaM2(), 1e-12);
 	}
 }

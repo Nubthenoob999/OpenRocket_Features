@@ -143,6 +143,23 @@ class PinkNoiseWindModelTest {
 	}
 
 	@Test
+	@DisplayName("Reseeding restarts an identical turbulence realization")
+	void testReseedIsReproducible() {
+		model.setAverage(10.0);
+		model.setStandardDeviation(2.0);
+		model.reseed(12345);
+		CoordinateIF first = model.getWindVelocity(1.0, 0);
+		CoordinateIF second = model.getWindVelocity(2.0, 0);
+
+		model.reseed(12345);
+		assertEquals(first, model.getWindVelocity(1.0, 0));
+		assertEquals(second, model.getWindVelocity(2.0, 0));
+
+		model.reseed(54321);
+		assertNotEquals(first, model.getWindVelocity(1.0, 0));
+	}
+
+	@Test
 	@DisplayName("Test model cloning")
 	void testClone() {
 		model.setAverage(10.0);

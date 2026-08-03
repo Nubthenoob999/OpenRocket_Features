@@ -83,11 +83,46 @@ class TableQueryEngineReynoldsCorrectionTest {
 		RuntimeCorrectionData nearCentral = EventAwareInterpolator.interpolateCorrection(
 				corners, new double[] {0.9995, 0, 0.0005, 0, 0, 0, 0, 0});
 		RuntimeCorrectionData materiallyBlended = EventAwareInterpolator.interpolateCorrection(
-				corners, new double[] {0.99, 0, 0.01, 0, 0, 0, 0, 0});
+				corners, new double[] {0.97, 0, 0.03, 0, 0, 0, 0, 0});
 
 		assertFalse(nearCentral.requiresRebuild());
 		assertTrue(nearCentral.supportsRatio(0.85));
 		assertTrue(materiallyBlended.requiresRebuild());
+	}
+
+	@Test
+	void unlikeValidatedRepresentationsSwitchAtNearestMachNode() {
+		RuntimeCorrectionData lower = correction(3_000_000, 0.01, 1.25,
+				new double[] {0.01, 0, 0, 0, 0, 0});
+		RuntimeCorrectionData upper = new RuntimeCorrectionData(3_300_000, 0.01, 1.25,
+				new double[] {0.02, 0, 0, 0, 0, 0}, new double[6], new double[6],
+				false, "SECOND_VALIDATED_REPRESENTATION");
+
+		RuntimeCorrectionData nearLower = TableQueryEngine.blendCorrection(lower, upper, 0.08);
+		RuntimeCorrectionData nearUpper = TableQueryEngine.blendCorrection(lower, upper, 0.92);
+
+		assertEquals(lower.methodId(), nearLower.methodId());
+		assertEquals(upper.methodId(), nearUpper.methodId());
+		assertEquals(3_024_000, nearLower.referenceReynolds(), 1e-9);
+		assertEquals(3_276_000, nearUpper.referenceReynolds(), 1e-9);
+		assertTrue(nearLower.supportsRatio(0.02));
+		assertTrue(nearUpper.supportsRatio(0.02));
+	}
+
+	@Test
+	void twoPercentRemoteMachCornerCannotNarrowDominantValidatedEnvelope() {
+		RuntimeCorrectionData dominant = correction(3_100_000, 0.01, 1.25,
+				new double[] {0.01, 0, 0, 0, 0, 0});
+		RuntimeCorrectionData remote = correction(2_950_000, 0.10, 1.25,
+				new double[] {0.02, 0, 0, 0, 0, 0});
+		List<RuntimeCorrectionData> corners = List.of(
+				remote, remote, remote, remote, dominant, dominant, dominant, dominant);
+
+		RuntimeCorrectionData result = EventAwareInterpolator.interpolateCorrection(
+				corners, new double[] {0.02, 0, 0, 0, 0.98, 0, 0, 0});
+
+		assertTrue(result.supportsRatio(0.026649090734879335));
+		assertEquals(0.01, result.minimumRatio(), 0);
 	}
 
 	@Test

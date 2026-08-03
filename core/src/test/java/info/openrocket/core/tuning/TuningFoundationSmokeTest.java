@@ -15,29 +15,25 @@ public class TuningFoundationSmokeTest extends BaseTestCase {
 	private static final Path JACKPOT_FLUCTUS = Path.of("src", "test", "java", "info", "openrocket", "core", "tuning",
 			"Jackpot_Launch_2", "fluctus_launch_2.csv");
 	private static final Path PELENCATOR_STRATO = Path.of("src", "test", "java", "info", "openrocket", "core", "tuning",
-			"Pelencator_launch_2", "Stratologger_Data_02_22_25.csv");
+			"Pelencator_launch_1", "Stratologger_Data_02_22_25.csv");
 
 	@Test
 	public void detectsAbSchema() throws IOException {
-		TuningTestInfrastructure.requireFixtures(JACKPOT_AB);
 		assertEquals(TelemetrySchema.AB_EXTENDED, TelemetryParsers.detectSchema(JACKPOT_AB));
 	}
 
 	@Test
 	public void detectsFluctusSchema() throws IOException {
-		TuningTestInfrastructure.requireFixtures(JACKPOT_FLUCTUS);
 		assertEquals(TelemetrySchema.FLUCTUS_SEMICOLON, TelemetryParsers.detectSchema(JACKPOT_FLUCTUS));
 	}
 
 	@Test
 	public void detectsTabDelimitedSchema() throws IOException {
-		TuningTestInfrastructure.requireFixtures(PELENCATOR_STRATO);
 		assertEquals(TelemetrySchema.TAB_DELIMITED_ALTIMETER, TelemetryParsers.detectSchema(PELENCATOR_STRATO));
 	}
 
 	@Test
 	public void parsesAbTelemetryWithCoreChannels() throws IOException {
-		TuningTestInfrastructure.requireFixtures(JACKPOT_AB);
 		TelemetrySeries series = TelemetryParsers.parse(JACKPOT_AB);
 		assertTrue(series.size() > 100, "Expected AB telemetry to produce many parsed rows");
 		assertTrue(series.hasAltitude(), "AB parser should expose altitude");
@@ -47,7 +43,6 @@ public class TuningFoundationSmokeTest extends BaseTestCase {
 
 	@Test
 	public void parsesFluctusTelemetryWithCoreChannels() throws IOException {
-		TuningTestInfrastructure.requireFixtures(JACKPOT_FLUCTUS);
 		TelemetrySeries series = TelemetryParsers.parse(JACKPOT_FLUCTUS);
 		assertTrue(series.size() > 100, "Expected Fluctus telemetry to produce many parsed rows");
 		assertTrue(series.hasAltitude(), "Fluctus parser should expose altitude");
@@ -57,7 +52,6 @@ public class TuningFoundationSmokeTest extends BaseTestCase {
 
 	@Test
 	public void findsTZeroBeforeFirstAltitudeChange() throws IOException {
-		TuningTestInfrastructure.requireFixtures(PELENCATOR_STRATO);
 		TelemetrySeries series = TelemetryParsers.parse(PELENCATOR_STRATO);
 		int t0Index = series.indexBeforeFirstAltitudeChange();
 		assertEquals(2, t0Index, "Expected t=0 marker to be the sample before first altitude change");

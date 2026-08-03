@@ -9,7 +9,7 @@ import info.openrocket.core.aerodynamics.physicsaero.table.TableCell;
 import info.openrocket.core.aerodynamics.physicsaero.table.RuntimeCorrectionData;
 
 public final class EventAwareInterpolator {
-	private static final double MINIMUM_CORRECTION_CORNER_WEIGHT = 1.0e-2;
+	private static final double MINIMUM_CORRECTION_CORNER_WEIGHT = 3.0e-2;
 
 	public QueryResult interpolate(List<TableCell> corners, double tx, double ta, double tb) {
 		if (corners.size() != 8) throw new IllegalArgumentException("eight corners required");
@@ -64,9 +64,10 @@ public final class EventAwareInterpolator {
 		 * Coefficients retain every multilinear corner. Correction metadata is
 		 * categorical: a topology-sensitive remote corner used to invalidate a
 		 * near-exact central query even when its coefficient weight was numerical
-		 * noise. Ignore only corners below 1% influence for the categorical domain
-		 * and sensitivity interpolation, which bounds the omitted sensitivity
-		 * contribution by the same fraction.
+		 * noise. Ignore only corners below 3% influence for the categorical domain
+		 * and sensitivity interpolation. This matches the direct-coefficient relative
+		 * validation tolerance used to admit the Reynolds surface; the actual table
+		 * coefficients retain every corner.
 		 *
 		 * Reference Reynolds is a continuous coordinate, however, and must retain
 		 * every corner. In particular, near Mach zero each positive-Mach corner can
@@ -101,6 +102,10 @@ public final class EventAwareInterpolator {
 				correction.dCoefficientDLogRe(),
 				correction.dCoefficientDLogReSquared(),
 				correction.dCoefficientDLogReCubed(),
+				correction.dCoefficientDLogReFourth(),
+				correction.dCoefficientDLogReFifth(),
+				correction.dCoefficientDLogReSixth(),
+				correction.dCoefficientDLogReSeventh(),
 				correction.topologySensitive(), correction.methodId());
 	}
 

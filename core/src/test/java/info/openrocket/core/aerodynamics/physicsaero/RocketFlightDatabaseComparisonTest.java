@@ -33,9 +33,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
+import info.openrocket.core.aerodynamics.AerodynamicForces;
 import info.openrocket.core.aerodynamics.FlightConditions;
 import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricBodySolver;
 import info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm;
+import info.openrocket.core.aerodynamics.physicsaero.config.SamplingConfiguration;
 import info.openrocket.core.aerodynamics.physicsaero.flow.AtmosphereState;
 import info.openrocket.core.aerodynamics.physicsaero.flow.PoweredFlowState;
 import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.PerfectGasAir;
@@ -45,6 +47,7 @@ import info.openrocket.core.aerodynamics.physicsaero.integration.PhysicsAeroTabl
 import info.openrocket.core.aerodynamics.physicsaero.integration.PhysicsAeroValidationGate;
 import info.openrocket.core.aerodynamics.physicsaero.measurement.StandardAtmosphereBarometricAltimeter;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroQueryException;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableCache;
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
@@ -61,11 +64,13 @@ import info.openrocket.core.motor.ThrustCurveMotor;
 import info.openrocket.core.models.atmosphere.AtmosphericConditions;
 import info.openrocket.core.models.atmosphere.ExtendedISAModel;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
+import info.openrocket.core.rocketcomponent.FlightConfigurationId;
+import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
 import info.openrocket.core.simulation.FlightEvent;
-import info.openrocket.core.simulation.listeners.system.ApogeeEndListener;
+import info.openrocket.core.simulation.listeners.system.BoundedApogeeEndListener;
 import info.openrocket.core.startup.OpenRocketCore;
 import info.openrocket.core.startup.Application;
 
@@ -87,12 +92,12 @@ import info.openrocket.core.startup.Application;
 class RocketFlightDatabaseComparisonTest {
 	private static final double FT_PER_M = 3.280839895013123;
 	private static final int RANDOM_SEED = 0x51A7EA;
-	private static final String SETTINGS_HASH = "flight-database-powered-baseline-diagnostic-hybrid-v3";
+	private static final String SETTINGS_HASH = "flight-database-powered-strict-table-v4";
 	private static final long WALL_TIMEOUT_MS = 180_000;
 	private static final Path REPORT_DIR =
 			Path.of("build/reports/rocket-flight-database-comparison")
 					.resolve(PhysicsAeroValidationGate.CODE_VERSION);
-	private static final Map<Integer, String> CDX1_FILES = cdx1Files();
+	private static final Map<Integer, String> MODEL_FILES = modelFiles();
 
 	@BeforeAll
 	static void initializeCore() {
@@ -104,31 +109,29 @@ class RocketFlightDatabaseComparisonTest {
 		Path databaseRoot = resolveDirectory("flightDatabaseDir", "tmp/rocket-flight-database");
 		Path referenceRoot = resolveDirectory("openRocketReferenceDir", "tmp/ref-supersonic");
 		Path databaseCsv = databaseRoot.resolve("flight_comparison.csv");
-		Path simVRealRoot = referenceRoot.resolve("simvreal/RasAero Sims");
 		Path motorFile = referenceRoot.resolve("simvreal/rasp.eng");
 		assertTrue(Files.isRegularFile(databaseCsv), "flight database CSV missing: " + databaseCsv);
-		assertTrue(Files.isDirectory(simVRealRoot), "SimVReal CDX1 directory missing: " + simVRealRoot);
 		assertTrue(Files.isRegularFile(motorFile), "SimVReal motor file missing: " + motorFile);
 
 		List<RasaeroFlightRow> selected = selectRows(new RasaeroFlightDatasetReader().read(databaseCsv));
 		assertFalse(selected.isEmpty(), "flight filter selected no database rows");
-		preloadRasaeroMotors(motorFile);
-
-		List<ComparisonRow> results = new ArrayList<>();
-		for (RasaeroFlightRow row : selected) {
-			String modelName = CDX1_FILES.get(row.flightId());
-			if (modelName == null) {
-				results.add(ComparisonRow.unsupported(row, "NO_CDX1_MODEL_IN_SIMVREAL"));
-				continue;
-			}
-			if (row.flightId() == 22) {
-				results.add(ComparisonRow.unsupported(row, "PHYSICS_AERO_SINGLE_STAGE_ONLY"));
-				continue;
-			}
-			results.add(run(row, simVRealRoot.resolve(modelName)));
-		}
+		preloadRasaeroMotors(List.of(
+				motorFile,
+				referenceRoot.resolve("simvreal/Docs/Mesos/O4374_Sea_Level.eng"),
+				referenceRoot.resolve("simvreal/Docs/Mesos/M787_Expanded_Nozzle_Sea_Level.eng")));
 
 		Files.createDirectories(REPORT_DIR);
+		writeInputManifest(REPORT_DIR.resolve("inputs.csv"), selected, referenceRoot);
+		List<ComparisonRow> results = new ArrayList<>();
+		for (RasaeroFlightRow row : selected) {
+			String modelName = MODEL_FILES.get(row.flightId());
+			if (modelName == null) {
+				results.add(ComparisonRow.unsupported(row, "NO_PUBLIC_MODEL_MAPPING"));
+				continue;
+			}
+			results.add(run(row, referenceRoot.resolve(modelName)));
+		}
+
 		writeCsv(REPORT_DIR.resolve("comparison.csv"), results);
 		writeMarkdown(REPORT_DIR.resolve("summary.md"), results, databaseCsv, referenceRoot);
 
@@ -139,19 +142,29 @@ class RocketFlightDatabaseComparisonTest {
 					result.vehicle() + " produced invalid apogee " + result.currentApogeeFt());
 			assertTrue(result.totalQueries() > 0, result.vehicle() + " made no physics-aero runtime queries");
 			assertTrue(result.tableQueries() > 0, result.vehicle() + " never used the physics-aero table");
+			assertTrue(result.fallbackQueries() == 0,
+					result.vehicle() + " strict table run used fallback queries: " + result.fallbackQueries());
+			assertTrue(result.failureCounts().equals("{}"),
+					result.vehicle() + " strict table run recorded failures: " + result.failureCounts());
 		}
 	}
 
 	private static ComparisonRow run(RasaeroFlightRow row, Path model) {
+		BaselineRun baseline = BaselineRun.EMPTY;
 		if (!Files.isRegularFile(model)) return ComparisonRow.error(row, "MODEL_MISSING:" + model);
 		try {
 			OpenRocketDocument document = new GeneralRocketLoader(model.toFile()).load();
-			if (document.getSimulations().isEmpty()) return ComparisonRow.error(row, "NO_IMPORTED_SIMULATION");
-			if (document.getRocket().getStageCount() != 1) {
-				return ComparisonRow.unsupported(row, "PHYSICS_AERO_SINGLE_STAGE_ONLY");
+			Simulation simulation = selectOrSynthesizeSimulation(document, row.flightId());
+			configureDeterministicApogeeRun(simulation, row.flightId());
+			baseline = runBaseline(simulation.clone(false));
+			if (!baseline.errorMessage().isBlank()) {
+				return ComparisonRow.error(row, baseline,
+						"BASELINE_SIMULATION_ERROR:" + baseline.errorMessage());
 			}
-
-			Simulation simulation = document.getSimulations().get(0);
+			if (document.getRocket().getStageCount() != 1) {
+				return ComparisonRow.unsupported(row, baseline,
+						"PHYSICS_AERO_SINGLE_STAGE_ONLY");
+			}
 			/*
 			 * Preserve the CDX1 launch temperature. RASAero uses standard-day
 			 * pressure at the entered elevation when its optional barometric
@@ -181,17 +194,13 @@ class RocketFlightDatabaseComparisonTest {
 					nozzleExitDiameterM);
 			writeTableSweep(row.flightId(), artifact.table(),
 					simulation.getActiveConfiguration(), launchConditions);
-			simulation.getOptions().setTimeStep(0.05);
-			simulation.getOptions().setMaximumStepAngle(Math.toRadians(3));
-			simulation.getOptions().setMaxSimulationTime(2400);
-			simulation.getOptions().setRandomSeed(RANDOM_SEED);
 			simulation.getOptions().setPhysicsAeroTableIdentity(artifact.table(), artifact.contentHash());
-			simulation.getOptions().setPhysicsAeroMode(PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID);
+			simulation.getOptions().setPhysicsAeroMode(PhysicsAeroMode.STRICT);
 
 			AtomicReference<Throwable> thrown = new AtomicReference<>();
 			Thread thread = new Thread(() -> {
 				try {
-					simulation.simulate(ApogeeEndListener.INSTANCE);
+				simulation.simulate(new BoundedApogeeEndListener());
 				} catch (Throwable failure) {
 					thrown.set(failure);
 				}
@@ -201,14 +210,18 @@ class RocketFlightDatabaseComparisonTest {
 			thread.join(WALL_TIMEOUT_MS);
 			if (thread.isAlive()) {
 				thread.interrupt();
-				return ComparisonRow.error(row, "TIMEOUT_AFTER_" + WALL_TIMEOUT_MS + "MS");
+				return ComparisonRow.error(row, baseline, runtimeReport(simulation),
+						"TIMEOUT_AFTER_" + WALL_TIMEOUT_MS + "MS");
 			}
 			if (thrown.get() != null) {
-				return ComparisonRow.error(row, "SIMULATION_ERROR:" + message(thrown.get()));
+				return ComparisonRow.error(row, baseline, runtimeReport(simulation),
+						"SIMULATION_ERROR:" + message(thrown.get()));
 			}
 
 			FlightData data = simulation.getSimulatedData();
-			if (data == null || data.getBranchCount() == 0) return ComparisonRow.error(row, "NO_FLIGHT_DATA");
+			if (data == null || data.getBranchCount() == 0) {
+				return ComparisonRow.error(row, baseline, runtimeReport(simulation), "NO_FLIGHT_DATA");
+			}
 			FlightDataBranch branch = data.getBranch(0);
 			writeTrajectory(row.flightId(), branch);
 			TrajectoryMetrics metrics = trajectoryMetrics(branch);
@@ -217,12 +230,131 @@ class RocketFlightDatabaseComparisonTest {
 			double apogeeFt = data.getMaxAltitude() * FT_PER_M;
 			MeasurementEstimate measurement =
 					measurementEstimate(row, branch, apogeeFt);
-			return ComparisonRow.success(row, apogeeFt,
+			return ComparisonRow.success(row, baseline, apogeeFt,
 					data.getMaxMachNumber(),
 					terminalStatus(simulation, data), referenceMetrics, metrics,
 					measurement, runtime);
 		} catch (Throwable failure) {
-			return ComparisonRow.error(row, failure.getClass().getSimpleName() + ":" + message(failure));
+			return ComparisonRow.error(row, baseline,
+					failure.getClass().getSimpleName() + ":" + message(failure));
+		}
+	}
+
+	/**
+	 * The public sounding-rocket ORKs (rows 26--28) carry motor configurations
+	 * and thrust curves but intentionally no saved {@link Simulation}.  Rebuild
+	 * a run from the first motorized configuration rather than treating their
+	 * flight truth as un-runnable.  Every active stage is retained for the
+	 * established OpenRocket baseline; strict table aerodynamics remains
+	 * explicitly single-stage only below.
+	 */
+	private static Simulation selectOrSynthesizeSimulation(OpenRocketDocument document,
+			int flightId) {
+		if (!document.getSimulations().isEmpty()) {
+			return document.getSimulations().get(0);
+		}
+		FlightConfigurationId configurationId = document.getRocket().getIds().stream()
+				.filter(id -> document.getRocket().getFlightConfiguration(id).hasMotors())
+				.findFirst()
+				.orElseThrow(() -> new IllegalStateException("NO_MOTORIZED_CONFIGURATION"));
+		document.getRocket().setSelectedConfiguration(configurationId);
+		document.getRocket().getSelectedConfiguration().setAllStages();
+		Simulation simulation = new Simulation(document, document.getRocket());
+		document.addSimulation(simulation);
+		// Explicitly bind the synthesized run: a new Simulation may otherwise
+		// resolve to the empty default configuration despite the selected motors.
+		simulation.setFlightConfigurationId(
+				document.getRocket().getSelectedConfiguration().getFlightConfigurationID());
+		applySoundingRocketLaunchConditions(flightId, simulation);
+		return simulation;
+	}
+
+	/*
+	 * These reconstruction values are source provenance, not tuning knobs:
+	 * Bristol/NRC Black Brant V launch data gives 5 degrees and 30 m MSL;
+	 * NACA TN 3739 Nike-Deacon flight sheets give 15 degrees from Wallops
+	 * sea level.  The setup follows SoundingRocketCorpusV2Test from the
+	 * companion Supersonic corpus, including first-motorized-config selection.
+	 * They apply only to the no-simulation public ORKs above.
+	 */
+	private static void applySoundingRocketLaunchConditions(int flightId,
+			Simulation simulation) {
+		SoundingRocketLaunchConditions conditions = soundingRocketLaunchConditions(flightId);
+		if (conditions == null) return;
+		simulation.getOptions().setLaunchRodAngle(conditions.launchAngleRad());
+		simulation.getOptions().setLaunchAltitude(conditions.launchAltitudeM());
+	}
+
+	static SoundingRocketLaunchConditions soundingRocketLaunchConditions(int flightId) {
+		return switch (flightId) {
+			case 26 -> new SoundingRocketLaunchConditions(Math.toRadians(5.0), 30.0);
+			case 27, 28 -> new SoundingRocketLaunchConditions(Math.toRadians(15.0), 0.0);
+			default -> null;
+		};
+	}
+
+	private static void configureDeterministicApogeeRun(Simulation simulation,
+			int flightId) {
+		DeterministicAscentSettings settings = deterministicAscentSettings(flightId);
+		simulation.getOptions().setTimeStep(settings.timeStepS());
+		simulation.getOptions().setMaximumStepAngle(Math.toRadians(settings.maximumStepAngleDeg()));
+		simulation.getOptions().setMaxSimulationTime(settings.maximumSimulationTimeS());
+		simulation.getOptions().setRandomSeed(RANDOM_SEED);
+	}
+
+	/**
+	 * Preserve the time integration used by the companion corpus for the three
+	 * reconstructed sounding-rocket ascents.  The Black Brant's high
+	 * acceleration needs 0.02 s; the Nike-Deacon ascent-only runs validated at
+	 * 0.05 s / 5 degrees.  Other database rows retain the comparison suite's
+	 * established deterministic settings.
+	 */
+	static DeterministicAscentSettings deterministicAscentSettings(int flightId) {
+		return switch (flightId) {
+			case 26 -> new DeterministicAscentSettings(0.02, 3.0, 900.0);
+			case 27, 28 -> new DeterministicAscentSettings(0.05, 5.0, 320.0);
+			default -> new DeterministicAscentSettings(0.05, 3.0, 2400.0);
+		};
+	}
+
+	private static BaselineRun runBaseline(Simulation simulation) {
+		try {
+			simulation.getOptions().setPhysicsAeroMode(PhysicsAeroMode.OFF);
+			AtomicReference<Throwable> thrown = new AtomicReference<>();
+			Thread thread = new Thread(() -> {
+				try {
+				simulation.simulate(new BoundedApogeeEndListener());
+				} catch (Throwable failure) {
+					thrown.set(failure);
+				}
+			}, "flight-database-baseline");
+			thread.setDaemon(true);
+			thread.start();
+			thread.join(WALL_TIMEOUT_MS);
+			if (thread.isAlive()) {
+				thread.interrupt();
+				return BaselineRun.error("TIMEOUT_AFTER_" + WALL_TIMEOUT_MS + "MS");
+			}
+			if (thrown.get() != null) return BaselineRun.error(message(thrown.get()));
+			FlightData data = simulation.getSimulatedData();
+			if (data == null || data.getBranchCount() == 0) return BaselineRun.error("NO_FLIGHT_DATA");
+			FlightDataBranch branch = data.getBranch(0);
+			AoADiagnostics aoa = preApogeeAoADiagnostics(branch);
+			return new BaselineRun(data.getMaxAltitude() * FT_PER_M,
+					data.getMaxMachNumber(), aoa.rawMaximumDegrees(),
+					aoa.maximumAtOrAbove100PaDegrees(), aoa.dynamicPressureTimeWeightedRmsDegrees(),
+					terminalStatus(simulation, data), "");
+		} catch (Throwable failure) {
+			return BaselineRun.error(failure.getClass().getSimpleName() + ":" + message(failure));
+		}
+	}
+
+	private static PhysicsAeroRuntimeReport runtimeReport(Simulation simulation) {
+		try {
+			return simulation.getPhysicsAeroRuntimeReport();
+		} catch (RuntimeException ignored) {
+			// A partially constructed simulation can fail before creating a report.
+			return null;
 		}
 	}
 
@@ -383,15 +515,42 @@ class RocketFlightDatabaseComparisonTest {
 				establishedConditions.setAtmosphericConditions(atmosphere);
 				establishedConditions.setMach(mach[machIndex]);
 				establishedConditions.setAOA(0);
+				WarningSet establishedWarnings = new WarningSet();
 				double establishedCa = establishedCalculator.getAerodynamicForces(
 						configuration, establishedConditions,
-						new WarningSet()).getCDaxial();
+						establishedWarnings).getCDaxial();
 				writeCoefficientRow(writer, mach[machIndex],
 						"established-total", "vehicle",
 						new info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicCoefficients(
 								establishedCa, 0, 0, 0, 0, 0),
 						Double.NaN, List.of("BARROWMAN_ESTABLISHED_COMPARATOR"),
 						List.of("DIAGNOSTIC_ONLY"));
+				Map<RocketComponent, AerodynamicForces> establishedComponents =
+						establishedCalculator.getForceAnalysis(configuration,
+								establishedConditions, establishedWarnings);
+				for (var entry : establishedComponents.entrySet().stream()
+						.sorted(java.util.Comparator.comparing(
+								(Map.Entry<RocketComponent, AerodynamicForces> componentEntry) ->
+								componentEntry.getKey().getComponentName() + ":"
+										+ componentEntry.getKey().getName())).toList()) {
+					RocketComponent component = entry.getKey();
+					AerodynamicForces forces = entry.getValue();
+					if (component == configuration.getRocket()) continue;
+					String componentId = component.getComponentName() + ":" + component.getName();
+					double instanceCount = component.getInstanceCount();
+					writeEstablishedBreakdownRow(writer, mach[machIndex],
+							"established-component", componentId,
+							forces.getCD() * instanceCount);
+					writeEstablishedBreakdownRow(writer, mach[machIndex],
+							"established-pressure", componentId,
+							forces.getPressureCD() * instanceCount);
+					writeEstablishedBreakdownRow(writer, mach[machIndex],
+							"established-friction", componentId,
+							forces.getFrictionCD() * instanceCount);
+					writeEstablishedBreakdownRow(writer, mach[machIndex],
+							"established-base", componentId,
+							forces.getBaseCD() * instanceCount);
+				}
 				var cell = table.cell(machIndex, alphaIndex, betaIndex, coastIndex);
 				writeCoefficientRow(writer, mach[machIndex], "total", "vehicle",
 						cell.coefficients(), cell.runtimeCorrection().minimumRatio(),
@@ -427,6 +586,17 @@ class RocketFlightDatabaseComparisonTest {
 				}
 			}
 		}
+	}
+
+	private static void writeEstablishedBreakdownRow(BufferedWriter writer,
+			double mach, String scope, String componentId, double coefficient)
+			throws IOException {
+		if (!Double.isFinite(coefficient) || Math.abs(coefficient) < 1.0e-15) return;
+		writeCoefficientRow(writer, mach, scope, componentId,
+				new info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicCoefficients(
+						coefficient, 0, 0, 0, 0, 0),
+				Double.NaN, List.of("BARROWMAN_ESTABLISHED_COMPONENT_BREAKDOWN"),
+				List.of("DIAGNOSTIC_ONLY"));
 	}
 
 	private static void writeCoefficientRow(BufferedWriter writer, double mach,
@@ -517,11 +687,98 @@ class RocketFlightDatabaseComparisonTest {
 				maxVelocity, maxDynamicPressure, apogeeTime, dragImpulse, aerodynamicEnergyLoss);
 	}
 
+	private static AoADiagnostics preApogeeAoADiagnostics(FlightDataBranch branch) {
+		return preApogeeAoADiagnostics(
+				branch.get(FlightDataType.TYPE_TIME),
+				branch.get(FlightDataType.TYPE_ALTITUDE),
+				branch.get(FlightDataType.TYPE_AOA),
+				branch.get(FlightDataType.TYPE_VELOCITY_TOTAL),
+				branch.get(FlightDataType.TYPE_AIR_DENSITY));
+	}
+
+	/**
+	 * Computes pre-apogee AoA metrics in degrees.  The raw maximum is retained
+	 * for diagnostics; the q>=100 Pa maximum and q-time-weighted RMS suppress
+	 * the low-speed attitude singularity near apogee.
+	 */
+	static AoADiagnostics preApogeeAoADiagnostics(List<Double> time,
+			List<Double> altitude, List<Double> aoa, List<Double> velocity,
+			List<Double> density) {
+		int samples = minimumSize(time, altitude, aoa, velocity, density);
+		if (samples == 0) return AoADiagnostics.EMPTY;
+		int apogeeIndex = 0;
+		for (int index = 1; index < samples; index++) {
+			if (isFinite(altitude.get(index))
+					&& (!isFinite(altitude.get(apogeeIndex))
+							|| altitude.get(index) > altitude.get(apogeeIndex))) {
+				apogeeIndex = index;
+			}
+		}
+		double rawMaximumRadians = Double.NaN;
+		double q100MaximumRadians = Double.NaN;
+		double weightedSquareIntegral = 0;
+		double pressureTimeIntegral = 0;
+		for (int index = 0; index <= apogeeIndex; index++) {
+			Double alpha = aoa.get(index);
+			double q = dynamicPressure(density.get(index), velocity.get(index));
+			if (isFinite(alpha)) {
+				double magnitude = Math.abs(alpha);
+				if (!Double.isFinite(rawMaximumRadians) || magnitude > rawMaximumRadians) {
+					rawMaximumRadians = magnitude;
+				}
+				if (q >= 100.0 && (!Double.isFinite(q100MaximumRadians)
+						|| magnitude > q100MaximumRadians)) {
+					q100MaximumRadians = magnitude;
+				}
+			}
+			if (index == 0) continue;
+			Double t0 = time.get(index - 1);
+			Double t1 = time.get(index);
+			Double alpha0 = aoa.get(index - 1);
+			Double alpha1 = aoa.get(index);
+			double q0 = dynamicPressure(density.get(index - 1), velocity.get(index - 1));
+			double q1 = q;
+			if (!isFinite(t0) || !isFinite(t1) || !isFinite(alpha0) || !isFinite(alpha1)
+					|| !Double.isFinite(q0) || !Double.isFinite(q1)) {
+				continue;
+			}
+			double dt = t1 - t0;
+			if (!(dt > 0.0)) continue;
+			pressureTimeIntegral += 0.5 * (q0 + q1) * dt;
+			weightedSquareIntegral += 0.5 * (q0 * alpha0 * alpha0
+					+ q1 * alpha1 * alpha1) * dt;
+		}
+		double rmsRadians = pressureTimeIntegral > 0.0
+				? Math.sqrt(weightedSquareIntegral / pressureTimeIntegral) : Double.NaN;
+		return new AoADiagnostics(toDegrees(rawMaximumRadians), toDegrees(q100MaximumRadians),
+				toDegrees(rmsRadians));
+	}
+
+	private static double dynamicPressure(Double density, Double velocity) {
+		if (!isFinite(density) || !isFinite(velocity)) return Double.NaN;
+		double result = 0.5 * density * velocity * velocity;
+		return Double.isFinite(result) && result >= 0.0 ? result : Double.NaN;
+	}
+
+	private static boolean isFinite(Double value) {
+		return value != null && Double.isFinite(value);
+	}
+
+	private static double toDegrees(double radians) {
+		return Double.isFinite(radians) ? Math.toDegrees(radians) : Double.NaN;
+	}
+
+	record AoADiagnostics(double rawMaximumDegrees,
+			double maximumAtOrAbove100PaDegrees,
+			double dynamicPressureTimeWeightedRmsDegrees) {
+		private static final AoADiagnostics EMPTY =
+				new AoADiagnostics(Double.NaN, Double.NaN, Double.NaN);
+	}
+
 	private static MeasurementEstimate measurementEstimate(
 			RasaeroFlightRow source, FlightDataBranch branch,
 			double geometricApogeeFt) {
-		if (!"Barometric Altimeter".equalsIgnoreCase(
-				source.flightDataType().trim())) {
+		if (!isBarometricAltimeter(source.flightDataType())) {
 			return new MeasurementEstimate(geometricApogeeFt,
 					"DIRECT_GEOMETRIC_COMPARISON_NO_SENSOR_TRANSFER_MODEL");
 		}
@@ -538,13 +795,33 @@ class RocketFlightDatabaseComparisonTest {
 				apogeeIndex = index;
 			}
 		}
-		double indicatedM = new StandardAtmosphereBarometricAltimeter()
-				.heightAbovePadM(pressure.get(0), pressure.get(apogeeIndex));
+		double indicatedM = barometricAltitudeAbovePadM(
+				pressure.get(0), pressure.get(apogeeIndex));
 		return new MeasurementEstimate(indicatedM * FT_PER_M,
 				StandardAtmosphereBarometricAltimeter.METHOD_ID);
 	}
 
+	static boolean isBarometricAltimeter(String flightDataType) {
+		return flightDataType != null
+				&& "Barometric Altimeter".equalsIgnoreCase(flightDataType.trim());
+	}
+
+	/**
+	 * Converts the simulation's static-pressure history into the observation
+	 * space of an uncorrected standard-atmosphere barometric altimeter.  Keeping
+	 * this separate from the aerodynamic run makes the scoring transfer
+	 * independently testable and prevents it from becoming an aero correction.
+	 */
+	static double barometricAltitudeAbovePadM(double padPressurePa,
+			double apogeePressurePa) {
+		return new StandardAtmosphereBarometricAltimeter()
+				.heightAbovePadM(padPressurePa, apogeePressurePa);
+	}
+
 	private static RasaeroTrajectoryMetrics rasaeroTrajectoryMetrics(Path model) throws IOException {
+		if (!model.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".cdx1")) {
+			return RasaeroTrajectoryMetrics.EMPTY;
+		}
 		String xml = Files.readString(model, StandardCharsets.UTF_8);
 		return new RasaeroTrajectoryMetrics(
 				xmlValue(xml, "MaxVelocity") / FT_PER_M,
@@ -592,12 +869,19 @@ class RocketFlightDatabaseComparisonTest {
 
 	private static TableArtifact loadOrBuildTable(AeroGeometry geometry, String settingsHash,
 			AtmosphereState atmosphere, double nozzleExitDiameterM) throws IOException {
+		SamplingConfiguration sampling = SamplingConfiguration.flightDomainDefaults();
+		double[] mach = sampling.mach();
+		double[] alpha = sampling.alphaRad();
+		double[] beta = sampling.betaRad();
 		PhysicsAeroTableCache cache = new PhysicsAeroTableCache();
 		PhysicsAeroTableCache.Key key = new PhysicsAeroTableCache.Key(geometry.geometryHash(), settingsHash,
 				PhysicsAeroValidationGate.CODE_VERSION, PhysicsAeroValidationGate.REGISTRY_VERSION);
 		try {
 			var cached = cache.load(key, "");
-			if (cached.isPresent()) {
+			if (cached.isPresent()
+					&& Arrays.equals(cached.get().axes().mach(), mach)
+					&& Arrays.equals(cached.get().axes().alphaRad(), alpha)
+					&& Arrays.equals(cached.get().axes().betaRad(), beta)) {
 				return new TableArtifact(cached.get(), PhysicsAeroTableCache.contentHash(cache.tablePath(key)));
 			}
 		} catch (IOException | IllegalArgumentException ignored) {
@@ -606,10 +890,6 @@ class RocketFlightDatabaseComparisonTest {
 
 		PerfectGasAir air = new PerfectGasAir();
 		double pressurePa = atmosphere.pressurePa();
-		double[] mach = {0, .1, .2, .3, .5, .7, .8, .85, .9, .95, 1, 1.05, 1.1, 1.2, 1.3, 1.5, 2, 3, 4, 5, 6, 7};
-		double[] alpha = Arrays.stream(new double[] {-15, -10, -5, 0, 5, 10, 15})
-				.map(Math::toRadians).toArray();
-		double[] beta = Arrays.stream(new double[] {-5, 0, 5}).map(Math::toRadians).toArray();
 		PoweredFlowState poweredState;
 		if (Double.isFinite(nozzleExitDiameterM) && nozzleExitDiameterM > 0) {
 			double nozzleExitAreaM2 = Math.PI * nozzleExitDiameterM
@@ -643,7 +923,7 @@ class RocketFlightDatabaseComparisonTest {
 		if (!idValue.isEmpty()) idValues.add(Integer.parseInt(idValue));
 		int limit = integerProperty("flightLimit", Integer.MAX_VALUE);
 		return rows.stream()
-				.filter(row -> row.flightId() <= 24)
+				.filter(row -> row.flightId() <= 28)
 				.filter(row -> idValues.isEmpty() || idValues.contains(row.flightId()))
 				.limit(limit)
 				.toList();
@@ -666,22 +946,25 @@ class RocketFlightDatabaseComparisonTest {
 		return values;
 	}
 
-	private static void preloadRasaeroMotors(Path motorFile) throws Exception {
+	private static void preloadRasaeroMotors(List<Path> motorFiles) throws Exception {
 		RASAeroMotorsLoader.clearAllMotors();
 		int loaded = 0;
-		for (String definition : splitRaspDefinitions(Files.readAllLines(motorFile, StandardCharsets.UTF_8))) {
-			try (InputStream input = new ByteArrayInputStream(definition.getBytes(StandardCharsets.UTF_8))) {
-				for (ThrustCurveMotor.Builder builder : new RASPMotorLoader().load(input,
-						motorFile.getFileName().toString())) {
-					Application.getThrustCurveMotorSetDatabase().addMotor(builder.build());
-					loaded++;
+		for (Path motorFile : motorFiles) {
+			if (!Files.isRegularFile(motorFile)) continue;
+			for (String definition : splitRaspDefinitions(Files.readAllLines(motorFile, StandardCharsets.UTF_8))) {
+				try (InputStream input = new ByteArrayInputStream(definition.getBytes(StandardCharsets.UTF_8))) {
+					for (ThrustCurveMotor.Builder builder : new RASPMotorLoader().load(input,
+							motorFile.getFileName().toString())) {
+						Application.getThrustCurveMotorSetDatabase().addMotor(builder.build());
+						loaded++;
+					}
+				} catch (Exception ignored) {
+					// Parse definitions independently so one malformed historical entry
+					// cannot hide the usable corpus motors.
 				}
-			} catch (Exception ignored) {
-				// This historical aggregate includes a few malformed definitions.
-				// Parse definitions independently so one bad entry cannot hide the usable corpus motors.
 			}
 		}
-		assertTrue(loaded > 0, "no usable RASAero motors loaded from " + motorFile);
+		assertTrue(loaded > 0, "no usable RASAero motors loaded from " + motorFiles);
 	}
 
 	private static List<String> splitRaspDefinitions(List<String> lines) {
@@ -736,16 +1019,104 @@ class RocketFlightDatabaseComparisonTest {
 		return "NORMAL";
 	}
 
+	/**
+	 * Writes the exact imported-model and launch-option inputs used by both the
+	 * baseline and strict-table runs.  The source-model checksum is deliberately
+	 * included instead of copying values such as component mass and CG into a
+	 * second hand-maintained fixture: the CDX1/ORK itself remains the single
+	 * authoritative input for all vehicle properties.
+	 */
+	private static void writeInputManifest(Path output, List<RasaeroFlightRow> rows,
+			Path referenceRoot) throws IOException {
+		try (BufferedWriter writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
+			writer.write("flight_id,vehicle,measured_apogee_ft,flight_data_type,model_relative_path,"
+					+ "model_sha256,stage_count,strict_table_eligible,flight_configuration_id,"
+					+ "launch_rod_length_m,launch_rod_angle_deg,launch_rod_direction_deg,"
+					+ "launch_altitude_m,launch_temperature_k,launch_pressure_pa,"
+					+ "launch_relative_humidity,is_isa_atmosphere,wind_model_type,"
+					+ "average_wind_speed_m_s,average_wind_stddev_m_s,"
+					+ "force_turbulent_boundary_layer,nozzle_exit_diameter_m,"
+					+ "time_step_s,maximum_step_angle_deg,maximum_simulation_time_s,"
+					+ "random_seed,manifest_error\n");
+			for (RasaeroFlightRow row : rows) {
+				String relativeModel = MODEL_FILES.get(row.flightId());
+				if (relativeModel == null) {
+					writeInputManifestRow(writer, row, "", "", Double.NaN, false, "", null,
+							"NO_PUBLIC_MODEL_MAPPING");
+					continue;
+				}
+				Path model = referenceRoot.resolve(relativeModel);
+				if (!Files.isRegularFile(model)) {
+					writeInputManifestRow(writer, row, relativeModel, "", Double.NaN, false, "", null,
+							"MODEL_MISSING:" + model);
+					continue;
+				}
+				try {
+					OpenRocketDocument document = new GeneralRocketLoader(model.toFile()).load();
+					Simulation simulation = selectOrSynthesizeSimulation(document, row.flightId());
+					configureDeterministicApogeeRun(simulation, row.flightId());
+					writeInputManifestRow(writer, row, relativeModel, sha256(model),
+							document.getRocket().getStageCount(),
+							document.getRocket().getStageCount() == 1,
+							simulation.getFlightConfigurationId().toFullKey(), simulation, "");
+				} catch (Exception exception) {
+					writeInputManifestRow(writer, row, relativeModel, "", Double.NaN,
+							false, "", null, exception.getClass().getSimpleName() + ":" + message(exception));
+				}
+			}
+		}
+	}
+
+	private static void writeInputManifestRow(BufferedWriter writer, RasaeroFlightRow row,
+			String relativeModel, String modelHash, double stageCount, boolean strictEligible,
+			String configurationId, Simulation simulation, String manifestError) throws IOException {
+		if (simulation == null) {
+			writer.write(String.join(",", Integer.toString(row.flightId()), csv(row.vehicle()),
+					finite(row.measuredApogeeFt(), "%.3f"), csv(row.flightDataType()),
+					csv(relativeModel), csv(modelHash), finite(stageCount, "%.0f"),
+					Boolean.toString(strictEligible), csv(configurationId), "", "", "", "", "", "",
+					"", "", "", "", "", "", "", "", "", "", "", "", csv(manifestError)) + "\n");
+			return;
+		}
+		var options = simulation.getOptions();
+		writer.write(String.join(",", Integer.toString(row.flightId()), csv(row.vehicle()),
+				finite(row.measuredApogeeFt(), "%.3f"), csv(row.flightDataType()),
+				csv(relativeModel), csv(modelHash), finite(stageCount, "%.0f"),
+				Boolean.toString(strictEligible), csv(configurationId),
+				finite(options.getLaunchRodLength(), "%.6f"),
+				finite(Math.toDegrees(options.getLaunchRodAngle()), "%.6f"),
+				finite(Math.toDegrees(options.getLaunchRodDirection()), "%.6f"),
+				finite(options.getLaunchAltitude(), "%.3f"),
+				finite(options.getLaunchTemperature(), "%.6f"),
+				finite(options.getLaunchPressure(), "%.3f"),
+				finite(options.getLaunchRelativeHumidity(), "%.6f"),
+				Boolean.toString(options.isISAAtmosphere()),
+				csv(options.getWindModelType().name()),
+				finite(options.getAverageWindModel().getAverage(), "%.6f"),
+				finite(options.getAverageWindModel().getStandardDeviation(), "%.6f"),
+				Boolean.toString(options.isForceTurbulentBoundaryLayer()),
+				finite(options.getNozzleExitDiameter(), "%.9f"),
+				finite(options.getTimeStep(), "%.6f"),
+				finite(Math.toDegrees(options.getMaximumStepAngle()), "%.6f"),
+				finite(options.getMaxSimulationTime(), "%.6f"),
+				Long.toString(options.getRandomSeed()), csv(manifestError)) + "\n");
+	}
+
 	private static void writeCsv(Path output, List<ComparisonRow> rows) throws IOException {
 		try (BufferedWriter writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
 			writer.write("flight_id,vehicle,supported,reason,measured_apogee_ft,rasaero_apogee_ft,"
-					+ "published_orp_apogee_ft,current_apogee_ft,"
+					+ "published_orp_apogee_ft,baseline_openrocket_apogee_ft,baseline_openrocket_error_pct,"
+					+ "baseline_openrocket_peak_mach,baseline_raw_max_pre_apogee_aoa_deg,"
+					+ "baseline_max_pre_apogee_aoa_q_ge_100_pa_deg,"
+					+ "baseline_q_time_weighted_rms_pre_apogee_aoa_deg,"
+					+ "baseline_terminal_status,current_apogee_ft,"
 					+ "flight_data_type,measurement_model_id,"
 					+ "current_instrument_comparable_apogee_ft,"
 					+ "rasaero_error_pct,published_orp_error_pct,"
 					+ "current_error_pct,current_vs_rasaero_pct,current_vs_published_pct,"
 					+ "current_instrument_comparable_error_pct,"
 					+ "current_instrument_comparable_abs_error_pct,"
+					+ "current_instrument_comparable_within_3_percent,"
 					+ "published_orp_peak_mach,current_peak_mach,"
 					+ "current_vs_published_orp_peak_mach_pct,"
 					+ "measured_apogee_abs_error_pct,"
@@ -763,6 +1134,16 @@ class RocketFlightDatabaseComparisonTest {
 			Path sourceCsv, Path referenceRoot) throws Exception {
 		List<ComparisonRow> completed = rows.stream()
 				.filter(row -> row.supported() && row.errorMessage().isBlank()).toList();
+		List<ComparisonRow> baselineCompleted = rows.stream()
+				.filter(row -> row.supported() && Double.isFinite(row.baselineApogeeFt())).toList();
+		double baselineMae = baselineCompleted.stream()
+				.mapToDouble(row -> Math.abs(row.baselineErrorPct())).average().orElse(Double.NaN);
+		long baselineWithinFive = baselineCompleted.stream()
+				.filter(row -> Math.abs(row.baselineErrorPct()) <= 5).count();
+		long baselineWithinThree = baselineCompleted.stream()
+				.filter(row -> Math.abs(row.baselineErrorPct()) <= 3).count();
+		long baselineWithinTen = baselineCompleted.stream()
+				.filter(row -> Math.abs(row.baselineErrorPct()) <= 10).count();
 		double currentMae = completed.stream().mapToDouble(row -> Math.abs(row.currentErrorPct())).average().orElse(Double.NaN);
 		double instrumentComparableMae = completed.stream()
 				.mapToDouble(row -> Math.abs(
@@ -782,10 +1163,14 @@ class RocketFlightDatabaseComparisonTest {
 				.filter(Double::isFinite).map(Math::abs).average().orElse(Double.NaN);
 		double coverage = completed.stream().mapToDouble(ComparisonRow::tableCoveragePct).average().orElse(Double.NaN);
 		long withinFive = completed.stream().filter(row -> Math.abs(row.currentErrorPct()) <= 5).count();
+		long withinThree = completed.stream().filter(row -> Math.abs(row.currentErrorPct()) <= 3).count();
 		long withinTen = completed.stream().filter(row -> Math.abs(row.currentErrorPct()) <= 10).count();
 		long instrumentWithinFive = completed.stream()
 				.filter(row -> Math.abs(
 						row.instrumentComparableErrorPct()) <= 5).count();
+		long instrumentWithinThree = completed.stream()
+				.filter(row -> Math.abs(
+						row.instrumentComparableErrorPct()) <= 3).count();
 		long instrumentWithinTen = completed.stream()
 				.filter(row -> Math.abs(
 						row.instrumentComparableErrorPct()) <= 10).count();
@@ -801,8 +1186,12 @@ class RocketFlightDatabaseComparisonTest {
 				.append("- Reference repository commit: `").append(gitRevision(referenceRoot)).append("`\n")
 				.append("- Current repository commit: `")
 				.append(gitRevision(Path.of("").toAbsolutePath())).append("`\n")
-				.append("- Runtime mode: `DIAGNOSTIC_AXIAL_HYBRID` (physics-table drag; "
-						+ "established lateral stability/CP) with coast and explicit powered states\n")
+				.append("- Runtime mode: `STRICT` table-only aerodynamics with coast and explicit powered states; any out-of-domain query fails the row\n")
+				.append(String.format(Locale.US,
+						"- Baseline OpenRocket: MAE %.3f%%; within +/-3%% %d/%d; within +/-5%% %d/%d; within +/-10%% %d/%d%n",
+						baselineMae, baselineWithinThree, baselineCompleted.size(),
+						baselineWithinFive, baselineCompleted.size(),
+						baselineWithinTen, baselineCompleted.size()))
 				.append("- Each table's reference Reynolds state is the imported launch-site atmosphere\n")
 				.append("- Atmosphere preserves each CDX1 launch temperature; blank RASAero pressure uses standard-day pressure at launch elevation\n")
 				.append("- Published measured apogees are compared directly, matching the Rocket Flight Database and RASAero benchmark convention\n")
@@ -812,33 +1201,42 @@ class RocketFlightDatabaseComparisonTest {
 				.append("- Imported nozzle diameters retained for powered-flow modeling; "
 						+ "when present, altitude thrust adds `(101325 Pa - ambient pressure) * exit area` "
 						+ "using `SEA_LEVEL_REFERENCED_NOZZLE_PRESSURE_THRUST_V1`\n")
-				.append("- Nozzle-only power-on aerodynamics use the area-scaled NACA RM L54D27 increment only over its measured Mach 0.8-1.2 range; exit Mach is the source-reference inference and is flagged low-confidence\n")
+				.append("- RASAero nozzle-geometry-only inputs use the RASAero II v1.0.2.0 empirical power-on correction `delta CD = -F(M) * A_exit/A_reference`; resolved nozzle thermodynamics remain owned by the measured NACA RM L54D27 model over Mach 0.8-1.2\n")
+				.append("- Supersonic conical diameter expansions use the RASAero II v1.0.2.0 empirical annular-area/Mach wave-drag correlation; steep terminal reducers additionally use its 17.5-degree separated-flow pressure-drag envelope\n")
+				.append("- Supersonic assembled base drag is bounded by the RASAero II v1.0.2.0 Mach polynomial and cubic terminal-diameter recovery; the envelope only reduces a higher finned-base closure and never adds suction\n")
 				.append("- Deterministic random seed: `").append(RANDOM_SEED).append("`\n\n")
 				.append("- Simulation stops at apogee; runtime query coverage is therefore pre-apogee coverage\n\n")
 				.append(String.format(Locale.US,
 						"Completed %d of %d selected rows. Current-vs-RASAero MAE %.3f%%; "
-								+ "within ±1%% of RASAero %d/%d. Current-vs-measured MAE %.3f%%; "
+								+ "within +/-1%% of RASAero %d/%d. Current-vs-measured MAE %.3f%%; "
 								+ "instrument-comparable measured MAE %.3f%% with signed bias %+.3f%% "
-								+ "(within ±5%% %d/%d; within ±10%% %d/%d); "
+								+ "(within +/-3%% %d/%d; within +/-5%% %d/%d; within +/-10%% %d/%d); "
 								+ "published ORP-vs-measured MAE %.3f%%; "
-								+ "within ±5%% %d/%d; within ±10%% %d/%d; abnormal endings %d; "
+								+ "within +/-3%% %d/%d; within +/-5%% %d/%d; within +/-10%% %d/%d; abnormal endings %d; "
 								+ "current-vs-published-ORP peak-Mach diagnostic MAE %.3f%%; "
 								+ "mean pre-apogee table coverage %.2f%%.%n%n",
 						completed.size(), rows.size(), currentVsRasaeroMae, withinOneRasaero,
 						rasaeroComparable.size(), currentMae, instrumentComparableMae,
-						instrumentComparableBias, instrumentWithinFive, completed.size(),
-						instrumentWithinTen, completed.size(), publishedMae, withinFive, completed.size(),
-						withinTen, completed.size(), abnormal, publishedOrpMachDeltaMae, coverage))
-				.append("| ID | Vehicle | RASAero ft | Current geometric ft | vs RASAero | "
+						instrumentComparableBias, instrumentWithinThree, completed.size(),
+						instrumentWithinFive, completed.size(),
+						instrumentWithinTen, completed.size(), publishedMae, withinThree, completed.size(),
+						withinFive, completed.size(), withinTen, completed.size(), abnormal,
+						publishedOrpMachDeltaMae, coverage))
+				.append("| ID | Vehicle | RASAero ft | Baseline OpenRocket ft / error / AoA raw / q>=100 / q-RMS | Current strict-table geometric ft | vs RASAero | "
 						+ "Comparable ft | Real ft | Comparable / geometric error | Data | "
 						+ "Published ORP/current Mach | Model delta | Table coverage | Status |\n")
-				.append("|---:|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|\n");
+				.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|\n");
 		for (ComparisonRow row : rows) {
 			markdown.append(String.format(Locale.US,
-					"| %d | %s | %s | %s | %s | %s | %.0f | %s / %s | %s | "
+					"| %d | %s | %s | %s / %s / %s / %s / %s | %s | %s | %s | %.0f | %s / %s | %s | "
 							+ "%s / %s | %s | %.2f%% | %s |%n",
 					row.flightId(), row.vehicle().replace("|", "\\|"),
-					finite(row.rasaeroApogeeFt(), "%.0f"), finite(row.currentApogeeFt(), "%.0f"),
+					finite(row.rasaeroApogeeFt(), "%.0f"),
+					finite(row.baselineApogeeFt(), "%.0f"), finite(row.baselineErrorPct(), "%+.2f%%"),
+					finite(row.baselineMaxPreApogeeAoADeg(), "%.2f deg"),
+					finite(row.baselineMaxPreApogeeAoAAtQ100PaDeg(), "%.2f deg"),
+					finite(row.baselineQTimeWeightedRmsPreApogeeAoADeg(), "%.2f deg"),
+					finite(row.currentApogeeFt(), "%.0f"),
 					finite(row.currentVsRasaeroPct(), "%+.2f%%"),
 					finite(row.instrumentComparableApogeeFt(), "%.0f"),
 					row.measuredApogeeFt(),
@@ -852,7 +1250,7 @@ class RocketFlightDatabaseComparisonTest {
 		}
 		markdown.append("\n## Trajectory diagnostics\n\n")
 				.append("| ID | Vehicle | Burnout ft | Burnout m/s | Max velocity RASAero/current m/s | "
-						+ "Max q Pa | Apogee RASAero/current s | Drag impulse N·s | Aero energy MJ |\n")
+						+ "Max q Pa | Apogee RASAero/current s | Drag impulse N*s | Aero energy MJ |\n")
 				.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|\n");
 		for (ComparisonRow row : rows) {
 			markdown.append(String.format(Locale.US,
@@ -906,32 +1304,37 @@ class RocketFlightDatabaseComparisonTest {
 		}
 	}
 
-	private static Map<Integer, String> cdx1Files() {
+	private static Map<Integer, String> modelFiles() {
 		Map<Integer, String> files = new LinkedHashMap<>();
-		files.put(1, "Thunder&Lightning.CDX1");
-		files.put(2, "Gibb.CDX1");
-		files.put(3, "CancerDescending.CDX1");
-		files.put(4, "EZI65-1.CDX1");
-		files.put(5, "CalIsp3.CDX1");
-		files.put(6, "CalIsp1.CDX1");
-		files.put(7, "CalIsp2.CDX1");
-		files.put(8, "Byrum.CDX1");
-		files.put(9, "IonDrive.CDX1");
-		files.put(10, "CalIsp5.CDX1");
-		files.put(11, "Blister.CDX1");
-		files.put(12, "CalIsp4.CDX1");
-		files.put(13, "Rabia-ShortFinCan.CDX1");
-		files.put(14, "Raven.CDX1");
-		files.put(15, "Rabia.CDX1");
-		files.put(16, "Torrent.CDX1");
-		files.put(17, "L500Roc.CDX1");
-		files.put(18, "Kinsel_P4935_A-601_Rocket.CDX1");
-		files.put(19, "Full Metal Jacket1.CDX1");
-		files.put(20, "Full Metal Jacket2.CDX1");
-		files.put(21, "Proteus6.CDX1");
-		files.put(22, "AeroPac104KStageOne&Two-2.CDX1");
-		files.put(23, "DontDebateThisN5800MinDia.CDX1");
-		files.put(24, "Qu8k.CDX1");
+		String simVReal = "simvreal/RasAero Sims/";
+		files.put(1, simVReal + "Thunder&Lightning.CDX1");
+		files.put(2, simVReal + "Gibb.CDX1");
+		files.put(3, simVReal + "CancerDescending.CDX1");
+		files.put(4, simVReal + "EZI65-1.CDX1");
+		files.put(5, simVReal + "CalIsp3.CDX1");
+		files.put(6, simVReal + "CalIsp1.CDX1");
+		files.put(7, simVReal + "CalIsp2.CDX1");
+		files.put(8, simVReal + "Byrum.CDX1");
+		files.put(9, simVReal + "IonDrive.CDX1");
+		files.put(10, simVReal + "CalIsp5.CDX1");
+		files.put(11, simVReal + "Blister.CDX1");
+		files.put(12, simVReal + "CalIsp4.CDX1");
+		files.put(13, simVReal + "Rabia-ShortFinCan.CDX1");
+		files.put(14, simVReal + "Raven.CDX1");
+		files.put(15, simVReal + "Rabia.CDX1");
+		files.put(16, simVReal + "Torrent.CDX1");
+		files.put(17, simVReal + "L500Roc.CDX1");
+		files.put(18, simVReal + "Kinsel_P4935_A-601_Rocket.CDX1");
+		files.put(19, simVReal + "Full Metal Jacket1.CDX1");
+		files.put(20, simVReal + "Full Metal Jacket2.CDX1");
+		files.put(21, simVReal + "Proteus6.CDX1");
+		files.put(22, simVReal + "AeroPac104KStageOne&Two-2.CDX1");
+		files.put(23, simVReal + "DontDebateThisN5800MinDia.CDX1");
+		files.put(24, simVReal + "Qu8k.CDX1");
+		files.put(25, "simvreal/Docs/Mesos/MESOS 293K Flight.CDX1");
+		files.put(26, "paper/data/ork/sounding_rockets/bbv.ork");
+		files.put(27, "paper/data/ork/sounding_rockets/nike_deacon_flight1.ork");
+		files.put(28, "paper/data/ork/sounding_rockets/nike_deacon_flight2.ork");
 		return Map.copyOf(files);
 	}
 
@@ -966,6 +1369,9 @@ class RocketFlightDatabaseComparisonTest {
 					? current.getClass().getName()
 					: current.getClass().getSimpleName() + ":"
 							+ current.getMessage();
+			if (current instanceof PhysicsAeroQueryException queryException) {
+				detail += " coordinates=" + queryException.coordinates();
+			}
 			chain.add(detail.replace('\n', ' ').replace('\r', ' '));
 		}
 		return String.join(" <- ", chain);
@@ -997,6 +1403,24 @@ class RocketFlightDatabaseComparisonTest {
 				Double.NaN, Double.NaN, Double.NaN);
 	}
 
+	private record BaselineRun(double apogeeFt, double peakMach, double maxPreApogeeAoADeg,
+			double maxPreApogeeAoAAtQ100PaDeg, double qTimeWeightedRmsPreApogeeAoADeg,
+			String terminalStatus, String errorMessage) {
+		private static final BaselineRun EMPTY = new BaselineRun(
+				Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, "", "");
+
+		private static BaselineRun error(String message) {
+			return new BaselineRun(Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+					Double.NaN, "ERROR", message);
+		}
+	}
+
+	record SoundingRocketLaunchConditions(double launchAngleRad,
+			double launchAltitudeM) { }
+
+	record DeterministicAscentSettings(double timeStepS,
+			double maximumStepAngleDeg, double maximumSimulationTimeS) { }
+
 	private record MeasurementEstimate(double comparableApogeeFt,
 			String methodId) {
 		private static final MeasurementEstimate EMPTY =
@@ -1005,6 +1429,10 @@ class RocketFlightDatabaseComparisonTest {
 
 	private record ComparisonRow(int flightId, String vehicle, boolean supported, String reason,
 			double measuredApogeeFt, double rasaeroApogeeFt, double publishedApogeeFt,
+			double baselineApogeeFt, double baselinePeakMach, double baselineMaxPreApogeeAoADeg,
+			double baselineMaxPreApogeeAoAAtQ100PaDeg,
+			double baselineQTimeWeightedRmsPreApogeeAoADeg,
+			String baselineTerminalStatus,
 			double currentApogeeFt,
 			String flightDataType, String measurementModelId,
 			double instrumentComparableApogeeFt,
@@ -1016,26 +1444,39 @@ class RocketFlightDatabaseComparisonTest {
 			String terminalStatus, long totalQueries, long tableQueries, long fallbackQueries,
 			String runtimeFlags, String failureCounts, String firstFailureOccurrences,
 			String errorMessage) {
-		static ComparisonRow success(RasaeroFlightRow source, double apogeeFt,
+		static ComparisonRow success(RasaeroFlightRow source, BaselineRun baseline, double apogeeFt,
 				double peakMach,
 				String terminal, RasaeroTrajectoryMetrics referenceMetrics,
 				TrajectoryMetrics metrics, MeasurementEstimate measurement,
 				PhysicsAeroRuntimeReport runtime) {
-			return base(source, true, "", apogeeFt, peakMach, terminal,
+			return base(source, true, "", baseline, apogeeFt, peakMach, terminal,
 					referenceMetrics, metrics, measurement, runtime, "");
 		}
 		static ComparisonRow unsupported(RasaeroFlightRow source, String reason) {
-			return base(source, false, reason, Double.NaN, Double.NaN, "UNSUPPORTED",
+			return base(source, false, reason, BaselineRun.EMPTY, Double.NaN, Double.NaN, "UNSUPPORTED",
+					RasaeroTrajectoryMetrics.EMPTY, TrajectoryMetrics.EMPTY,
+					MeasurementEstimate.EMPTY, null, "");
+		}
+		static ComparisonRow unsupported(RasaeroFlightRow source, BaselineRun baseline,
+				String reason) {
+			return base(source, false, reason, baseline, Double.NaN, Double.NaN, "UNSUPPORTED",
 					RasaeroTrajectoryMetrics.EMPTY, TrajectoryMetrics.EMPTY,
 					MeasurementEstimate.EMPTY, null, "");
 		}
 		static ComparisonRow error(RasaeroFlightRow source, String error) {
-			return base(source, true, "", Double.NaN, Double.NaN, "ERROR",
+			return error(source, BaselineRun.EMPTY, error);
+		}
+		static ComparisonRow error(RasaeroFlightRow source, BaselineRun baseline, String error) {
+			return error(source, baseline, null, error);
+		}
+		static ComparisonRow error(RasaeroFlightRow source, BaselineRun baseline,
+				PhysicsAeroRuntimeReport runtime, String error) {
+			return base(source, true, "", baseline, Double.NaN, Double.NaN, "ERROR",
 					RasaeroTrajectoryMetrics.EMPTY, TrajectoryMetrics.EMPTY,
-					MeasurementEstimate.EMPTY, null, error);
+					MeasurementEstimate.EMPTY, runtime, error);
 		}
 		private static ComparisonRow base(RasaeroFlightRow source, boolean supported, String reason,
-				double current, double peakMach, String terminal,
+				BaselineRun baseline, double current, double peakMach, String terminal,
 				RasaeroTrajectoryMetrics referenceMetrics, TrajectoryMetrics metrics,
 				MeasurementEstimate measurement,
 				PhysicsAeroRuntimeReport runtime, String error) {
@@ -1043,6 +1484,10 @@ class RocketFlightDatabaseComparisonTest {
 					source.measuredApogeeFt(),
 					source.rasaeroApogeeFt() == null ? Double.NaN : source.rasaeroApogeeFt(),
 					source.publishedThisWorkApogeeFt() == null ? Double.NaN : source.publishedThisWorkApogeeFt(),
+					baseline.apogeeFt(), baseline.peakMach(), baseline.maxPreApogeeAoADeg(),
+					baseline.maxPreApogeeAoAAtQ100PaDeg(),
+					baseline.qTimeWeightedRmsPreApogeeAoADeg(),
+					baseline.terminalStatus(),
 					current, source.flightDataType(), measurement.methodId(),
 					measurement.comparableApogeeFt(), source.peakMach(), peakMach,
 					referenceMetrics.maxVelocityMS(), metrics.maxVelocityMS(),
@@ -1059,6 +1504,7 @@ class RocketFlightDatabaseComparisonTest {
 		}
 		double rasaeroErrorPct() { return errorPct(rasaeroApogeeFt, measuredApogeeFt); }
 		double publishedErrorPct() { return errorPct(publishedApogeeFt, measuredApogeeFt); }
+		double baselineErrorPct() { return errorPct(baselineApogeeFt, measuredApogeeFt); }
 		double currentErrorPct() { return errorPct(currentApogeeFt, measuredApogeeFt); }
 		double instrumentComparableErrorPct() {
 			return errorPct(instrumentComparableApogeeFt, measuredApogeeFt);
@@ -1072,12 +1518,21 @@ class RocketFlightDatabaseComparisonTest {
 		double instrumentComparableAbsErrorPct() {
 			return Math.abs(instrumentComparableErrorPct());
 		}
+		boolean instrumentComparableWithinThreePercent() {
+			return Double.isFinite(instrumentComparableErrorPct())
+					&& instrumentComparableAbsErrorPct() <= 3.0;
+		}
 		double tableCoveragePct() { return totalQueries == 0 ? 0 : 100.0 * tableQueries / totalQueries; }
 		String toCsv() {
 			return String.join(",",
 					Integer.toString(flightId), csv(vehicle), Boolean.toString(supported), csv(reason),
 					finite(measuredApogeeFt, "%.3f"), finite(rasaeroApogeeFt, "%.3f"),
-					finite(publishedApogeeFt, "%.3f"), finite(currentApogeeFt, "%.3f"),
+					finite(publishedApogeeFt, "%.3f"), finite(baselineApogeeFt, "%.3f"),
+					finite(baselineErrorPct(), "%.6f"), finite(baselinePeakMach, "%.6f"),
+					finite(baselineMaxPreApogeeAoADeg, "%.6f"),
+					finite(baselineMaxPreApogeeAoAAtQ100PaDeg, "%.6f"),
+					finite(baselineQTimeWeightedRmsPreApogeeAoADeg, "%.6f"),
+					csv(baselineTerminalStatus), finite(currentApogeeFt, "%.3f"),
 					csv(flightDataType), csv(measurementModelId),
 					finite(instrumentComparableApogeeFt, "%.3f"),
 					finite(rasaeroErrorPct(), "%.6f"), finite(publishedErrorPct(), "%.6f"),
@@ -1085,6 +1540,7 @@ class RocketFlightDatabaseComparisonTest {
 					finite(currentVsPublishedPct(), "%.6f"),
 					finite(instrumentComparableErrorPct(), "%.6f"),
 					finite(instrumentComparableAbsErrorPct(), "%.6f"),
+					Boolean.toString(instrumentComparableWithinThreePercent()),
 					finite(referencePeakMach, "%.6f"), finite(currentPeakMach, "%.6f"),
 					finite(publishedOrpPeakMachDeltaPct(), "%.6f"),
 					finite(measuredApogeeAbsErrorPct(), "%.6f"),

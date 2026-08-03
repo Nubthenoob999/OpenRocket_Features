@@ -72,16 +72,14 @@ class FinnedBasePressureClosureModelTest {
 	}
 
 	@Test
-	void terminalExpandingSleeveDoesNotInventAdditionalWakeStrength() {
-		var generic = model.evaluate(genericFlatBase(4), 2, 0.125);
+	void terminalExpandingSleeveIsOutsideBasicFinnerSourceTopology() {
 		var sleeve = model.evaluate(expandingSleeve(false, 4), 2, 0.125);
 
 		assertTrue(sleeve.expandingFinCanSleeve());
-		assertEquals(generic.targetPressureMagnitude(),
-				sleeve.targetPressureMagnitude(), 1e-12);
+		assertEquals(0, sleeve.pressureMagnitudeIncrement(), 0);
 		assertTrue(sleeve.validityFlags().contains(
-				"NO_ADDITIONAL_SLEEVE_STRENGTH_WITHOUT_SOURCE"));
-		assertTrue(sleeve.confidence() <= 0.15);
+				"EXPANDING_FIN_CAN_SLEEVE_OUTSIDE_BASIC_FINNER_SOURCE_TOPOLOGY"));
+		assertEquals(0, sleeve.confidence(), 0);
 	}
 
 	@Test
@@ -99,13 +97,13 @@ class FinnedBasePressureClosureModelTest {
 	}
 
 	@Test
-	void terminalBoattailPreventsSleeveScaleFromBeingTransportedToAftBase() {
-		var generic = model.evaluate(genericFlatBase(4), 2, 0.125);
+	void terminalBoattailIsOutsideBasicFinnerSourceTopology() {
 		var boattail = model.evaluate(expandingSleeve(true, 4), 2, 0.125);
 
 		assertFalse(boattail.expandingFinCanSleeve());
-		assertEquals(generic.targetPressureMagnitude(),
-				boattail.targetPressureMagnitude(), 1e-12);
+		assertEquals(0, boattail.pressureMagnitudeIncrement(), 0);
+		assertTrue(boattail.validityFlags().contains(
+				"TERMINAL_NONCYLINDRICAL_AFTERBODY_OUTSIDE_BASIC_FINNER_SOURCE_TOPOLOGY"));
 	}
 
 	@Test

@@ -39,10 +39,23 @@ public final class BoundaryLayerMarcher {
 		validator.validate(track, configuration);
 		List<BoundaryLayerState> output = new ArrayList<>(); List<String> diagnostics = new ArrayList<>();
 		int start = firstMarchable(track); BoundaryLayerStation initialStation = track.stations().get(start);
-		double theta = new LeadingEdgeInitializer().thetaM(initialStation), transitionS = Double.NaN;
-		HeadEntrainmentModel head = new HeadEntrainmentModel(); HeadEntrainmentModel.State turbulent = null;
+		boolean fullyTurbulent = configuration.transitionMode() == TransitionMode.FULLY_TURBULENT;
+		double theta = fullyTurbulent
+				? new TurbulentLeadingEdgeInitializer().thetaM(initialStation)
+				: new LeadingEdgeInitializer().thetaM(initialStation);
+		double transitionS = fullyTurbulent ? 0 : Double.NaN;
+		HeadEntrainmentModel head = new HeadEntrainmentModel();
+		HeadEntrainmentModel.State turbulent = fullyTurbulent
+				? head.initialize(theta,
+						TurbulentLeadingEdgeInitializer.EQUILIBRIUM_SHAPE_FACTOR * theta,
+						Math.max(initialStation.streamwiseVelocityMS(), configuration.minimumVelocityMS()),
+						Math.max(initialStation.streamwiseVelocityMS() * theta
+								/ initialStation.kinematicViscosityM2S(), 1))
+				: null;
 		ThwaitesLaminarModel thwaites = track.mode() == BoundaryLayerMode.AXISYMMETRIC ? new AxisymmetricThwaitesModel() : new ThwaitesLaminarModel();
-		BoundaryLayerState initial = laminarState(initialStation, theta, 0, TransitionState.LAMINAR, configuration);
+		BoundaryLayerState initial = fullyTurbulent
+				? turbulentState(initialStation, turbulent, 1, configuration)
+				: laminarState(initialStation, theta, 0, TransitionState.LAMINAR, configuration);
 		for (int i=0; i<start; i++) output.add(initial); output.add(initial);
 		for (int i = start + 1; i < track.stations().size(); i++) {
 			BoundaryLayerStation a = track.stations().get(i-1), b = track.stations().get(i);
@@ -89,7 +102,10 @@ public final class BoundaryLayerMarcher {
 			}
 			if (turbulent != null) {
 				turbulent = head.step(a,b,turbulent); theta=turbulent.thetaM();
-				double gamma = intermittency.value(b.sM(), transitionS, configuration.transitionBlendLengthM(), configuration.intermittencyExponent());
+				double gamma = mode == TransitionMode.FULLY_TURBULENT ? 1
+						: intermittency.value(b.sM(), transitionS,
+								configuration.transitionBlendLengthM(),
+								configuration.intermittencyExponent());
 				output.add(turbulentState(b,turbulent,gamma,configuration));
 			} else output.add(laminarState(b,theta,0,TransitionState.LAMINAR,configuration));
 		}

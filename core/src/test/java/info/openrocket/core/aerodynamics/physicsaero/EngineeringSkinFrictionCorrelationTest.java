@@ -43,15 +43,37 @@ class EngineeringSkinFrictionCorrelationTest {
 	}
 
 	@Test
-	void datcomToVanDriestHandoffIsContinuous() {
+	void rasaeroCompressibilityCorrelationUsesItsPublishedPiecewiseBranches() {
 		EngineeringSkinFrictionCorrelation correlation = new EngineeringSkinFrictionCorrelation();
+		assertEquals(1, EngineeringSkinFrictionCorrelation.rasaeroCompressibilityFactor(1), 0);
+		assertEquals(1 - 0.256 * 0.5,
+				EngineeringSkinFrictionCorrelation.rasaeroCompressibilityFactor(1.5), 1e-15);
+		assertEquals(1 / Math.pow(1 + 0.144 * 9, 0.65),
+				EngineeringSkinFrictionCorrelation.rasaeroCompressibilityFactor(3), 1e-15);
+		assertEquals(0.1691,
+				EngineeringSkinFrictionCorrelation.rasaeroCompressibilityFactor(12), 0);
+
+		double incompressible = correlation.compressibleAverageCf(
+				10_000_000, 500_000, 0, 250, 250);
+		double machThree = correlation.compressibleAverageCf(
+				10_000_000, 500_000, 3, 250, 250);
+		assertEquals(incompressible
+				* EngineeringSkinFrictionCorrelation.engineeringCompressibilityFactor(3),
+				machThree, 1e-15);
+	}
+
+	@Test
+	void datcomToRasaeroEngineeringHandoffIsContinuousAndPreservesSubsonicBranch() {
+		double machHalfDatcom = 1 / Math.pow(1 + 0.144 * 0.25, 0.65);
+		assertEquals(machHalfDatcom,
+				EngineeringSkinFrictionCorrelation.engineeringCompressibilityFactor(0.5), 0);
 		double epsilon = 1e-7;
 		for (double join : new double[] {0.9, 1.1}) {
-			double left = correlation.compressibleAverageCf(10_000_000, 500_000,
-					join - epsilon, 250, adiabaticWallTemperature(join - epsilon, 250));
-			double right = correlation.compressibleAverageCf(10_000_000, 500_000,
-					join + epsilon, 250, adiabaticWallTemperature(join + epsilon, 250));
-			assertEquals(left, right, 1e-8, "skin-friction handoff at Mach " + join);
+			double left = EngineeringSkinFrictionCorrelation.engineeringCompressibilityFactor(
+					join - epsilon);
+			double right = EngineeringSkinFrictionCorrelation.engineeringCompressibilityFactor(
+					join + epsilon);
+			assertEquals(left, right, 1e-6, "skin-friction handoff at Mach " + join);
 		}
 	}
 
@@ -62,9 +84,27 @@ class EngineeringSkinFrictionCorrelationTest {
 
 		assertTrue(result.bodyCd() > 0);
 		assertTrue(result.finCd() > 0);
-		assertEquals(result.bodyCd() + result.finCd(), result.totalCd(), 0);
+		assertTrue(result.finInterferenceCd() > 0);
+		assertEquals(result.bodyCd() + result.finCd() + result.finInterferenceCd(),
+				result.totalCd(), 0);
 		assertTrue(result.bodyReynolds() > result.finReynolds());
 		assertEquals(EngineeringSkinFrictionCorrelation.METHOD_ID, result.methodId());
+	}
+
+	@Test
+	void virtualFinOverlapMatchesTrapezoidExtensionToBodyCenterline() {
+		var result = new EngineeringSkinFrictionCorrelation().evaluate(
+				geometry(), flow(0.5));
+		double root = 0.2;
+		double tip = 0.1;
+		double span = 0.1;
+		double radius = 0.05;
+		double centerlineChord = root + (root - tip) * radius / span;
+		double overlapArea = 0.5 * radius * (root + centerlineChord);
+		double exposedArea = 0.5 * (root + tip) * span;
+
+		assertEquals(result.finCd() * overlapArea / exposedArea,
+				result.finInterferenceCd(), 1.0e-15);
 	}
 
 	@Test

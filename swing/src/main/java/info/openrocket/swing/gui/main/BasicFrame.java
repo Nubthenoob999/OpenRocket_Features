@@ -2335,13 +2335,22 @@ private static final Translator trans = Application.getTranslator();
 
 	private Simulation getSelectedSimulationForFlightAnimation() {
 		Simulation[] selectedSimulations = selectionModel.getSelectedSimulations();
-		if (selectedSimulations.length > 0) {
-			return selectedSimulations[0];
+		for (Simulation simulation : selectedSimulations) {
+			if (hasFlightAnimationData(simulation)) {
+				return simulation;
+			}
 		}
-		if (document.getSimulationCount() > 0) {
-			return document.getSimulation(0);
+		for (Simulation simulation : document.getSimulations()) {
+			if (hasFlightAnimationData(simulation)) {
+				return simulation;
+			}
 		}
 		return null;
+	}
+
+	private static boolean hasFlightAnimationData(Simulation simulation) {
+		info.openrocket.core.simulation.FlightData flightData = simulation.getSimulatedData();
+		return flightData != null && flightData.getBranchCount() > 0;
 	}
 
 

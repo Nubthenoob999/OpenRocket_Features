@@ -17,7 +17,7 @@ import info.openrocket.core.aerodynamics.physicsaero.table.TableWriter;
 
 /** Validates the generated artifact itself; it makes no claim about flight accuracy. */
 public final class PhysicsAeroValidationGate {
-	public static final String CODE_VERSION = "physics-aero-v44";
+	public static final String CODE_VERSION = "physics-aero-v86";
 	public static final String REGISTRY_VERSION = "full-regime-v6";
 	private static final double RECOVERY_TOLERANCE = 1e-9;
 
@@ -71,9 +71,9 @@ public final class PhysicsAeroValidationGate {
 	}
 
 	private static void validateAxes(TableAxes axes, List<String> checks, List<String> failures) {
-		check("MACH_DOMAIN_0_TO_7", endpoint(axes.mach(), 0, 7), checks, failures);
-		check("ALPHA_DOMAIN_MINUS15_TO_PLUS15", endpoint(axes.alphaRad(), Math.toRadians(-15),
-				Math.toRadians(15)), checks, failures);
+		check("MACH_DOMAIN_0_TO_8", endpoint(axes.mach(), 0, 8), checks, failures);
+		check("RADIAL_INCIDENCE_DOMAIN_MINUS90_TO_PLUS90", endpoint(axes.alphaRad(), Math.toRadians(-90),
+				Math.toRadians(90)), checks, failures);
 		check("BETA_DOMAIN_MINUS5_TO_PLUS5", endpoint(axes.betaRad(), Math.toRadians(-5),
 				Math.toRadians(5)), checks, failures);
 		check("COAST_STATE_PRESENT", Arrays.stream(axes.poweredFraction()).anyMatch(v -> v == 0),
@@ -90,7 +90,11 @@ public final class PhysicsAeroValidationGate {
 			TableCell cell = table.cells().get(index);
 			finite &= finite(cell.coefficients().toArray()) && finite(cell.derivatives().toArray())
 					&& finite(cell.confidence()) && finite(cell.uncertainty())
-					&& finite(cell.runtimeCorrection().dCoefficientDLogRe());
+					&& finite(cell.runtimeCorrection().dCoefficientDLogRe())
+					&& finite(cell.runtimeCorrection().dCoefficientDLogReFourth())
+					&& finite(cell.runtimeCorrection().dCoefficientDLogReFifth())
+					&& finite(cell.runtimeCorrection().dCoefficientDLogReSixth())
+					&& finite(cell.runtimeCorrection().dCoefficientDLogReSeventh());
 			totals &= recovers(cell.componentTotals(), cell.coefficients().toArray())
 					&& recovers(cell.ownerTotals(), cell.coefficients().toArray());
 			for (String methodId : cell.methodIds()) if (isLegacyMethodId(methodId)) ownership = false;

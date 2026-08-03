@@ -104,24 +104,32 @@ public final class SupersonicFinSolver {
 			// silent out-of-domain physics; rejecting the complete fin load aborts an otherwise valid
 			// full-regime build.  Select from the isolated state and explicitly drop only an invalid
 			// interaction increment below.
-			boolean datcomValid = datcom.isValid(flow.mach(), ar, meanIsolatedIncidence);
+			double isolatedDatcomIncidence = boundedDatcomIncidence(meanIsolatedIncidence);
+			boolean datcomIncidenceHeld = isolatedDatcomIncidence != meanIsolatedIncidence;
+			boolean datcomValid = datcom.isValid(flow.mach(), ar, isolatedDatcomIncidence);
 			FinMethodSelector.Selection selection = selector.select(family, allPressureValid, datcomValid);
 			MethodId method; boolean localDatcomFallback = false;
 			if (selection.authoritative() == FinMethodSelector.Method.DATCOM) {
 				double sweep = strips.stream().mapToDouble(FinStrip::halfChordSweepRad).average().orElse(0);
-				boolean actualValid = datcom.isValid(flow.mach(), ar, meanIncidence);
-				boolean upwashedValid = datcom.isValid(flow.mach(), ar, meanUpwashedIncidence);
-				DatcomFinLiftModel.Result isolatedResult = datcom.evaluate(flow.mach(), ar, sweep, meanIsolatedIncidence);
+				double actualDatcomIncidence = boundedDatcomIncidence(meanIncidence);
+				double upwashedDatcomIncidence = boundedDatcomIncidence(meanUpwashedIncidence);
+				datcomIncidenceHeld |= actualDatcomIncidence != meanIncidence
+						|| upwashedDatcomIncidence != meanUpwashedIncidence;
+				boolean actualValid = datcom.isValid(flow.mach(), ar, actualDatcomIncidence);
+				boolean upwashedValid = datcom.isValid(flow.mach(), ar, upwashedDatcomIncidence);
+				DatcomFinLiftModel.Result isolatedResult = datcom.evaluate(flow.mach(), ar, sweep, isolatedDatcomIncidence);
 				DatcomFinLiftModel.Result result = actualValid
-						? datcom.evaluate(flow.mach(), ar, sweep, meanIncidence) : isolatedResult;
+						? datcom.evaluate(flow.mach(), ar, sweep, actualDatcomIncidence) : isolatedResult;
 				totalN = flow.dynamicPressurePa() * area * result.normalForceCoefficient(); method = new MethodId(result.methodId());
 				upwashedN = flow.dynamicPressurePa() * area * (upwashedValid
-						? datcom.evaluate(flow.mach(), ar, sweep, meanUpwashedIncidence).normalForceCoefficient()
+						? datcom.evaluate(flow.mach(), ar, sweep, upwashedDatcomIncidence).normalForceCoefficient()
 						: isolatedResult.normalForceCoefficient());
 				isolatedN = flow.dynamicPressurePa() * area * isolatedResult.normalForceCoefficient();
 				localDatcomFallback = !actualValid || !upwashedValid;
 				if (localDatcomFallback) diagnostics.put(fin.id() + ":interactionFallback",
 						"ISOLATED_DATCOM_LOAD_LOCAL_INTERACTION_OUTSIDE_INCIDENCE_DOMAIN");
+				if (datcomIncidenceHeld) diagnostics.put(fin.id() + ":incidenceBoundary",
+						"DATCOM_FIN_LOAD_HELD_AT_15DEG_SOURCE_BOUNDARY");
 				weightedX = totalN * new DatcomFinCenterOfPressureModel().halfMeanAerodynamicChordFallback(component.axialStartM(), area / fin.geometry().spanM()).xM();
 				diagnostics.put(fin.id() + ":cp", "HALF_MAC_LOW_CONFIDENCE");
 			} else if (selection.authoritative() == FinMethodSelector.Method.ACKERET) method = new MethodId(AckeretThinFinModel.METHOD_ID);
@@ -134,13 +142,17 @@ public final class SupersonicFinSolver {
 			double xcp = Math.abs(totalN) > 1e-12 ? weightedX / totalN : strips.stream().mapToDouble(s -> s.centroidBodyM().x).average().orElse(component.axialStartM());
 			Coordinate forceNormal = (Coordinate) fin.frame().normal().multiply(isolatedN);
 			String region = fin.id(); PhysicalOwner liftOwner = new PhysicalOwner(PhysicalTerm.FIN_LIFT, OwnershipMode.REPLACES, region, null);
+			List<String> finValidity = new ArrayList<>(List.of(
+					"INDIVIDUAL_FIN", fin.role().name(), selection.authoritative().name()));
+			if (localDatcomFallback) finValidity.add(
+					"LOCAL_INTERACTION_OUTSIDE_DATCOM_INCIDENCE_DOMAIN");
+			if (datcomIncidenceHeld) finValidity.add(
+					"DATCOM_INCIDENCE_HELD_AT_15DEG_SOURCE_BOUNDARY");
+			boolean reducedConfidence = localDatcomFallback || datcomIncidenceHeld;
 			ledger.add(new ForceContribution(fin.id(), liftOwner, method, forceNormal, new Coordinate(), new Coordinate(xcp,
 					fin.frame().spanwise().y * component.rootRadiusM(), fin.frame().spanwise().z * component.rootRadiusM()), region,
-					localDatcomFallback
-							? List.of("INDIVIDUAL_FIN", fin.role().name(), selection.authoritative().name(),
-									"LOCAL_INTERACTION_OUTSIDE_DATCOM_INCIDENCE_DOMAIN")
-							: List.of("INDIVIDUAL_FIN", fin.role().name(), selection.authoritative().name()),
-					localDatcomFallback ? 0.6 : 0.8, localDatcomFallback ? 0.3 : 0.15,
+					finValidity,
+					reducedConfidence ? 0.5 : 0.8, reducedConfidence ? 0.4 : 0.15,
 					localDatcomFallback ? "LOCAL_INTERACTION_OUTSIDE_DATCOM_INCIDENCE_DOMAIN" : null));
 			double upwashDelta = upwashedN - isolatedN;
 			if (Math.abs(upwashDelta) > 1e-12) ledger.add(new ForceContribution(fin.id(), new PhysicalOwner(
@@ -210,6 +222,11 @@ public final class SupersonicFinSolver {
 		}
 		ReferenceState reference = new ReferenceState(flow.dynamicPressurePa(), geometry.references().referenceAreaM2(), geometry.references().referenceLengthM(), geometry.references().momentOriginM());
 		return new FinResult(CoefficientAssembler.assemble(ledger, reference), ledger.entries(), localFlows, diagnostics);
+	}
+
+	private static double boundedDatcomIncidence(double incidenceRad) {
+		double limit = Math.toRadians(15);
+		return Math.max(-limit, Math.min(limit, incidenceRad));
 	}
 	private static PressureLoad pressureLoad(AeroComponent component,
 			FinSectionFamily family, FinLocalFlow local, FinStrip strip,

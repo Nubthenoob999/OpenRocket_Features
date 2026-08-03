@@ -90,6 +90,18 @@ class PhaseThreeFinPhysicsTest {
 		assertEquals(List.of(FinMethodSelector.Method.DATCOM_DIAGNOSTIC), selection.diagnostics());
 	}
 
+	@Test void flatPlateFinLoadHoldsAtDatcomIncidenceBoundaryWhenPressureMethodIsInvalid() {
+		PerfectGasAir air = new PerfectGasAir();
+		FinResult result = new SupersonicFinSolver(20).evaluate(finGeometry(),
+				FlowCondition.fromAngles(1.3, Math.toRadians(30), 0,
+						atmosphere(air), air, false, "fin-boundary-hold"));
+		assertTrue(result.contributions().stream()
+				.filter(contribution -> contribution.owner().term()
+						== info.openrocket.core.aerodynamics.physicsaero.api.PhysicalTerm.FIN_LIFT)
+				.anyMatch(contribution -> contribution.validityFlags().contains(
+						"DATCOM_INCIDENCE_HELD_AT_15DEG_SOURCE_BOUNDARY")));
+	}
+
 	private static AtmosphereState atmosphere(PerfectGasAir air) {
 		double p = 101325, t = 288.15; return new AtmosphereState(p, t, p / (air.gasConstant() * t), air.viscosity(t));
 	}

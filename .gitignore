@@ -126,10 +126,13 @@ docs/build
 **/*.zip
 
 # Redistributable, pinned Physics Aero benchmark fixtures.
+!core/src/main/resources/datafiles/physicsaero/pnk-naca-1307-v1.csv
 !core/src/test/resources/physicsaero/dtic_ad0487365_cone_drag_alpha0.csv
 !core/src/test/resources/physicsaero/nasa_tn_d5089_flat_plate_cf.csv
 !core/src/test/resources/physicsaero/rasaero/**/*.csv
 !core/src/test/resources/physicsaero/rasaero/**/*.json
+!core/src/test/java/info/openrocket/core/tuning/Jackpot_Launch_*/Drag Curve CDR.csv
+!core/src/test/java/info/openrocket/core/tuning/**/Drag Curve Pelicantor - Sheet1.csv
 core/src/test/resources/physicsaero/rasaero/cdx1-local/*
 !core/src/test/resources/physicsaero/rasaero/cdx1-local/.gitkeep
 
@@ -137,3 +140,9 @@ core/src/test/resources/physicsaero/rasaero/cdx1-local/*
 
 # Environment files
 **/.env
+
+# Local Physics Aero diagnostic/audit output.  These reports are regenerated
+# from local flight corpora and are not source or redistributable fixtures.
+/reports/*-audit-*.md
+/reports/*-abort-*.md
+/reports/*-evidence-*/

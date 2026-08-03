@@ -18,6 +18,8 @@ import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
 public final class ProtuberanceDragModel {
 	public static final String RAIL_BUTTON_METHOD_ID =
 			"NACA_TN_2960_CIRCULAR_PROTUBERANCE_V1";
+	public static final String RASAERO_RAIL_GUIDE_METHOD_ID =
+			"RASAERO_II_1_0_2_RAIL_GUIDE_EMPIRICAL_V1";
 	public static final String LAUNCH_LUG_METHOD_ID =
 			"ANNULAR_LUG_PRESSURE_DARCY_WEISBACH_V1";
 
@@ -82,6 +84,8 @@ public final class ProtuberanceDragModel {
 				continue;
 			}
 			components.add(switch (protuberance.type()) {
+				case "RASAERO_RAIL_GUIDE" ->
+						rasaeroRailGuide(component, protuberance, flow, referenceArea);
 				case "RAIL_BUTTON", "LAUNCH_SHOE" ->
 						railButton(component, protuberance, flow, referenceArea);
 				case "LAUNCH_LUG" -> launchLug(component, protuberance, flow, referenceArea);
@@ -111,6 +115,48 @@ public final class ProtuberanceDragModel {
 		}
 		return new ComponentDrag(component.id(), pressureCd, 0,
 				RAIL_BUTTON_METHOD_ID, validity, 0.68, 0.32);
+	}
+
+	/**
+	 * RASAero II v1.0.2.0 rail-guide correlation.  RASAero defines the
+	 * geometry as diameter times total height for one guide and states that the
+	 * resulting drag represents two guides.  The piecewise coefficient is the
+	 * program's published-model implementation; the 0.90--1.05 gap is joined
+	 * with a monotone smoothstep because RASAero reports only blended total drag
+	 * in that transonic interval.
+	 */
+	private ComponentDrag rasaeroRailGuide(AeroComponent component,
+			ProtuberanceGeometry geometry, FlowCondition flow, double referenceArea) {
+		double mach = Math.max(0, flow.mach());
+		double sectionCoefficient;
+		if (mach <= 0.7) {
+			sectionCoefficient = 4.5 * 1.12
+					/ Math.sqrt(Math.max(1.0e-12, 1 - mach * mach));
+		} else if (mach <= 0.8) {
+			sectionCoefficient = 4.5 * (1.57 - 0.7 * (mach - 0.7));
+		} else if (mach <= 0.9) {
+			sectionCoefficient = 4.5 * (1.5 + 6 * (mach - 0.8));
+		} else if (mach < 1.05) {
+			double below = 4.5 * (1.5 + 6 * (0.9 - 0.8));
+			double above = 4.5 * (4.715 - 3.7 * 1.05
+					+ 0.986 * 1.05 * 1.05);
+			double fraction = (mach - 0.9) / (1.05 - 0.9);
+			double smooth = fraction * fraction * (3 - 2 * fraction);
+			sectionCoefficient = below + smooth * (above - below);
+		} else if (mach <= 1.8) {
+			sectionCoefficient = 4.5 * (4.715 - 3.7 * mach
+					+ 0.986 * mach * mach);
+		} else {
+			sectionCoefficient = 5.625;
+		}
+		double pressureCd = sectionCoefficient * geometry.projectedAreaM2()
+				/ referenceArea;
+		return new ComponentDrag(component.id(), pressureCd, 0,
+				RASAERO_RAIL_GUIDE_METHOD_ID,
+				List.of("RASAERO_DIAMETER_TIMES_TOTAL_HEIGHT_INPUT",
+						"TWO_RAIL_GUIDES_EMBEDDED_IN_EMPIRICAL_COEFFICIENT",
+						"RASAERO_TRANSONIC_ENDPOINT_BLEND"),
+				0.82, 0.18);
 	}
 
 	private ComponentDrag launchLug(AeroComponent component,

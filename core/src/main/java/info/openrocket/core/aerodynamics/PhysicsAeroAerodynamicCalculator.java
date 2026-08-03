@@ -36,6 +36,10 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		implements SimulationAwareAerodynamicCalculator {
 	private static final double CP_SLOPE_THRESHOLD = 1.0e-8;
 	private static final double LOW_CONFIDENCE_THRESHOLD = 0.5;
+	private static final double LOW_DENSITY_BOUNDARY_HOLD_RATIO = 0.005;
+	private static final double MAXIMUM_HELD_SOURCE_BOUNDARY_RATIO = 0.01;
+	private static final String LOW_DENSITY_BOUNDARY_HOLD_METHOD =
+			"LOW_DENSITY_REYNOLDS_SOURCE_BOUNDARY_HOLD_V1";
 	private static final Set<FailureReason> HYBRID_QUERY_FAILURES = EnumSet.of(
 			FailureReason.OUT_OF_DOMAIN,
 			FailureReason.INTERPOLATION_EVENT_BOUNDARY,
@@ -176,17 +180,31 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 
 	private QueryResult queryOrFallback(FlightConditions conditions, WarningSet warnings) {
 		double[] angles = bodyAngles(conditions);
+		IncidenceProjection incidenceProjection = IncidenceProjection.none(angles);
 		if (mode == PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID) {
 			angles = projectAxialIncidenceIfNeeded(angles);
+			incidenceProjection = IncidenceProjection.none(angles);
+		} else {
+			incidenceProjection = incidenceProjection(angles);
 		}
 		double reynolds = reynoldsNumber(conditions);
 		QueryCoordinates coordinates = new QueryCoordinates(conditions.getMach(), angles[0], angles[1],
 				context.poweredFraction(), reynolds);
 		totalQueries.incrementAndGet();
 		try {
-			QueryResult result = lookup.query(coordinates.mach(), coordinates.alphaRad(),
-					coordinates.betaRad(), coordinates.poweredFraction());
+			boolean launchGuideProjection = !context.launchGuideCleared();
+			QueryResult result = lookup.query(coordinates.mach(),
+					launchGuideProjection ? 0 : incidenceProjection.queryAlphaRad(),
+					launchGuideProjection ? 0 : incidenceProjection.queryBetaRad(),
+					coordinates.poweredFraction());
 			result = applyReynoldsCorrection(result, coordinates);
+			if (launchGuideProjection) {
+				result = projectOntoLaunchGuide(result, angles);
+				runtimeFlags.add(PhysicsAeroRuntimeFlag.LAUNCH_GUIDE_AXIAL_TABLE_PROJECTION);
+			} else if (incidenceProjection.projected()) {
+				result = rotateIncidence(result, incidenceProjection);
+				runtimeFlags.add(PhysicsAeroRuntimeFlag.INCIDENCE_AZIMUTH_RECONSTRUCTION);
+			}
 			successfulQueries.incrementAndGet();
 			runtimeFlags.add(PhysicsAeroRuntimeFlag.TABLE_QUERY_USED);
 			if (result.interpolated()) interpolatedQueries.incrementAndGet();
@@ -218,6 +236,97 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		}
 	}
 
+	/**
+	 * While the guide constrains the vehicle, its reaction owns every transverse
+	 * load and all aerodynamic moments.  The only aerodynamic degree of freedom
+	 * is guide-parallel translation.  Query zero-incidence CA from the offline
+	 * table and scale it by q_axial/q = (V_axial/V)^2.
+	 */
+	private static QueryResult projectOntoLaunchGuide(QueryResult result, double[] angles) {
+		double axialVelocityFraction = Math.cos(angles[0]) * Math.cos(angles[1]);
+		double axialPressureFraction = axialVelocityFraction * axialVelocityFraction;
+		AerodynamicCoefficients coefficients = launchGuideAxial(
+				result.coefficients(), axialPressureFraction);
+		Map<String, AerodynamicCoefficients> components = new LinkedHashMap<>();
+		result.componentTotals().forEach((key, value) -> components.put(key,
+				launchGuideAxial(value, axialPressureFraction)));
+		Map<String, AerodynamicCoefficients> owners = new LinkedHashMap<>();
+		result.ownerTotals().forEach((key, value) -> owners.put(key,
+				launchGuideAxial(value, axialPressureFraction)));
+		List<String> validity = new ArrayList<>(result.validityFlags());
+		validity.add("LAUNCH_GUIDE_TRANSVERSE_REACTION_OWNED");
+		validity.add("LAUNCH_GUIDE_AXIAL_DYNAMIC_PRESSURE_PROJECTION");
+		List<String> methods = new ArrayList<>(result.methodIds());
+		methods.add("LAUNCH_GUIDE_Q_AXIAL_OVER_Q_PROJECTION_V1");
+		return new QueryResult(coefficients, result.diagnosticFlags(), validity, methods,
+				result.interpolated(), components, owners,
+				info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicDerivatives.zero(),
+				result.reasonCodes(), result.lowestConfidence(), result.runtimeCorrection());
+	}
+
+	private static AerodynamicCoefficients launchGuideAxial(
+			AerodynamicCoefficients source, double axialPressureFraction) {
+		return new AerodynamicCoefficients(source.ca() * axialPressureFraction,
+				0, 0, 0, 0, 0);
+	}
+
+	/**
+	 * The offline builder evaluates axisymmetric-body and installed-fin closures
+	 * using one total-incidence magnitude, then resolves the resulting normal
+	 * load into signed alpha and beta components in every Mach branch.
+	 * Consequently a state that only
+	 * exceeds the rectangular beta sampling edge can be reconstructed exactly
+	 * from the beta=0 slice, provided its total incidence remains inside the
+	 * validated alpha envelope.  This is a coordinate transformation of the
+	 * same correlations, not extrapolation or coefficient clamping.
+	 */
+	private IncidenceProjection incidenceProjection(double[] angles) {
+		double[] alphaAxis = table.axes().alphaRad();
+		double[] betaAxis = table.axes().betaRad();
+		boolean outside = angles[0] < alphaAxis[0] || angles[0] > alphaAxis[alphaAxis.length - 1]
+				|| angles[1] < betaAxis[0] || angles[1] > betaAxis[betaAxis.length - 1];
+		if (!outside) return IncidenceProjection.none(angles);
+		double incidence = Math.atan(Math.hypot(Math.tan(angles[0]), Math.tan(angles[1])));
+		if (!(incidence > 0) || incidence > alphaAxis[alphaAxis.length - 1]
+				|| 0 < betaAxis[0] || 0 > betaAxis[betaAxis.length - 1]) {
+			return IncidenceProjection.none(angles);
+		}
+		return new IncidenceProjection(angles[0], angles[1], incidence, 0,
+				angles[0] / incidence, angles[1] / incidence, true);
+	}
+
+	private static QueryResult rotateIncidence(QueryResult result,
+			IncidenceProjection projection) {
+		AerodynamicCoefficients coefficients = rotateIncidenceCoefficients(
+				result.coefficients(), projection);
+		Map<String, AerodynamicCoefficients> components = new LinkedHashMap<>();
+		result.componentTotals().forEach((key, value) -> components.put(key,
+				rotateIncidenceCoefficients(value, projection)));
+		Map<String, AerodynamicCoefficients> owners = new LinkedHashMap<>();
+		result.ownerTotals().forEach((key, value) -> owners.put(key,
+				rotateIncidenceCoefficients(value, projection)));
+		List<String> validity = new ArrayList<>(result.validityFlags());
+		if (!validity.contains("TOTAL_INCIDENCE_AZIMUTH_RECONSTRUCTION_EXACT")) {
+			validity.add("TOTAL_INCIDENCE_AZIMUTH_RECONSTRUCTION_EXACT");
+		}
+		List<String> methods = new ArrayList<>(result.methodIds());
+		if (!methods.contains("TOTAL_INCIDENCE_AZIMUTH_RECONSTRUCTION_V1")) {
+			methods.add("TOTAL_INCIDENCE_AZIMUTH_RECONSTRUCTION_V1");
+		}
+		return new QueryResult(coefficients, result.diagnosticFlags(), validity, methods,
+				result.interpolated(), components, owners, result.derivatives(),
+				result.reasonCodes(), result.lowestConfidence(), result.runtimeCorrection());
+	}
+
+	private static AerodynamicCoefficients rotateIncidenceCoefficients(
+			AerodynamicCoefficients source, IncidenceProjection projection) {
+		double alphaWeight = projection.alphaWeight();
+		double betaWeight = projection.betaWeight();
+		return new AerodynamicCoefficients(source.ca(), source.cn() * alphaWeight,
+				source.cn() * betaWeight, source.cl(), source.cm() * alphaWeight,
+				-source.cm() * betaWeight);
+	}
+
 	private double[] projectAxialIncidenceIfNeeded(double[] angles) {
 		double[] alphaAxis = table.axes().alphaRad();
 		double[] betaAxis = table.axes().betaRad();
@@ -245,7 +354,13 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 					coordinates, "cell has no valid reference Reynolds number");
 		}
 		double ratio = coordinates.reynoldsNumber() / correction.referenceReynolds();
-		if (!correction.supportsRatio(ratio)) {
+		boolean lowDensityBoundaryHold = !correction.requiresRebuild()
+				&& ratio < correction.minimumRatio()
+				&& ratio <= LOW_DENSITY_BOUNDARY_HOLD_RATIO
+				&& correction.minimumRatio() <= MAXIMUM_HELD_SOURCE_BOUNDARY_RATIO;
+		double evaluationRatio = lowDensityBoundaryHold
+				? correction.minimumRatio() : ratio;
+		if (!correction.supportsRatio(evaluationRatio)) {
 			throw new PhysicsAeroQueryException(FailureReason.REYNOLDS_REBUILD_REQUIRED,
 					coordinates, "runtime Reynolds ratio " + ratio + " is outside ["
 							+ correction.minimumRatio() + ", " + correction.maximumRatio()
@@ -254,35 +369,40 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		if (correction.requiresRebuild()) {
 			return result;
 		}
-		double logRatio = Math.log(ratio);
-		if (Math.abs(logRatio) <= 1.0e-12) return result;
+		if (Math.abs(Math.log(evaluationRatio)) <= 1.0e-12) return result;
 		double[] values = result.coefficients().toArray();
 		double[] original = values.clone();
-		double[] derivatives = correction.dCoefficientDLogRe();
-		double[] curvature = correction.dCoefficientDLogReSquared();
-		double[] cubic = correction.dCoefficientDLogReCubed();
 		for (int i = 0; i < values.length; i++) {
-			values[i] += derivatives[i] * logRatio
-					+ curvature[i] * logRatio * logRatio
-					+ cubic[i] * logRatio * logRatio * logRatio;
+			values[i] += correction.coefficientDelta(evaluationRatio, i);
 		}
 		reynoldsCorrectedQueries.incrementAndGet();
 		runtimeFlags.add(PhysicsAeroRuntimeFlag.RUNTIME_REYNOLDS_CORRECTION_USED);
+		List<String> validityFlags = result.validityFlags();
+		List<String> methodIds = result.methodIds();
+		if (lowDensityBoundaryHold) {
+			runtimeFlags.add(PhysicsAeroRuntimeFlag.LOW_DENSITY_REYNOLDS_SOURCE_BOUNDARY_HOLD);
+			validityFlags = new ArrayList<>(validityFlags);
+			validityFlags.add("LOW_DENSITY_REYNOLDS_SOURCE_BOUNDARY_HOLD");
+			methodIds = new ArrayList<>(methodIds);
+			methodIds.add(LOW_DENSITY_BOUNDARY_HOLD_METHOD);
+		}
 		return new QueryResult(AerodynamicCoefficients.fromArray(values), result.diagnosticFlags(),
-				result.validityFlags(), result.methodIds(), result.interpolated(),
+				validityFlags, methodIds, result.interpolated(),
 				correctGroupedTotals(result.componentTotals(), original, values),
 				correctGroupedTotals(result.ownerTotals(), original, values), result.derivatives(),
 				result.reasonCodes(), result.lowestConfidence(), correction);
 	}
 
-	private static String tableComponentId(FlightConfiguration configuration,
+	static String tableComponentId(FlightConfiguration configuration,
 			RocketComponent target) {
 		configuration.update();
 		var active = configuration.getActiveInstances().keySet();
 		List<RocketComponent> supported = new ArrayList<>();
 		for (RocketComponent component : configuration.getRocket()) {
 			if (active.contains(component)
-					&& !"UNSUPPORTED".equals(GeometryClassifier.classify(component))) {
+					&& !"UNSUPPORTED".equals(GeometryClassifier.classify(component))
+					&& !(component instanceof info.openrocket.core.rocketcomponent.ExternalComponent
+							&& !(component.getLength() > 0))) {
 				supported.add(component);
 			}
 		}
@@ -385,15 +505,41 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		double yawIncrement = vehicleTotal
 				? result.derivatives().cnr() * conditions.getYawRate() * rateScale : 0;
 		double[] angles = bodyAngles(conditions);
+		double theta = conditions.getTheta();
+		double cosTheta = Math.cos(theta);
+		double sinTheta = Math.sin(theta);
+		/*
+		 * Table CN/CY and Cm/Cyaw are fixed body-axis components.  OpenRocket's
+		 * stepper subsequently rotates its normal/side and pitch/yaw pair by
+		 * FlightConditions.theta.  Resolve the table vectors back into that
+		 * incidence-aligned frame here so the stepper performs the rotation once,
+		 * rather than double-rotating a body-axis vector.  For an axisymmetric
+		 * load this yields CN=sqrt(CN_body^2+CY_body^2), Cside=0 and the same
+		 * restoring moment in every azimuth.
+		 */
+		double openRocketNormal = coefficients.cn() * cosTheta
+				+ coefficients.cy() * sinTheta;
+		double openRocketSide = coefficients.cy() * cosTheta
+				- coefficients.cn() * sinTheta;
+		double openRocketStaticPitch = -coefficients.cm() * cosTheta
+				+ coefficients.cYaw() * sinTheta;
+		double openRocketStaticYaw = coefficients.cYaw() * cosTheta
+				+ coefficients.cm() * sinTheta;
 		forces.setCDaxial(coefficients.ca());
 		forces.setCD(windAxisDrag(coefficients, angles[0], angles[1]));
-		forces.setCN(coefficients.cn());
-		forces.setCside(coefficients.cy());
+		forces.setCN(openRocketNormal);
+		forces.setCside(openRocketSide);
 		forces.setCrollForce(coefficients.cl());
 		forces.setCrollDamp(rollIncrement);
 		forces.setCroll(coefficients.cl() + rollIncrement);
-		forces.setCm(coefficients.cm() + pitchIncrement);
-		forces.setCyaw(coefficients.cYaw() + yawIncrement);
+		// The table stores physical body-axis torque from r x F.  For a positive
+		// normal force acting aft of the moment origin this is a negative y torque.
+		// OpenRocket, however, defines Cm as CN * xCP / L and applies its own
+		// -CN * xCG / L shift in the integrator.  Convert only the static pitch
+		// moment at this boundary; cmq is already a damping derivative in the
+		// OpenRocket convention and must retain its sign.
+		forces.setCm(openRocketStaticPitch + pitchIncrement);
+		forces.setCyaw(openRocketStaticYaw + yawIncrement);
 		forces.setPitchDampingMoment(-pitchIncrement);
 		forces.setYawDampingMoment(-yawIncrement);
 		setDragBreakdown(forces, result.ownerTotals());
@@ -404,8 +550,31 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 	private CoordinateIF centerOfPressure(AerodynamicCoefficients coefficients,
 			FlightConditions conditions, String componentId) {
 		var reference = table.cells().get(0).referenceState();
+		double[] angles = bodyAngles(conditions);
+		IncidenceProjection projection = incidenceProjection(angles);
+		if (projection.projected()) {
+			double slope;
+			double cpX;
+			if (Math.abs(angles[0]) > CP_SLOPE_THRESHOLD
+					&& Math.abs(coefficients.cn()) > CP_SLOPE_THRESHOLD) {
+				slope = coefficients.cn() / angles[0];
+				cpX = reference.momentOriginM().x
+						- coefficients.cm() * reference.referenceLengthM() / coefficients.cn();
+			} else if (Math.abs(angles[1]) > CP_SLOPE_THRESHOLD
+					&& Math.abs(coefficients.cy()) > CP_SLOPE_THRESHOLD) {
+				slope = coefficients.cy() / angles[1];
+				cpX = reference.momentOriginM().x
+						+ coefficients.cYaw() * reference.referenceLengthM() / coefficients.cy();
+			} else {
+				return Coordinate.ZERO;
+			}
+			return Double.isFinite(cpX + slope) ? new Coordinate(cpX, 0, 0, slope)
+					: Coordinate.ZERO;
+		}
 		LocalSlopes slopes = localTransverseSlopes(conditions, componentId);
 		if (Math.abs(slopes.cNa()) <= CP_SLOPE_THRESHOLD) return Coordinate.ZERO;
+		// Local table Cm-alpha remains a physical torque slope, so its aft-CP
+		// reconstruction retains the physical r x F sign convention.
 		double cpX = reference.momentOriginM().x
 				- slopes.cmAlpha() * reference.referenceLengthM() / slopes.cNa();
 		return Double.isFinite(cpX) ? new Coordinate(cpX, 0, 0, slopes.cNa()) : Coordinate.ZERO;
@@ -442,6 +611,15 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 
 	private record LocalSlopes(double cNa, double cmAlpha) {
 		private static final LocalSlopes UNDEFINED = new LocalSlopes(0, 0);
+	}
+
+	private record IncidenceProjection(double rawAlphaRad, double rawBetaRad,
+			double queryAlphaRad, double queryBetaRad, double alphaWeight,
+			double betaWeight, boolean projected) {
+		private static IncidenceProjection none(double[] angles) {
+			return new IncidenceProjection(angles[0], angles[1], angles[0], angles[1],
+					1, 0, false);
+		}
 	}
 
 	private static double windAxisDrag(AerodynamicCoefficients coefficients, double alpha, double beta) {

@@ -33,6 +33,21 @@ class PhaseThreeBodyFinTableTest {
 		assertTrue(withPnk.cell(0,1,0).ownerTotals().containsKey("BODY_FIN_INTERFERENCE_NORMAL_FORCE"));
 	}
 
+	@Test void supersonicStencilBoundaryHoldsCellsReservedForSubsonicJorgensenEnvelope() {
+		AeroGeometry geometry = geometry(); PerfectGasAir air = new PerfectGasAir(); double p = 101325, t = 288.15;
+		AtmosphereState atmosphere = new AtmosphereState(p, t, p / (air.gasConstant() * t), air.viscosity(t));
+		TableMetadata metadata = new TableMetadata(TableMetadata.CURRENT_SCHEMA, geometry.geometryHash(), "phase3-settings",
+				"phase3-test", "phase3-fin-v1", "SI;radians", "OPENROCKET_BODY_AXES_V1", Instant.parse("2026-01-01T00:00:00Z"),
+				Map.of(), Map.of(), "PHASE3_TESTED");
+		AerodynamicTable table = new CombinedBodyFinTableBuilder(true, true).build(geometry,
+				new double[] {2}, new double[] {Math.toRadians(19)},
+				new double[] {Math.toRadians(5)}, atmosphere, air, metadata);
+
+		assertTrue(Arrays.stream(table.cell(0, 0, 0).coefficients().toArray()).allMatch(Double::isFinite));
+		assertTrue(table.cell(0, 0, 0).validityFlags().contains(
+				"SUPERSONIC_INCIDENCE_15DEG_BOUNDARY_HOLD"));
+	}
+
 	private static AeroGeometry geometry() {
 		double radius = .05, slope = radius;
 		AxisymmetricProfile coneProfile = new AxisymmetricProfile(List.of(new GeometryStation(0,0,slope,0), new GeometryStation(1,radius,slope,0)), List.of(), "TEST", 1e-9);

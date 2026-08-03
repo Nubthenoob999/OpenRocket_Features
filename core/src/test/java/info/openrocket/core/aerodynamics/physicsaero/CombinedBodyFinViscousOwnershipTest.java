@@ -37,11 +37,15 @@ class CombinedBodyFinViscousOwnershipTest {
 	void finFrictionIsPresentWhenResolvedBodyCouplingIsDisabled() {
 		AeroGeometry geometry = geometry(false);
 		FlowCondition flow = flow(geometry, MACH);
-		double expectedFinCd = new EngineeringSkinFrictionCorrelation().evaluate(geometry, flow).finCd();
+		var expected = new EngineeringSkinFrictionCorrelation().evaluate(geometry, flow);
+		double expectedFinCd = expected.finCd();
 		var cell = table(geometry, false).cell(0, 0, 0);
 
 		assertEquals(expectedFinCd, cell.ownerTotals().get(PhysicalTerm.SKIN_FRICTION.name()).ca(), 1e-12);
-		assertEquals(expectedFinCd, cell.componentTotals().get("fins").ca(), 1e-12);
+		assertEquals(expectedFinCd + expected.finInterferenceCd(),
+				cell.componentTotals().get("fins").ca(), 1e-12);
+		assertEquals(expected.finInterferenceCd(), cell.ownerTotals()
+				.get(PhysicalTerm.BODY_FIN_INTERFERENCE_DRAG.name()).ca(), 1e-12);
 		assertTrue(cell.validityFlags().contains("ENGINEERING_FIN_SKIN_FRICTION"));
 		assertFalse(cell.validityFlags().contains("ENGINEERING_BODY_SKIN_FRICTION_FALLBACK"));
 		assertFalse(cell.validityFlags().stream().anyMatch(flag -> flag.startsWith("PHASE5_")));
@@ -50,11 +54,13 @@ class CombinedBodyFinViscousOwnershipTest {
 	@Test
 	void resolvedBodyAndEngineeringFinFrictionHaveDistinctOwnership() {
 		AeroGeometry geometry = geometry(false);
-		double expectedFinCd = new EngineeringSkinFrictionCorrelation().evaluate(
-				geometry, flow(geometry, MACH)).finCd();
+		var expected = new EngineeringSkinFrictionCorrelation().evaluate(
+				geometry, flow(geometry, MACH));
+		double expectedFinCd = expected.finCd();
 		var cell = table(geometry, true).cell(0, 0, 0);
 
-		assertEquals(expectedFinCd, cell.componentTotals().get("fins").ca(), 1e-12);
+		assertEquals(expectedFinCd + expected.finInterferenceCd(),
+				cell.componentTotals().get("fins").ca(), 1e-12);
 		assertTrue(cell.ownerTotals().get(PhysicalTerm.SKIN_FRICTION.name()).ca() > expectedFinCd);
 		assertTrue(cell.validityFlags().contains("PHASE5_ONE_WAY_VISCOUS_COUPLING"),
 				() -> cell.diagnostics().messages().toString());
@@ -65,14 +71,16 @@ class CombinedBodyFinViscousOwnershipTest {
 	}
 
 	@Test
-	void allTurbulentOptionUsesAverageFlatPlateBodyAndFinClosure() {
+	void allTurbulentOptionRetainsEngineeringBodyClosureInSupersonicDomain() {
 		AeroGeometry geometry = fullyTurbulentGeometry();
 		var expected = new EngineeringSkinFrictionCorrelation().evaluate(
 				geometry, flow(geometry, MACH));
 		var cell = table(geometry, true).cell(0, 0, 0);
 
-		assertEquals(expected.totalCd(),
+		assertEquals(expected.bodyCd() + expected.finCd(),
 				cell.ownerTotals().get(PhysicalTerm.SKIN_FRICTION.name()).ca(), 1e-12);
+		assertEquals(expected.finInterferenceCd(), cell.ownerTotals()
+				.get(PhysicalTerm.BODY_FIN_INTERFERENCE_DRAG.name()).ca(), 1e-12);
 		assertTrue(cell.validityFlags().contains(
 				"FULLY_TURBULENT_ENGINEERING_BODY_SKIN_FRICTION"));
 		assertTrue(cell.validityFlags().contains("AVERAGE_FLAT_PLATE_BODY_SKIN_FRICTION"));
@@ -86,7 +94,10 @@ class CombinedBodyFinViscousOwnershipTest {
 		var expected = new EngineeringSkinFrictionCorrelation().evaluate(geometry, flow(geometry, MACH));
 		var cell = table(geometry, true).cell(0, 0, 0);
 
-		assertEquals(expected.totalCd(), cell.ownerTotals().get(PhysicalTerm.SKIN_FRICTION.name()).ca(), 1e-12);
+		assertEquals(expected.bodyCd() + expected.finCd(),
+				cell.ownerTotals().get(PhysicalTerm.SKIN_FRICTION.name()).ca(), 1e-12);
+		assertEquals(expected.finInterferenceCd(), cell.ownerTotals()
+				.get(PhysicalTerm.BODY_FIN_INTERFERENCE_DRAG.name()).ca(), 1e-12);
 		assertTrue(cell.validityFlags().contains("PHASE5_VISCOUS_COUPLING_INVALID"));
 		assertTrue(cell.validityFlags().contains("ENGINEERING_BODY_SKIN_FRICTION_FALLBACK"));
 		assertTrue(cell.diagnostics().flags().contains(DiagnosticFlag.FALLBACK_USED));

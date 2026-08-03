@@ -20,6 +20,7 @@ final class SimulationAerodynamicsContextHelper {
 		double ambient = status.getSimulationConditions().getAtmosphericModel()
 				.getConditions(altitude).getPressure();
 		aware.setSimulationAerodynamicsContext(new SimulationAerodynamicsContext(
-				status.getSimulationTime(), powered, thrust, powered ? 1 : 0, ambient));
+				status.getSimulationTime(), powered, thrust, powered ? 1 : 0, ambient,
+				status.isLaunchRodCleared()));
 	}
 }

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver.ResolutionException;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
@@ -46,6 +48,17 @@ public class SimulationTest extends BaseTestCase {
 		assertEquals(rocket, simulation.getRocket());
 		assertEquals(Simulation.Status.NOT_SIMULATED, simulation.getStatus());
 		assertEquals("", simulation.getName());
+	}
+
+	@Test
+	public void testStrictTableWithoutIdentityIsAnActionableSimulationError() {
+		simulation.getOptions().setPhysicsAeroMode(PhysicsAeroMode.STRICT);
+
+		SimulationException exception = assertThrows(SimulationException.class, simulation::simulate);
+
+		assertInstanceOf(ResolutionException.class, exception.getCause());
+		assertTrue(exception.getMessage().contains("build or rebuild"));
+		assertTrue(exception.getMessage().contains("PHYSICS_AERO_IDENTITY_INCOMPLETE_REBUILD_REQUIRED"));
 	}
 
 	@Test

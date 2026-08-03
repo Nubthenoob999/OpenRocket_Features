@@ -28,8 +28,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.Assumptions;
-
 final class TuningTestInfrastructure {
 
 	private static volatile boolean initialized;
@@ -37,16 +35,14 @@ final class TuningTestInfrastructure {
 	private TuningTestInfrastructure() {
 	}
 
-	static void requireFixtures(Path... fixtures) {
-		for (Path fixture : fixtures) {
-			Assumptions.assumeTrue(Files.isRegularFile(fixture),
-					"External tuning fixture is not available: " + fixture);
-		}
-	}
-
 	static synchronized void ensureApplicationInjector() throws IOException {
 		if (initialized && Application.getInjector() != null) {
-			return;
+			try {
+				Application.getInjector().getInstance(MotorDatabase.class);
+				return;
+			} catch (RuntimeException ignored) {
+				initialized = false;
+			}
 		}
 
 		Module bootstrapModule = bootstrapTestingModule();

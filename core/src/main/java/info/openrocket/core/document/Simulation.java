@@ -18,8 +18,10 @@ import org.slf4j.LoggerFactory;
 import info.openrocket.core.aerodynamics.AerodynamicCalculator;
 import info.openrocket.core.aerodynamics.BarrowmanCalculator;
 import info.openrocket.core.aerodynamics.PhysicsAeroAerodynamicCalculator;
+import info.openrocket.core.aerodynamics.physicsaero.diagnostics.FailureReason;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver.ResolutionException;
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.formatting.RocketDescriptor;
@@ -503,8 +505,12 @@ public class Simulation implements ChangeSource, Cloneable {
 
 			AerodynamicTable resolvedPhysicsAeroTable = null;
 			if (options.getPhysicsAeroSettings().isEnabled()) {
-				resolvedPhysicsAeroTable = new PhysicsAeroTableResolver().resolve(
-						getActiveConfiguration(), options.getPhysicsAeroSettings());
+				try {
+					resolvedPhysicsAeroTable = new PhysicsAeroTableResolver().resolve(
+							getActiveConfiguration(), options.getPhysicsAeroSettings());
+				} catch (ResolutionException exception) {
+					throw physicsAeroResolutionException(exception);
+				}
 			}
 			simulationConditions = options.toSimulationConditions(resolvedPhysicsAeroTable);
 			simulationConditions.setSimulation(this);
@@ -547,6 +553,19 @@ public class Simulation implements ChangeSource, Cloneable {
 
 			mutex.unlock("simulate");
 		}
+	}
+
+	private static SimulationException physicsAeroResolutionException(ResolutionException exception) {
+		String action = exception.reason() == FailureReason.UNSUPPORTED_MULTI_STAGE_CONFIGURATION
+				? "Table aerodynamics currently supports one active stage only. Select a single-stage "
+						+ "configuration or choose No table."
+				: exception.reason() == FailureReason.UNSUPPORTED_GEOMETRY
+						? "The active rocket geometry cannot be represented by the table builder. "
+								+ "Choose No table or adjust the unsupported geometry."
+						: "Open the experimental Physics-based aerodynamics panel, build or rebuild the "
+								+ "coefficient table for this simulation, then run it again.";
+		return new SimulationException("Physics-based table aerodynamics could not start. " + action
+				+ " (" + exception.getMessage() + ")", exception);
 	}
 
 	/** Report from the last simulation; runtime events are not persisted in the document. */

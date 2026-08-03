@@ -91,9 +91,9 @@ public class PhysicsAeroTableGenerationTest {
 			double[] betaDeg = degrees(sampling.betaRad());
 
 			assertEquals(0.0, mach[0], 1e-12, preset + " must start at Mach 0");
-			assertEquals(7.0, mach[mach.length - 1], 1e-12, preset + " must reach Mach 7");
-			assertEquals(-15.0, alphaDeg[0], 1e-9, preset + " must start at -15 deg alpha");
-			assertEquals(15.0, alphaDeg[alphaDeg.length - 1], 1e-9, preset + " must reach +15 deg alpha");
+			assertEquals(8.0, mach[mach.length - 1], 1e-12, preset + " must reach Mach 8");
+			assertEquals(-90.0, alphaDeg[0], 1e-9, preset + " must start at -90 deg alpha");
+			assertEquals(90.0, alphaDeg[alphaDeg.length - 1], 1e-9, preset + " must reach +90 deg alpha");
 			assertEquals(-5.0, betaDeg[0], 1e-9, preset + " must start at -5 deg sideslip");
 			assertEquals(5.0, betaDeg[betaDeg.length - 1], 1e-9, preset + " must reach +5 deg sideslip");
 
@@ -131,15 +131,16 @@ public class PhysicsAeroTableGenerationTest {
 		document.addSimulation(simulation);
 
 		SamplingConfiguration sampling = Fidelity.PREVIEW.sampling();
+		PoweredFlowState[] poweredStates = PhysicsAeroExperimentalPanel.poweredStatesFor(simulation);
 		String settingsHash = PhysicsAeroSettingsFingerprint.hash(
 				new PhysicsAeroSettingsFingerprint.Input(sampling,
 						List.of("EXPLICIT_REGIME_HANDOFFS_AND_TRANSONIC_REFINEMENT_V1"),
 						new PhysicsConfiguration(PhysicsConfiguration.allRegisteredMethods(),
-								"ADIABATIC", 0, false, false),
+								"ADIABATIC", 0, true, false),
 						NumericalTolerances.defaults(),
 						"TYPED_GENERATION_FALLBACKS_ONLY",
 						PhysicsAeroValidationGate.CODE_VERSION,
-						PhysicsAeroValidationGate.REGISTRY_VERSION, null));
+						PhysicsAeroValidationGate.REGISTRY_VERSION, poweredStates));
 		AeroGeometry geometry = new GeometryExtractor().extractWithComponentRoughness(
 				simulation.getActiveConfiguration(), "ADIABATIC", settingsHash, false);
 
@@ -152,11 +153,14 @@ public class PhysicsAeroTableGenerationTest {
 				101325 / (air.gasConstant() * 288.15), air.viscosity(288.15));
 		PhysicsAeroTableService.Result result = new PhysicsAeroTableService(cache).buildToCache(
 				geometry, sampling.mach(), sampling.alphaRad(), sampling.betaRad(),
-				new PoweredFlowState[0], atmosphere, air, settingsHash, new AtomicBoolean(), progress::add);
+				poweredStates, atmosphere, air, settingsHash, new AtomicBoolean(), progress::add);
 
 		assertEquals(PhysicsAeroValidationGate.Status.PASS, result.validation().status(),
 				"artifact validation failed: " + result.validation().failures());
-		assertEquals(cellCount(Fidelity.PREVIEW), result.table().cells().size());
+		assertEquals(cellCount(Fidelity.PREVIEW) * poweredStates.length, result.table().cells().size());
+		assertArrayEqualsExactly(new double[] {0, 1}, result.table().axes().poweredFraction());
+		assertTrue(result.table().cell(1, 2, 1, 1).validityFlags()
+				.contains("POWERED_INCREMENT_UNMODELED"));
 		assertTrue(Files.isRegularFile(result.tableFile()), "table file should be written to the cache");
 		assertTrue(Files.isRegularFile(result.manifestFile()), "manifest should be written next to the table");
 
@@ -180,7 +184,7 @@ public class PhysicsAeroTableGenerationTest {
 		assertEquals(result.table().cells().size(), resolved.cells().size(),
 				"the cached table should reload with every cell intact");
 
-		double axialAtLowSpeed = resolved.cell(1, 2, 1).coefficients().ca();
+		double axialAtLowSpeed = resolved.cell(1, 2, 1, 1).coefficients().ca();
 		assertTrue(Double.isFinite(axialAtLowSpeed) && axialAtLowSpeed > 0,
 				"subsonic axial force coefficient should be positive and finite, was " + axialAtLowSpeed);
 	}

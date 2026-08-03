@@ -80,6 +80,7 @@ import info.openrocket.core.simulation.SimulationStepperMethod;
 import info.openrocket.core.util.StringUtils;
 import info.openrocket.swing.gui.components.CsvOptionPanel;
 import info.openrocket.swing.gui.simulation.SimulationConfigDialog;
+import info.openrocket.swing.gui.dialogs.flightanimation.FlightAnimationDialog;
 import info.openrocket.swing.gui.util.ColorConversion;
 import info.openrocket.swing.gui.util.FileHelper;
 import info.openrocket.swing.gui.util.GUIUtil;
@@ -134,6 +135,7 @@ public class SimulationPanel extends JPanel {
 	private final SimulationAction deleteSimulationAction;
 	private final SimulationAction simTableExportAction;
 	private final SimulationAction selectedSimsExportAction;
+	private final SimulationAction visualizeFlightAction;
 
 	private int[] previousSelection = null;
 
@@ -206,6 +208,7 @@ public class SimulationPanel extends JPanel {
 		deleteSimulationAction = new DeleteSimulationAction();
 		simTableExportAction = new ExportSimulationTableAsCSVAction();
 		selectedSimsExportAction = new ExportSelectedSimulationsAsCSVAction();
+		visualizeFlightAction = new VisualizeFlightAction();
 
 		////////  The simulation action buttons ////////
 
@@ -278,6 +281,7 @@ public class SimulationPanel extends JPanel {
 		pm.addSeparator();
 		pm.add(runSimulationAction);
 		pm.add(plotSimulationAction);
+		pm.add(visualizeFlightAction);
 		pm.add(selectedSimsExportAction);
 
 		ApplicationPreferences appPreferences = (ApplicationPreferences) Application.getPreferences();
@@ -847,6 +851,7 @@ public class SimulationPanel extends JPanel {
 		plotSimulationAction.updateEnabledState();
 		simTableExportAction.updateEnabledState();
 		selectedSimsExportAction.updateEnabledState();
+		visualizeFlightAction.updateEnabledState();
 	}
 
 	/// when the simulation tab is selected this run outdated simulated if appropriate.
@@ -1196,6 +1201,32 @@ public class SimulationPanel extends JPanel {
 		@Override
 		public void updateEnabledState() {
 			this.setEnabled(simulationTable.getSelectedRowCount() == 1 && hasValidConfig);
+		}
+	}
+
+	/** Opens the selected completed simulation in the 3D flight animation viewer. */
+	class VisualizeFlightAction extends SimulationAction {
+		public VisualizeFlightAction() {
+			this.putValue(NAME, trans.get("simpanel.pop.visualizeFlight"));
+			this.putValue(SHORT_DESCRIPTION, trans.get("simpanel.pop.visualizeFlight.ttip"));
+		}
+
+		@Override
+		public void actionPerformed(ActionEvent event) {
+			Simulation[] simulations = getSelectedSimulations();
+			if (simulations == null || simulations.length != 1) {
+				return;
+			}
+			new FlightAnimationDialog(SwingUtilities.getWindowAncestor(SimulationPanel.this), document, simulations[0])
+					.setVisible(true);
+		}
+
+		@Override
+		public void updateEnabledState() {
+			Simulation[] simulations = getSelectedSimulations();
+			this.setEnabled(simulations != null && simulations.length == 1
+					&& simulations[0].getSimulatedData() != null
+					&& simulations[0].getSimulatedData().getBranchCount() > 0);
 		}
 	}
 

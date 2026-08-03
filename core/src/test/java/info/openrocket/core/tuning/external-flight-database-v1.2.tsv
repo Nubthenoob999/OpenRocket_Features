@@ -1,0 +1,33 @@
+flight_id|vehicle_name|motor|diameter_in|peak_mach|launch_site_alt_ft|apogee_real_ft|apogee_openrocket_plus_ft|measurement_type|data_source|vehicle_definition_status
+# Snapshot: Rocket Flight Database v1.2, CC-BY-4.0; upstream revision cfbfc37d0d4db9a88de8f525041ccdfe458c904c.
+# Model source manifest: openrocketsupersonic branch supersonic-aero-dev at 73a3f755c9e4efeea1e188f55873e48715046eda;
+# RASAero II 1.0.2.0 installer https://www.rasaero.com/dloads/RASAero_II_Setup_Version_1.0.2.0.zip independently cross-checks rows 1-24.
+# The models are intentionally not vendored; ExternalFlightModelLocator resolves caller-supplied roots.  Wind, pressure, temperature, mass, CG, and thrust-curve reconstruction remain source-model inputs.
+1|Thunder & Lightning|I284W (AT)|3.10|0.54|2750|3577|3877|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+2|Gibb|I284W (AT)|3.00|0.55|2750|3913|3989|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+3|Cancer Descending|M1297W (AT)|6.00|0.56|2750|6188|6044|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+4|EZI-65 J450ST|J450ST (AMW)|4.00|0.60|2750|3965|4158|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+5|Caliber Isp 04 AVTC Team 2|I205 (CTI)|3.10|0.64|2302|3710|3890|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+6|Caliber Isp 04 AVTC Team 3|I205 (CTI)|3.10|0.64|2302|3964|3889|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+7|Caliber Isp 04 AVTC Team 1|I205 (CTI)|3.10|0.66|2302|3837|3960|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+8|Byrum|J570W (AT)|3.00|0.75|2750|5732|6161|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+9|Ion Drive|K550W (AT)|4.00|0.79|2750|8027|7730|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+10|Caliber Isp 05 ARO-414 (Discovery)|I285 (CTI)|3.10|0.81|2848|4930|4772|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+11|Blister|K1075GG (AMW)|3.00|0.83|2400|9026|8268|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+12|Caliber Isp 05 ARO-414 (Columbia)|I285 (CTI)|3.10|0.84|2848|5085|4777|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+13|Rabia - Short Fin Can|L730 (CTI)|3.13|0.86|3400|10584|9916|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+14|Raven|J570W (AT)|1.75|1.07|2750|8815|9489|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+15|Rabia|L1080BB (AMW)|3.00|1.14|2400|12745|11913|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+16|Torrent|M1850GG (AMW)|4.00|1.22|2400|12807|12455|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+17|Kline-Rogers L500|L500 (Ace)|2.26|1.98|2848|24771|24179|Optical Track|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+18|A-601 Kinsel|P4935|6.13|2.19|3933|42771|46499|GPS|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+19|Full Metal Jacket - BALLS 005|O10000 (Kosdon)|4.00|2.31|3933|37981|37256|Optical Track|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+20|Full Metal Jacket - Black Rock 6|O10000 (Kosdon)|4.00|2.46|3933|30038|29239|Optical Track|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+21|Proteus 6|P9381 (Loki-EX)|6.00|2.87|3933|85067|91339|Integrated Accelerometer|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+22|AeroPac 104K Two-Stage|N1048 / M685W (AT)|4.05/3.08|3.04|3750|104659|103602|GPS|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+23|Don't Debate This|N5800 (CTI)|3.92|3.04|3750|56573|53150|Barometric Altimeter|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+24|Qu8k|Q18000 (Deville-EX)|8.00|3.46|3750|121478|119187|Integrated Accelerometer|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+25|MESOS 293K|O4374 / M787 (KIP-EX)|4.68/3.15|4.33|3910|293488|273070|GPS|Rogers RASAero II Comparisons|NOT_REDISTRIBUTED_BY_UPSTREAM
+26|Black Brant V VB (AAF-VB-32)|26KS20000 (Bristol)|16.93|7.22|98|897638|835071|Radar Track|DTIC AD0733141 (Bristol/NRC Churchill 1971)|NOT_REDISTRIBUTED_BY_UPSTREAM
+27|Nike-Deacon flight 1|Nike M5 / Deacon ABL|16.5/6.5|4.96|0|356000|352210|Radar Beacon Track (precision ~+/-1k ft)|NACA TN 3739 p.5-6 (Heitkotter 1956 Wallops 1955)|NOT_REDISTRIBUTED_BY_UPSTREAM
+28|Nike-Deacon flight 2|Nike M5 / Deacon ABL|16.5/6.5|5.08|0|350000|346902|Radar Beacon Track (intermittent ~+/-5k ft)|NACA TN 3739 p.5-6 (Heitkotter 1956 Wallops 1955)|NOT_REDISTRIBUTED_BY_UPSTREAM

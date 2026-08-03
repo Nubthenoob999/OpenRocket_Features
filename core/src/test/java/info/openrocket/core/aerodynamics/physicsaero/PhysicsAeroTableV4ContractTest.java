@@ -38,7 +38,7 @@ class PhysicsAeroTableV4ContractTest {
 	@TempDir Path temporary;
 
 	@Test
-	void schemaV5RoundTripIsDeterministicAndPreservesPoweredOwnershipRatesAndCorrections() throws Exception {
+	void schemaV8RoundTripIsDeterministicAndPreservesPoweredOwnershipRatesAndCorrections() throws Exception {
 		AerodynamicTable table = poweredTable();
 		Path first = temporary.resolve("first.aero");
 		Path second = temporary.resolve("second.aero");
@@ -55,6 +55,9 @@ class PhysicsAeroTableV4ContractTest {
 		assertArrayEquals(new double[] {0.0003, 0, 0, 0, 0, 0},
 				loaded.cell(0, 0, 0, 0).runtimeCorrection()
 						.dCoefficientDLogReCubed(), 0);
+		assertArrayEquals(new double[] {0.00000007, 0, 0, 0, 0, 0},
+				loaded.cell(0, 0, 0, 0).runtimeCorrection()
+						.dCoefficientDLogReSeventh(), 0);
 		TableCell powered = loaded.cell(0, 0, 0, 1);
 		assertEquals(0.20, powered.ownerTotals().get("POWERED_PLUME_INSTALLATION_DRAG").ca(), 0);
 		assertEquals(new AerodynamicDerivatives(-0.1, -1.2, -0.7), powered.derivatives());
@@ -138,6 +141,10 @@ class PhysicsAeroTableV4ContractTest {
 						new double[] {0.01, 0, 0, 0, 0, 0},
 						new double[] {0.002, 0, 0, 0, 0, 0},
 						new double[] {0.0003, 0, 0, 0, 0, 0},
+						new double[] {0.00004, 0, 0, 0, 0, 0},
+						new double[] {0.000005, 0, 0, 0, 0, 0},
+						new double[] {0.0000006, 0, 0, 0, 0, 0},
+						new double[] {0.00000007, 0, 0, 0, 0, 0},
 						false, "ANCHORED_QUADRATIC_LOG_RE_TEST")
 				: RuntimeCorrectionData.rebuildRequired(1_000_000);
 		return new TableCell(coefficients, Map.of("vehicle", coefficients), Map.of(owner, owned),

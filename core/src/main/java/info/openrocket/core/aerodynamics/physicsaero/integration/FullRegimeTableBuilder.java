@@ -37,21 +37,18 @@ import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
 import info.openrocket.core.aerodynamics.physicsaero.flow.PoweredFlowState;
 import info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicCoefficients;
 import info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicDerivatives;
-import info.openrocket.core.aerodynamics.physicsaero.force.CoefficientAssembler;
-import info.openrocket.core.aerodynamics.physicsaero.force.ContributionLedger;
 import info.openrocket.core.aerodynamics.physicsaero.force.ReferenceState;
 import info.openrocket.core.aerodynamics.physicsaero.gasdynamics.ThermodynamicModel;
 import info.openrocket.core.aerodynamics.physicsaero.interaction.SlenderCruciformCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.interaction.CompactFinnedBodyZeroLiftCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.powered.PoweredBaseFlowModel;
+import info.openrocket.core.aerodynamics.physicsaero.powered.RasaeroPoweredNozzleDragModel;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroComponent;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AeroGeometry;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.AxisymmetricProfile;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.FinGeometry;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.GeometryStation;
 import info.openrocket.core.aerodynamics.physicsaero.geometry.ProtuberanceDragModel;
-import info.openrocket.core.aerodynamics.physicsaero.subsonic.BarrowmanLowSpeedAdapter;
-import info.openrocket.core.aerodynamics.physicsaero.subsonic.LowSpeedRegimeSelector;
 import info.openrocket.core.aerodynamics.physicsaero.subsonic.SubsonicComponentAssembler;
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.aerodynamics.physicsaero.table.CombinedBodyFinTableBuilder;
@@ -67,10 +64,10 @@ import info.openrocket.core.aerodynamics.physicsaero.transonic.FinDragDivergence
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicBaseDragModel;
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicDragRiseHierarchy;
 import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicDragRiseModel;
-import info.openrocket.core.aerodynamics.physicsaero.transonic.TransonicFinLiftCorrection;
 
 /**
- * Deterministic Mach-0-to-7 component table. Supersonic Phases 2-5 remain
+ * Deterministic Mach-0-to-10-capable component table. The default sampled
+ * flight envelope currently ends at Mach 8. Supersonic Phases 2-5 remain
  * authoritative in their validated range.
  */
 public final class FullRegimeTableBuilder {
@@ -112,8 +109,9 @@ public final class FullRegimeTableBuilder {
 	 * avoids using a local derivative as a two-decade extrapolation. At Mach 1.3
 	 * and below, a three-decade cubic is fitted through direct 0.10, 0.01, and
 	 * 0.001 anchors and independently checked at each log-midpoint plus the local
-	 * stencil. Cells whose ownership or separation topology changes retain the
-	 * conservative narrower envelope.
+	 * stencil. A transition or separation bookkeeping change is admitted only when
+	 * that broader polynomial independently reproduces every direct coefficient
+	 * check; otherwise the cell retains the conservative narrower envelope.
 	 */
 	private static final double LOCAL_MINIMUM_RUNTIME_REYNOLDS_RATIO = 0.50;
 	private static final double ONE_DECADE_VALIDATION_REYNOLDS_RATIO = 0.25;
@@ -122,8 +120,17 @@ public final class FullRegimeTableBuilder {
 	private static final double TWO_DECADE_ANCHOR_REYNOLDS_RATIO = 0.01;
 	private static final double THREE_DECADE_VALIDATION_REYNOLDS_RATIO = 0.0031622776601683794;
 	private static final double THREE_DECADE_ANCHOR_REYNOLDS_RATIO = 0.001;
+	private static final double TRANSITION_FIT_MAXIMUM_MACH = 1.10;
+	private static final double TRANSITION_UPPER_VALIDATION_REYNOLDS_RATIO = 0.05623413251903491;
+	private static final double TRANSITION_LOWER_VALIDATION_REYNOLDS_RATIO = 0.01778279410038923;
+	private static final double TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO = 0.005;
+	private static final double HIGH_MACH_LOWER_VALIDATION_REYNOLDS_RATIO =
+			0.007071067811865476;
+	private static final double HIGH_MACH_REYNOLDS_INVARIANT_MINIMUM_RATIO = 1.0e-6;
 	private static final double MAXIMUM_RUNTIME_REYNOLDS_RATIO = 1.25;
-	private static final String RUNTIME_REYNOLDS_METHOD_ID = "ANCHORED_CUBIC_LOG_RE_V5";
+	private static final String RUNTIME_REYNOLDS_METHOD_ID = "DIRECTLY_VALIDATED_ANCHORED_LOG_RE_V7";
+	private static final String HIGH_MACH_REYNOLDS_INVARIANT_METHOD_ID =
+			"A53D02_HIGH_MACH_REYNOLDS_INVARIANT_COEFFICIENT_CLOSURE_V1";
 	private final Map<BodyPressureAnchorKey, BodyPressureAnchor> bodyPressureAnchors =
 			new ConcurrentHashMap<>();
 	private final Map<String, GeometryMetrics> geometryMetricsCache =
@@ -384,8 +391,10 @@ public final class FullRegimeTableBuilder {
 					coast.referenceState(), coast.diagnostics(), coast.directlyGenerated(),
 					coast.derivatives(), coast.runtimeCorrection());
 		}
+		boolean rasaeroNozzleOnly = state.resolution()
+				== PoweredFlowState.Resolution.NOZZLE_GEOMETRY_ONLY;
 		PoweredBaseFlowModel model = new PoweredBaseFlowModel();
-		if (!model.supportsMach(mach)) {
+		if (!rasaeroNozzleOnly && !model.supportsMach(mach)) {
 			validity.add("POWERED_STATE");
 			validity.add("POWERED_INCREMENT_OUTSIDE_SOURCE_RANGE");
 			return new TableCell(coast.coefficients(), coast.componentTotals(), coast.ownerTotals(),
@@ -393,7 +402,9 @@ public final class FullRegimeTableBuilder {
 					coast.referenceState(), coast.diagnostics(), coast.directlyGenerated(),
 					coast.derivatives(), coast.runtimeCorrection());
 		}
-		var correction = model.evaluate(geometry, mach, state);
+		var correction = rasaeroNozzleOnly
+				? new RasaeroPoweredNozzleDragModel().evaluate(geometry, mach, state)
+				: model.evaluate(geometry, mach, state);
 		AerodynamicCoefficients poweredDelta = axial(correction.totalDeltaCd());
 		AerodynamicCoefficients coefficients = add(coast.coefficients(), poweredDelta);
 		Map<String, AerodynamicCoefficients> components = new HashMap<>(coast.componentTotals());
@@ -439,10 +450,26 @@ public final class FullRegimeTableBuilder {
 			 */
 			if (mach == 0) {
 				return withCorrection(center, new RuntimeCorrectionData(0,
-						THREE_DECADE_ANCHOR_REYNOLDS_RATIO, MAXIMUM_RUNTIME_REYNOLDS_RATIO,
-						new double[6], false, RUNTIME_REYNOLDS_METHOD_ID));
+						TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO, MAXIMUM_RUNTIME_REYNOLDS_RATIO,
+						new double[6], false, RuntimeCorrectionData.PIECEWISE_LOG_RE_METHOD));
 			}
 			return withCorrection(center, RuntimeCorrectionData.rebuildRequired(reynolds));
+		}
+		/*
+		 * The post-handoff A53D02 geometry-scaled coefficient closure and the
+		 * compact/slender vehicle closures are functions of Mach and geometry, not
+		 * Reynolds number.  For a clean vehicle, preserve that exact equation
+		 * ownership into the low-density upper-atmosphere portion of a sounding-
+		 * rocket trajectory.  Protuberances are excluded because their cylinder
+		 * drag correlation has a real Reynolds dependence and must use the direct
+		 * bounded surface below.
+		 */
+		if (mach >= HIGH_MACH_OVERLAP_END && geometry.components().stream()
+				.noneMatch(component -> component.protuberanceGeometry() != null)) {
+			return withCorrection(center, new RuntimeCorrectionData(reynolds,
+					HIGH_MACH_REYNOLDS_INVARIANT_MINIMUM_RATIO,
+					MAXIMUM_RUNTIME_REYNOLDS_RATIO, new double[6], false,
+					HIGH_MACH_REYNOLDS_INVARIANT_METHOD_ID));
 		}
 		final double logStep = 0.05;
 		AtmosphereState lowerReAtmosphere = withDensityScale(atmosphere, Math.exp(-logStep));
@@ -512,6 +539,83 @@ public final class FullRegimeTableBuilder {
 						lower.coefficients().toArray(), Math.exp(-logStep))
 				&& correctionMatches(centerValues, broadLinear, broadQuadratic,
 						upper.coefficients().toArray(), Math.exp(logStep));
+		/*
+		 * Above the Mach-5 handoff, explicitly validate the same anchored Reynolds
+		 * surface down to Re/Re_ref=0.005.  A direct midpoint solve prevents a
+		 * quadratic that merely happens to meet the lower endpoint from being
+		 * admitted.  This is needed by the measured Mach-7.22 Black Brant ascent,
+		 * whose thinning-atmosphere trajectory reaches Re/Re_ref just below 0.01.
+		 */
+		if (mach > HIGH_MACH_OVERLAP_END && broadValidated) {
+			AtmosphereState highMachLowerValidationAtmosphere = withDensityScale(atmosphere,
+					HIGH_MACH_LOWER_VALIDATION_REYNOLDS_RATIO);
+			TableCell highMachLowerValidation = cell(geometry, mach, alpha, beta,
+					alphaIndex, betaIndex, highMachLowerValidationAtmosphere, gas, null);
+			AtmosphereState highMachLowerAnchorAtmosphere = withDensityScale(atmosphere,
+					TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO);
+			TableCell highMachLowerAnchor = cell(geometry, mach, alpha, beta,
+					alphaIndex, betaIndex, highMachLowerAnchorAtmosphere, gas, null);
+			boolean highMachLowerValidated = broadTopologyStable
+					&& sameCorrectionTopology(center, highMachLowerValidation)
+					&& sameCorrectionTopology(center, highMachLowerAnchor)
+					&& correctionMatches(centerValues, broadLinear, broadQuadratic,
+							highMachLowerValidation.coefficients().toArray(),
+							HIGH_MACH_LOWER_VALIDATION_REYNOLDS_RATIO)
+					&& correctionMatches(centerValues, broadLinear, broadQuadratic,
+							highMachLowerAnchor.coefficients().toArray(),
+							TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO);
+			if (highMachLowerValidated) {
+				return withCorrection(center, new RuntimeCorrectionData(reynolds,
+						TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO,
+						MAXIMUM_RUNTIME_REYNOLDS_RATIO, broadLinear, broadQuadratic,
+						false, RUNTIME_REYNOLDS_METHOD_ID));
+			}
+		}
+		if (mach <= TRANSITION_FIT_MAXIMUM_MACH && !fullyTurbulentGeometry(geometry)) {
+			AtmosphereState transitionUpperValidationAtmosphere = withDensityScale(atmosphere,
+					TRANSITION_UPPER_VALIDATION_REYNOLDS_RATIO);
+			TableCell transitionUpperValidation = cell(geometry, mach, alpha, beta,
+					alphaIndex, betaIndex, transitionUpperValidationAtmosphere, gas, null);
+			AtmosphereState transitionLowerValidationAtmosphere = withDensityScale(atmosphere,
+					TRANSITION_LOWER_VALIDATION_REYNOLDS_RATIO);
+			TableCell transitionLowerValidation = cell(geometry, mach, alpha, beta,
+					alphaIndex, betaIndex, transitionLowerValidationAtmosphere, gas, null);
+			AtmosphereState transitionLowerAnchorAtmosphere = withDensityScale(atmosphere,
+					TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO);
+			TableCell transitionLowerAnchor = cell(geometry, mach, alpha, beta,
+					alphaIndex, betaIndex, transitionLowerAnchorAtmosphere, gas, null);
+			double[] atTransitionUpper = coefficientDelta(centerValues,
+					transitionUpperValidation.coefficients().toArray());
+			double[] atOneAndHalfDecades = coefficientDelta(centerValues,
+					twoDecadeValidation.coefficients().toArray());
+			double[] atTransitionLower = coefficientDelta(centerValues,
+					transitionLowerValidation.coefficients().toArray());
+			double[] atTwoDecades = coefficientDelta(centerValues, twoDecadeAnchorValues);
+			double[] atTransitionLowerAnchor = coefficientDelta(centerValues,
+					transitionLowerAnchor.coefficients().toArray());
+			double[] atQuarterReynolds = coefficientDelta(centerValues,
+					oneDecadeValidation.coefficients().toArray());
+			double[] atOneTenthReynolds = coefficientDelta(centerValues,
+					oneDecadeAnchorValues);
+			RuntimeCorrectionData piecewise = new RuntimeCorrectionData(reynolds,
+					TRANSITION_LOWER_ANCHOR_REYNOLDS_RATIO, MAXIMUM_RUNTIME_REYNOLDS_RATIO,
+					atQuarterReynolds, atOneTenthReynolds, atTransitionUpper,
+					atOneAndHalfDecades, atTransitionLower, atTwoDecades,
+					atTransitionLowerAnchor, false,
+					RuntimeCorrectionData.PIECEWISE_LOG_RE_METHOD);
+			boolean piecewiseValidated = correctionMatches(centerValues, piecewise,
+					oneDecadeValidation.coefficients().toArray(),
+					ONE_DECADE_VALIDATION_REYNOLDS_RATIO)
+					&& correctionMatches(centerValues, piecewise,
+							lower.coefficients().toArray(), Math.exp(-logStep))
+					&& correctionMatches(centerValues, piecewise,
+							upper.coefficients().toArray(), Math.exp(logStep));
+			piecewiseValidated = piecewiseValidated
+					&& correctionMatches(centerValues, piecewise,
+							transitionLowerValidation.coefficients().toArray(),
+							TRANSITION_LOWER_VALIDATION_REYNOLDS_RATIO);
+			if (piecewiseValidated) return withCorrection(center, piecewise);
+		}
 		if (mach <= THREE_DECADE_REYNOLDS_MAXIMUM_MACH) {
 			AtmosphereState threeDecadeAnchorAtmosphere = withDensityScale(atmosphere,
 					THREE_DECADE_ANCHOR_REYNOLDS_RATIO);
@@ -550,14 +654,14 @@ public final class FullRegimeTableBuilder {
 							lower.coefficients().toArray(), Math.exp(-logStep))
 					&& correctionMatches(centerValues, cubicLinear, cubicQuadratic, cubic,
 							upper.coefficients().toArray(), Math.exp(logStep));
-			if (threeDecadeTopologyStable && threeDecadeValidated) {
+			if (threeDecadeValidated) {
 				return withCorrection(center, new RuntimeCorrectionData(reynolds,
 						THREE_DECADE_ANCHOR_REYNOLDS_RATIO, MAXIMUM_RUNTIME_REYNOLDS_RATIO,
 						cubicLinear, cubicQuadratic, cubic, false,
 						RUNTIME_REYNOLDS_METHOD_ID));
 			}
 		}
-		if (broadTopologyStable && broadValidated) {
+		if (broadValidated) {
 			return withCorrection(center, new RuntimeCorrectionData(reynolds,
 					TWO_DECADE_ANCHOR_REYNOLDS_RATIO, MAXIMUM_RUNTIME_REYNOLDS_RATIO,
 					broadLinear, broadQuadratic, false, RUNTIME_REYNOLDS_METHOD_ID));
@@ -619,10 +723,49 @@ public final class FullRegimeTableBuilder {
 		}
 	}
 
+	private static void fitCubicThroughAnchors(double[] center, double[] ratios,
+			double[][] anchors, double[] linear, double[] quadratic, double[] cubic) {
+		if (ratios.length != 3 || anchors.length != 3) {
+			throw new IllegalArgumentException("three Reynolds anchors required");
+		}
+		double[] x = Arrays.stream(ratios).map(Math::log).toArray();
+		for (int coefficient = 0; coefficient < linear.length; coefficient++) {
+			for (int anchor = 0; anchor < 3; anchor++) {
+				int firstOther = (anchor + 1) % 3;
+				int secondOther = (anchor + 2) % 3;
+				double denominator = x[anchor] * (x[anchor] - x[firstOther])
+						* (x[anchor] - x[secondOther]);
+				double delta = anchors[anchor][coefficient] - center[coefficient];
+				linear[coefficient] += delta * x[firstOther] * x[secondOther] / denominator;
+				quadratic[coefficient] -= delta * (x[firstOther] + x[secondOther]) / denominator;
+				cubic[coefficient] += delta / denominator;
+			}
+		}
+	}
+
 	private static boolean correctionMatches(double[] center, double[] sensitivity,
 			double[] curvature, double[] direct, double ratio) {
 		return correctionMatches(center, sensitivity, curvature, new double[6],
 				direct, ratio);
+	}
+
+	private static boolean correctionMatches(double[] center,
+			RuntimeCorrectionData correction, double[] direct, double ratio) {
+		for (int index = 0; index < direct.length; index++) {
+			double predicted = center[index] + correction.coefficientDelta(ratio, index);
+			double tolerance = 0.002 + 0.05 * Math.max(Math.abs(center[index]),
+					Math.abs(direct[index]));
+			if (Math.abs(predicted - direct[index]) > tolerance) return false;
+		}
+		return true;
+	}
+
+	private static double[] coefficientDelta(double[] center, double[] anchor) {
+		double[] delta = new double[center.length];
+		for (int index = 0; index < delta.length; index++) {
+			delta[index] = anchor[index] - center[index];
+		}
+		return delta;
 	}
 
 	private static boolean correctionMatches(double[] center, double[] sensitivity,
@@ -655,6 +798,11 @@ public final class FullRegimeTableBuilder {
 					|| normalized.contains("TRANSITION") || normalized.contains("OWNED")) result.add(flag);
 		}
 		return result;
+	}
+
+	private static boolean fullyTurbulentGeometry(AeroGeometry geometry) {
+		return geometry.components().stream().anyMatch(component ->
+				component.localReferences().getOrDefault("forceFullyTurbulent", 0.0) == 1.0);
 	}
 
 	private static TableCell withCorrection(TableCell cell, RuntimeCorrectionData correction) {
@@ -833,31 +981,19 @@ public final class FullRegimeTableBuilder {
 				gas, false, geometry.geometryHash());
 		SubsonicComponentAssembler.Result result = new SubsonicComponentAssembler().evaluate(geometry, flow);
 		AerodynamicCoefficients coefficients = result.coefficients();
-		AerodynamicCoefficients directCoefficients = coefficients;
 		List<String> methods = new ArrayList<>(result.methods());
 		List<String> validity = new ArrayList<>();
 		if (mach == 0) {
 			validity.add("MACH_ZERO_COEFFICIENT_LIMIT");
 		}
 		if (mach < 0.35) {
-			ContributionLedger ledger = new ContributionLedger();
-			new BarrowmanLowSpeedAdapter().evaluate(geometry, flow).forEach(ledger::add);
-			AerodynamicCoefficients barrowman = ledger.entries().isEmpty()
-					? new AerodynamicCoefficients(coefficients.ca(), 0, 0, 0, 0, 0)
-					: CoefficientAssembler.assemble(ledger, reference);
-			double correlationWeight = new LowSpeedRegimeSelector().correlationWeight(mach);
-			coefficients = new ComponentRegimeBlender().blend(barrowman, 1 - correlationWeight,
-					coefficients, correlationWeight == 0 ? 1e-12 : correlationWeight);
-			methods.add("BARROWMAN_LOW_SPEED_ADAPTER_V1");
-			validity.add(mach >= 0.25 ? "MACH_0P3_SMOOTH_OVERLAP" : "BARROWMAN_OWNER");
+			// The component assembler already has the correct incompressible limit.
+			// Do not replace its fin and geometry-derived moment terms with the former
+			// fixed-CNa/fixed-0.65L body placeholder at low Mach.
+			validity.add("COMPONENT_SUBSONIC_INCOMPRESSIBLE_LIMIT");
 		}
 		Map<String, AerodynamicCoefficients> components = new HashMap<>(result.componentTotals());
 		Map<String, AerodynamicCoefficients> owners = new HashMap<>(result.ownerTotals());
-		if (!coefficients.equals(directCoefficients)) {
-			AerodynamicCoefficients adjustment = difference(coefficients, directCoefficients);
-			components.put("low-speed-correlation-adjustment", adjustment);
-			owners.put("LOW_SPEED_BARROWMAN_CORRECTION", adjustment);
-		}
 		return new BranchResult(coefficients, methods, validity, result.diagnostics(),
 				result.confidence(), components, owners);
 	}
@@ -869,8 +1005,8 @@ public final class FullRegimeTableBuilder {
 		GeometryMetrics metrics = geometryMetrics(geometry);
 		double incidence = Math.atan(Math.hypot(Math.tan(alpha), Math.tan(beta)));
 
-		BodyCriticalMachEstimator.Estimate bodyCritical = new BodyCriticalMachEstimator().estimate(
-				1 / metrics.finenessRatio(), metrics.bodyCurvatureMetric(), incidence);
+		BodyCriticalMachEstimator.Estimate bodyCritical = new BodyCriticalMachEstimator()
+				.estimateFromTipHalfAngle(metrics.noseTipHalfAngleRad());
 		double criticalMach = bodyCritical.criticalMach();
 		FinCriticalMachEstimator.Estimate finCritical = null;
 		FinDragDivergenceEstimator.Estimate finDivergence = null;
@@ -929,8 +1065,8 @@ public final class FullRegimeTableBuilder {
 		double basePressureMagnitude = -new TransonicBaseDragModel()
 				.basePressureCoefficient(mach, 0);
 		double referenceArea = geometry.references().referenceAreaM2();
-		double bodyBaseCd = basePressureMagnitude
-				* geometry.references().exposedBaseAreaM2() / referenceArea;
+		double bodyBaseCd = new TransonicBaseDragModel()
+				.dragCoefficient(geometry, mach, 0);
 		FinnedBasePressureClosureModel.Result finnedBaseClosure =
 				new FinnedBasePressureClosureModel().evaluate(
 						geometry, mach, basePressureMagnitude);
@@ -962,25 +1098,36 @@ public final class FullRegimeTableBuilder {
 		double axialCoefficient = bodyBaseCd + bodyBaseClosureCd + boattailCd
 				+ finBaseCd + finBaseClosureCd + finLeadingEdgeCd
 				+ friction.totalCd() + dragRise;
-		double liftCorrection = new TransonicFinLiftCorrection().factor(mach,
-				metrics.finThicknessRatio(), metrics.aspectRatio());
-		double slope = 2.5 * liftCorrection;
-		double normalCoefficient = slope * alpha;
-		double sideCoefficient = slope * beta;
-		double aerodynamicCenter = transonicApplicationPointM(geometry);
-		double arm = (aerodynamicCenter - geometry.references().momentOriginM().x)
-				/ geometry.references().referenceLengthM();
+		// No validated generic rocket lift/CP correlation spans the sonic gap.  Hold
+		// the component-derived Jorgensen/DATCOM incidence solution at its validated
+		// Mach-0.85 endpoint instead of inventing a universal CNa and area-centroid CP.
+		// The independently sourced transonic drag owners above remain active.
+		FlowCondition incidenceEndpointFlow = FlowCondition.fromAngles(
+				SUBSONIC_OVERLAP_START, alpha, beta, atmosphere, gas, false,
+				geometry.geometryHash());
+		SubsonicComponentAssembler.Result incidenceEndpoint =
+				new SubsonicComponentAssembler().evaluate(geometry, incidenceEndpointFlow);
+		AerodynamicCoefficients endpointCoefficients = incidenceEndpoint.coefficients();
+		double normalCoefficient = endpointCoefficients.cn();
+		double sideCoefficient = endpointCoefficients.cy();
+		double pitchCoefficient = endpointCoefficients.cm();
+		double yawCoefficient = endpointCoefficients.cYaw();
 		AerodynamicCoefficients coefficients = new AerodynamicCoefficients(axialCoefficient,
-				normalCoefficient, sideCoefficient, 0, -normalCoefficient * arm,
-				sideCoefficient * arm);
+				normalCoefficient, sideCoefficient, 0, pitchCoefficient,
+				yawCoefficient);
 
 		List<String> methods = new ArrayList<>(List.of(
 				"DEDICATED_TRANSONIC_ROCKET_PEAK_V1",
+				"MACH_0P85_COMPONENT_INCIDENCE_BOUNDARY_HOLD_V1",
 				TransonicBaseDragModel.METHOD_ID,
 				EngineeringSkinFrictionCorrelation.METHOD_ID,
 				bodyCritical.methodId(),
 				rise.total().sourceId(), rise.body().sourceId(), rise.fin().sourceId(),
 				rise.interference().sourceId()));
+		if (friction.finInterferenceCd() > 0) {
+			methods.add(EngineeringSkinFrictionCorrelation.FIN_INTERFERENCE_METHOD_ID);
+		}
+		methods.addAll(incidenceEndpoint.methods());
 		if (finCritical != null) {
 			methods.add(finCritical.methodId());
 			methods.add(finDivergence.methodId());
@@ -1002,8 +1149,8 @@ public final class FullRegimeTableBuilder {
 			methods.add(FinnedBasePressureClosureModel.METHOD_ID);
 		}
 		AerodynamicCoefficients incidenceLoads = new AerodynamicCoefficients(0,
-				normalCoefficient, sideCoefficient, 0, -normalCoefficient * arm,
-				sideCoefficient * arm);
+				normalCoefficient, sideCoefficient, 0, pitchCoefficient,
+				yawCoefficient);
 		Map<String, AerodynamicCoefficients> components = Map.of(
 				"axisymmetric-body", axial(bodyBaseCd + bodyBaseClosureCd
 						+ boattailCd
@@ -1011,7 +1158,8 @@ public final class FullRegimeTableBuilder {
 				"fins", axial(finBaseCd + finBaseClosureCd
 						+ finLeadingEdgeCd
 						+ friction.finCd() + finDragRise),
-				"body-fin-interference", axial(interferenceDragRise),
+				"body-fin-interference", axial(interferenceDragRise
+						+ friction.finInterferenceCd()),
 				"vehicle-incidence", incidenceLoads);
 		Map<String, AerodynamicCoefficients> owners = new HashMap<>();
 		owners.put("BODY_TRANSONIC_DRAG_RISE", axial(bodyDragRise));
@@ -1027,9 +1175,13 @@ public final class FullRegimeTableBuilder {
 				axial(finLeadingEdgeCd));
 		owners.put("BODY_SKIN_FRICTION", axial(friction.bodyCd()));
 		owners.put("FIN_SKIN_FRICTION", axial(friction.finCd()));
+		owners.put("FIN_SKIN_FRICTION_INTERFERENCE",
+				axial(friction.finInterferenceCd()));
 		owners.put("TRANSONIC_INCIDENCE_LOADS", incidenceLoads);
 		List<String> validity = new ArrayList<>(
-				List.of("NEAR_SONIC", "TRANSONIC_CORRELATION_DOMINANT"));
+				List.of("NEAR_SONIC", "TRANSONIC_CORRELATION_DOMINANT",
+						"TRANSONIC_INCIDENCE_MACH_0P85_BOUNDARY_HOLD",
+						"TRANSONIC_INCIDENCE_SOURCE_GAP_EXPLICIT"));
 		if (bodyPressureBridgeWeight > 0) {
 			validity.add("DIRECT_MACH_1P2_BODY_PRESSURE_ENDPOINT_BRIDGE");
 		}
@@ -1074,31 +1226,6 @@ public final class FullRegimeTableBuilder {
 					.distinct().sorted().toList();
 			return new BodyPressureAnchor(Math.max(0, cd), methods);
 		});
-	}
-
-	/** Area-weighted component application point; no Mach-fraction shortcut. */
-	private double transonicApplicationPointM(AeroGeometry geometry) {
-		double weightedX = 0;
-		double weight = 0;
-		for (AeroComponent component : geometry.components()) {
-			if (component.axisymmetricProfile() != null) {
-				double authority = Math.max(component.projectedAreaM2(), component.baseAreaM2());
-				weightedX += authority * 0.5 * (component.axialStartM() + component.axialEndM());
-				weight += authority;
-			}
-			if (component.finGeometry() != null) {
-				double authority = component.finGeometry().planformAreaM2()
-						* component.finGeometry().count();
-				double localCentroid = component.finGeometry().outline().stream()
-						.mapToDouble(GeometryStation::xM).average()
-						.orElse(0.5 * component.finGeometry().rootChordM());
-				weightedX += authority * (component.axialStartM() + localCentroid);
-				weight += authority;
-			}
-		}
-		if (weight > 0) return weightedX / weight;
-		return geometry.references().momentOriginM().x
-				+ 0.5 * geometry.references().referenceLengthM();
 	}
 
 	private BranchResult supersonic(AerodynamicTable table, int alphaIndex, int betaIndex) {
@@ -1157,6 +1284,7 @@ public final class FullRegimeTableBuilder {
 		double frontalArea = Math.PI * diameter * diameter / 4;
 		double bodyFrontalAreaRatio = frontalArea / geometry.references().referenceAreaM2();
 		double bodyCurvatureMetric = bodyCurvatureMetric(geometry, diameter);
+		double noseTipHalfAngleRad = noseTipHalfAngleRad(geometry);
 
 		double totalFinArea = 0;
 		double thicknessAreaIntegral = 0;
@@ -1186,8 +1314,22 @@ public final class FullRegimeTableBuilder {
 		double meanSweep = totalFinArea > 0 ? sweepAreaIntegral / totalFinArea : 0;
 		double meanAspectRatio = totalFinArea > 0 ? aspectAreaIntegral / totalFinArea : 1;
 		return new GeometryMetrics(finenessRatio, bodyFrontalAreaRatio, bodyCurvatureMetric,
+				noseTipHalfAngleRad,
 				meanThicknessRatio, totalFinArea / geometry.references().referenceAreaM2(),
 				meanSweep, meanAspectRatio);
+	}
+
+	private static double noseTipHalfAngleRad(AeroGeometry geometry) {
+		return geometry.components().stream()
+				.filter(component -> component.axisymmetricProfile() != null)
+				.sorted(java.util.Comparator.comparingDouble(AeroComponent::axialStartM))
+				.map(AeroComponent::axisymmetricProfile)
+				.filter(profile -> profile.stations().size() >= 2
+						&& profile.stations().get(profile.stations().size() - 1).radiusM()
+						> profile.stations().get(0).radiusM())
+				.mapToDouble(profile -> Math.min(Math.PI / 2,
+						Math.abs(profile.stations().get(0).tangentAngleRad())))
+				.findFirst().orElse(0);
 	}
 
 	private static double bodyCurvatureMetric(AeroGeometry geometry, double diameter) {
@@ -1295,8 +1437,8 @@ public final class FullRegimeTableBuilder {
 
 	private void validateAxes(double[] mach, double[] alpha, double[] beta) {
 		if (mach[0] < 0 || mach[mach.length - 1] > 10
-				|| alpha[0] < -Math.toRadians(15)
-				|| alpha[alpha.length - 1] > Math.toRadians(15)
+				|| alpha[0] < -Math.toRadians(90)
+				|| alpha[alpha.length - 1] > Math.toRadians(90)
 				|| beta[0] < -Math.toRadians(5)
 				|| beta[beta.length - 1] > Math.toRadians(5)) {
 			throw new IllegalArgumentException("PHASE6_DOMAIN_EXCEEDED");
@@ -1330,7 +1472,7 @@ public final class FullRegimeTableBuilder {
 			AerodynamicTable threeDecadeValidation) { }
 
 	private record GeometryMetrics(double finenessRatio, double bodyFrontalAreaRatio,
-			double bodyCurvatureMetric, double finThicknessRatio,
+			double bodyCurvatureMetric, double noseTipHalfAngleRad, double finThicknessRatio,
 			double finPlanformAreaRatio, double halfChordSweepRad, double aspectRatio) { }
 
 	private record BodyPressureAnchorKey(String geometryHash, String thermodynamicModel,
