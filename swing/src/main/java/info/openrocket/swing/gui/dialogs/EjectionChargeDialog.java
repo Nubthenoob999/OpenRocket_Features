@@ -34,16 +34,13 @@ import javax.swing.UIManager;
 
 import info.openrocket.core.document.OpenRocketDocument;
 import info.openrocket.core.rocketcomponent.BodyTube;
-import info.openrocket.core.rocketcomponent.Bulkhead;
-import info.openrocket.core.rocketcomponent.CenteringRing;
-import info.openrocket.core.rocketcomponent.InnerTube;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
-import info.openrocket.core.rocketcomponent.RingComponent;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.TubeCoupler;
 import info.openrocket.core.util.ejection.AirframeMaterial;
+import info.openrocket.core.util.ejection.EffectiveBayLengthCalculator;
 import info.openrocket.core.util.ejection.EjectionChargeEngine;
 import info.openrocket.core.util.ejection.EjectionChargeInputs;
 import info.openrocket.core.util.ejection.EjectionChargeResult;
@@ -153,7 +150,7 @@ public class EjectionChargeDialog extends JDialog {
 	private static SessionState savedState = null;
 
 	public EjectionChargeDialog(Window owner, OpenRocketDocument document) {
-		super(owner, "Ejection Charge Calculator", ModalityType.APPLICATION_MODAL);
+		super(owner, "Ejection Charge Calculator", ModalityType.DOCUMENT_MODAL);
 		this.document = document;
 
 		setLayout(new BorderLayout());
@@ -173,17 +170,16 @@ public class EjectionChargeDialog extends JDialog {
 			restoreState(savedState);
 		}
 
+		validate();
 		pack();
-		// Constrain initial size — keep width but cap height so the dialog
-		// fits on smaller laptop displays. The interior is wrapped in a
-		// scroll pane, so the user can still reach every section.
-		Dimension preferred = getPreferredSize();
-		int width = Math.max(720, preferred.width);
-		int height = Math.min(480, preferred.height);
-		setMinimumSize(new Dimension(720, 480));
-		setSize(new Dimension(width, height));
-		setLocationRelativeTo(owner);
+		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
+
+		setLocationByPlatform(true);
+
 		GUIUtil.setDisposableDialogOptions(this, calculateButton);
+		GUIUtil.rememberWindowPosition(this);
+		GUIUtil.rememberWindowSize(this);
+		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
 	}
 
 	// =====================================================================
@@ -296,7 +292,7 @@ public class EjectionChargeDialog extends JDialog {
 
 		bayInnerDiameterSpinner  = inSpinner(4.00, 0.10, 24.0, 0.05);
 		bayOuterDiameterSpinner  = inSpinner(4.10, 0.10, 25.0, 0.05);
-		bayLengthSpinner         = inSpinner(8.00, 0.50, 96.0, 0.25);
+		bayLengthSpinner         = inSpinner(8.00, 0.0, 96.0, 0.25);
 		bayMaterialSelector      = new JComboBox<>(AirframeMaterial.values());
 		bayMaterialSelector.setSelectedItem(AirframeMaterial.FIBERGLASS);
 
@@ -616,304 +612,18 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	/**
-	 * Holds the pressurized-length insets at the forward (top) and aft
-	 * (bottom) ends of a bay tube. The insets are the axial portions of
-	 * couplers and nose-cone shoulders that lie inside the tube and
-	 * therefore do not contribute to the pressurized volume.
-	 */
-	private static final class BayInsets {
-		final double topInset_m;
-		final double botInset_m;
-		BayInsets(double top, double bot) {
-			this.topInset_m = top;
-			this.botInset_m = bot;
-		}
-	}
-
-	/**
-	 * Computes the per-end pressurized-length insets for a body tube.
-	 *
-	 * <p>The algorithm has two phases:
-	 * <ol>
-	 *   <li><b>Joint insets (interface lengths):</b> couplers and nose-cone
-	 *       shoulders that protrude into either end of the tube contribute
-	 *       a per-end joint inset (the existing interference / engagement
-	 *       length). These are unconditional — both ends of the tube can
-	 *       carry a joint regardless of firing direction.</li>
-	 *   <li><b>Closed-end inset (firing direction):</b> the user picks
-	 *       which way the ejection charge fires. The end <em>opposite</em>
-	 *       the firing direction is the bay's closed end and is bounded by
-	 *       the nearest internal barrier (centering ring, motor-mount inner
-	 *       tube, bulkhead) walking inward from that end. If no barrier
-	 *       exists on the closed-end side, the closed-end inset stays at
-	 *       its joint-only value (i.e. the tube end itself bounds the bay).
-	 *       The firing-direction end keeps only its joint inset.</li>
-	 * </ol>
-	 *
-	 * <p>Concretely — if the charge fires <em>forward</em>, the coupler /
-	 * nose-cone shoulder at the forward end is the moving joint, so the
-	 * forward inset is the forward joint inset. The aft (closed) end is
-	 * bounded by the forward face of the nearest barrier inside the tube;
-	 * the aft inset spans from that face to the aft tube end. Aft firing
-	 * is the mirror image.
-	 */
-	private BayInsets computeBayInsets(BodyTube tube) {
-		return computeBayInsets(tube, currentFiringDirection());
-	}
-
-	private BayInsets computeBayInsets(BodyTube tube, EjectionFiringDirection direction) {
-		double tubeStart = axialStart_m(tube);
-		double tubeLen   = tube.getLength();
-		double tubeEnd   = tubeStart + tubeLen;
-		if (tubeLen <= 0.0) return new BayInsets(0.0, 0.0);
-		double tubeMid   = tubeStart + tubeLen * 0.5;
-
-		// Phase 1 — joint insets (per end). Couplers and nose-cone
-		// shoulders are joints, not transverse caps, so each end picks
-		// up the largest overlap from any joint that protrudes into it.
-		double[] jointInsets = new double[] { 0.0, 0.0 };
-
-		for (RocketComponent child : tube.getChildren()) {
-			if (child instanceof TubeCoupler) {
-				accumulateCouplerInset((TubeCoupler) child,
-						tubeStart, tubeEnd, tubeMid, jointInsets);
-			}
-		}
-		RocketComponent parent = tube.getParent();
-		if (parent != null) {
-			for (RocketComponent sibling : parent.getChildren()) {
-				if (sibling == tube) continue;
-				if (sibling instanceof TubeCoupler) {
-					accumulateCouplerInset((TubeCoupler) sibling,
-							tubeStart, tubeEnd, tubeMid, jointInsets);
-				} else if (sibling instanceof BodyTube) {
-					for (RocketComponent gc : sibling.getChildren()) {
-						if (gc instanceof TubeCoupler) {
-							accumulateCouplerInset((TubeCoupler) gc,
-									tubeStart, tubeEnd, tubeMid, jointInsets);
-						}
-					}
-				} else if (sibling instanceof NoseCone) {
-					accumulateShoulderInset((NoseCone) sibling,
-							tubeStart, tubeEnd, tubeMid, jointInsets);
-				}
-			}
-		}
-
-		double topJointInset = jointInsets[0];
-		double botJointInset = jointInsets[1];
-
-		// Phase 2 — barrier search. Walk every transverse barrier inside
-		// (or projected into) this tube and locate the nearest one to
-		// the closed end of the bay, ignoring barriers that fall inside a
-		// joint inset (those are already part of the joint, e.g. a
-		// centering ring sitting at the inboard face of a coupler).
-		double openCouplerFace = tubeStart + topJointInset;        // bay-side face of top joint
-		double openCouplerFaceAft = tubeEnd - botJointInset;       // bay-side face of bot joint
-
-		// Identify the bridge coupler from the UI so that any barriers
-		// nested directly inside it (e.g. a bulkhead the user attached to
-		// the coupler for a harness anchor) are excluded from the bay
-		// barrier search. Such a bulkhead is part of the coupler joint
-		// assembly and must not define the closed end of the pressurized bay.
-		ComponentItem _uiA = (ComponentItem) componentSelector.getSelectedItem();
-		ComponentItem _uiB = (ComponentItem) matingComponentSelector.getSelectedItem();
-		TubeCoupler bridgeCoupler = findBridgeCoupler(
-				(_uiA == null) ? null : _uiA.component,
-				(_uiB == null) ? null : _uiB.component);
-
-		// Closed-end search bound:
-		//  FORWARD firing: closed end is aft; we want the smallest
-		//                  barrier-forward-face that is >= openCouplerFace
-		//                  and <= openCouplerFaceAft. If we find one, the
-		//                  aft inset becomes (tubeEnd - barrier-forward-face).
-		//  AFT firing:     closed end is forward; we want the largest
-		//                  barrier-aft-face that is <= openCouplerFaceAft
-		//                  and >= openCouplerFace. If we find one, the
-		//                  forward inset becomes (barrier-aft-face - tubeStart).
-		double nearestBarrierFwdFace = Double.POSITIVE_INFINITY;   // for FORWARD firing
-		double nearestBarrierAftFace = Double.NEGATIVE_INFINITY;   // for AFT firing
-
-		// Children of this tube (direct barriers)
-		for (RocketComponent child : tube.getChildren()) {
-			if (child instanceof InnerTube
-					|| child instanceof CenteringRing
-					|| child instanceof Bulkhead
-					|| child instanceof RingComponent) {
-				double[] face = barrierFacesInside((RingComponent) child,
-						openCouplerFace, openCouplerFaceAft);
-				if (face == null) continue;
-				if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
-				if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
-			}
-		}
-		// Children of TubeCouplers inside this tube.
-		// A bulkhead (or ring) nested directly under the bridge coupler is
-		// part of the coupler/joint assembly — skip it and find the next
-		// real barrier deeper in the bay. Barriers under a non-bridge
-		// coupler (unusual, but possible) are included normally.
-		for (RocketComponent child : tube.getChildren()) {
-			if (!(child instanceof TubeCoupler)) continue;
-			if (child == bridgeCoupler) continue;   // all children are joint components
-			for (RocketComponent gc : child.getChildren()) {
-				if (gc instanceof InnerTube
-						|| gc instanceof CenteringRing
-						|| gc instanceof Bulkhead
-						|| gc instanceof RingComponent) {
-					double[] face = barrierFacesInside((RingComponent) gc,
-							openCouplerFace, openCouplerFaceAft);
-					if (face == null) continue;
-					if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
-					if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
-				}
-			}
-		}
-		// Adjacent body tubes' children projected by absolute axial position
-		// — catches a motor mount that lives in the next-stage tube but
-		// whose forward face still bounds this bay.
-		if (parent != null) {
-			for (RocketComponent sibling : parent.getChildren()) {
-				if (sibling == tube) continue;
-				if (!(sibling instanceof BodyTube)) continue;
-				for (RocketComponent gc : sibling.getChildren()) {
-					if (gc instanceof InnerTube
-							|| gc instanceof CenteringRing
-							|| gc instanceof Bulkhead
-							|| gc instanceof RingComponent) {
-						double[] face = barrierFacesInside((RingComponent) gc,
-								openCouplerFace, openCouplerFaceAft);
-						if (face == null) continue;
-						if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
-						if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
-					}
-				}
-				// Also scan children of TubeCouplers inside adjacent sibling
-				// tubes. A bulkhead under the bridge coupler is joint-assembly
-				// only; skip it just as above.
-				for (RocketComponent gc : sibling.getChildren()) {
-					if (!(gc instanceof TubeCoupler)) continue;
-					if (gc == bridgeCoupler) continue;
-					for (RocketComponent ggc : gc.getChildren()) {
-						if (ggc instanceof InnerTube
-								|| ggc instanceof CenteringRing
-								|| ggc instanceof Bulkhead
-								|| ggc instanceof RingComponent) {
-							double[] face = barrierFacesInside((RingComponent) ggc,
-									openCouplerFace, openCouplerFaceAft);
-							if (face == null) continue;
-							if (face[0] < nearestBarrierFwdFace) nearestBarrierFwdFace = face[0];
-							if (face[1] > nearestBarrierAftFace) nearestBarrierAftFace = face[1];
-						}
-					}
-				}
-			}
-		}
-
-		double topInset = topJointInset;
-		double botInset = botJointInset;
-
-		if (direction == EjectionFiringDirection.FORWARD) {
-			// Forward firing → forward end is the open joint, aft end is
-			// closed against the nearest aftward barrier (if any).
-			if (Double.isFinite(nearestBarrierFwdFace)) {
-				double aftInset = Math.max(botJointInset,
-						tubeEnd - nearestBarrierFwdFace);
-				botInset = Math.min(tubeLen, Math.max(0.0, aftInset));
-			}
-		} else {
-			// Aft firing → aft end is the open joint, forward end is
-			// closed against the nearest forward barrier (if any).
-			if (Double.isFinite(nearestBarrierAftFace)) {
-				double fwdInset = Math.max(topJointInset,
-						nearestBarrierAftFace - tubeStart);
-				topInset = Math.min(tubeLen, Math.max(0.0, fwdInset));
-			}
-		}
-
-		// Defensive: keep the two insets from overlapping past each other.
-		if (topInset + botInset > tubeLen) {
-			double scale = tubeLen / (topInset + botInset);
-			topInset *= scale;
-			botInset *= scale;
-		}
-
-		return new BayInsets(topInset, botInset);
-	}
-
-	private static void accumulateCouplerInset(TubeCoupler c,
-			double tubeStart, double tubeEnd, double tubeMid, double[] insets) {
-		double cs = axialStart_m(c);
-		double ce = cs + c.getLength();
-		double inStart = Math.max(cs, tubeStart);
-		double inEnd   = Math.min(ce, tubeEnd);
-		double inLen   = Math.max(0.0, inEnd - inStart);
-		if (inLen <= 0.0) return;
-		double mid = (inStart + inEnd) * 0.5;
-		if (mid < tubeMid) insets[0] = Math.max(insets[0], inLen);
-		else               insets[1] = Math.max(insets[1], inLen);
-	}
-
-	/**
-	 * Returns the [forwardFace, aftFace] axial positions of an internal
-	 * barrier component clipped to the bay's open span [bayFwd, bayAft].
-	 * Returns {@code null} if the barrier does not project into the bay
-	 * span at all (e.g. it sits entirely behind a joint inset).
-	 */
-	private static double[] barrierFacesInside(RingComponent r,
-			double bayFwd, double bayAft) {
-		double bs = axialStart_m(r);
-		double be = bs + r.getLength();
-		double inStart = Math.max(bs, bayFwd);
-		double inEnd   = Math.min(be, bayAft);
-		if (inEnd <= inStart) return null;
-		return new double[] { inStart, inEnd };
-	}
-
-	private static void accumulateShoulderInset(NoseCone nc,
-			double tubeStart, double tubeEnd, double tubeMid, double[] insets) {
-		double shLen = nc.getShoulderLength();
-		if (shLen <= 0.0) return;
-		double ncStart = axialStart_m(nc);
-		double ncEnd   = ncStart + nc.getLength();
-		// Shoulder may protrude aft of the cone (forward-facing cone) or
-		// forward of the cone (aft-facing cone). Take whichever overlaps.
-		double aftShStart = ncEnd;
-		double aftShEnd   = aftShStart + shLen;
-		double aftIn = Math.max(0.0,
-				Math.min(aftShEnd, tubeEnd) - Math.max(aftShStart, tubeStart));
-		double fwdShEnd   = ncStart;
-		double fwdShStart = fwdShEnd - shLen;
-		double fwdIn = Math.max(0.0,
-				Math.min(fwdShEnd, tubeEnd) - Math.max(fwdShStart, tubeStart));
-		double overlap;
-		double midShoulder;
-		if (aftIn >= fwdIn) {
-			overlap = aftIn;
-			midShoulder = (Math.max(aftShStart, tubeStart)
-					+ Math.min(aftShEnd, tubeEnd)) * 0.5;
-		} else {
-			overlap = fwdIn;
-			midShoulder = (Math.max(fwdShStart, tubeStart)
-					+ Math.min(fwdShEnd, tubeEnd)) * 0.5;
-		}
-		if (overlap <= 0.0) return;
-		if (midShoulder < tubeMid) insets[0] = Math.max(insets[0], overlap);
-		else                       insets[1] = Math.max(insets[1], overlap);
-	}
-
-	/**
 	 * Pushes the effective bay length into the spinner and updates the
 	 * "Effective bay length" label so the user can see the breakdown of
 	 * tube length minus each interface inset.
 	 */
 	private void applyEffectiveBayLength(BodyTube tube) {
-		BayInsets bi = computeBayInsets(tube);
-		double effective_m = Math.max(0.0,
-				tube.getLength() - bi.topInset_m - bi.botInset_m);
+		EffectiveBayLengthCalculator.Result result =
+				EffectiveBayLengthCalculator.calculate(tube, currentFiringDirection());
+		double effective_m = result.getEffectiveLength();
 		setSpinnerIn(bayLengthSpinner, effective_m);
 		double tubeLen_in = tube.getLength() * IN_PER_M;
-		double topInset_in = bi.topInset_m * IN_PER_M;
-		double botInset_in = bi.botInset_m * IN_PER_M;
+		double topInset_in = result.getForwardInset() * IN_PER_M;
+		double botInset_in = result.getAftInset() * IN_PER_M;
 		double effective_in = effective_m * IN_PER_M;
 		if (computedBayLengthLabel != null) {
 			computedBayLengthLabel.setText(String.format(Locale.ROOT,

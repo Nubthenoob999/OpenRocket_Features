@@ -218,7 +218,7 @@ public class SimulationConfigDialog extends JDialog {
 		this.add(bottomPanel, BorderLayout.SOUTH);
 		this.validate();
 		this.pack();
-		SimulationTabLayoutUtils.constrainDialogToScreen(this, new Dimension(980, 700));
+		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
 
 		this.setLocationByPlatform(true);
 
@@ -233,7 +233,7 @@ public class SimulationConfigDialog extends JDialog {
 		GUIUtil.setDisposableDialogOptions(this, null);
 		GUIUtil.rememberWindowPosition(this);
 		GUIUtil.rememberWindowSize(this);
-		SimulationTabLayoutUtils.constrainDialogToScreen(this, new Dimension(980, 700));
+		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
 	}
 
 	private static void initColors() {

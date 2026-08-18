@@ -5,10 +5,13 @@ import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontFormatException;
+import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
+import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
 import java.awt.font.TextAttribute;
@@ -94,6 +97,7 @@ import org.slf4j.LoggerFactory;
 
 public class GUIUtil {
 	private static final Logger log = LoggerFactory.getLogger(GUIUtil.class);
+	private static final double MAX_SCREEN_FRACTION = 0.90;
 	public static final String UI_FONT_FAMILY = "Inter";
 	public static final String UI_FONT_STYLE_LIGHT = "inter-light";
 	public static final String UI_FONT_STYLE_REGULAR = "inter-regular";
@@ -519,6 +523,62 @@ public class GUIUtil {
 			window.setLocationByPlatform(false);
 			window.setLocation(position);
 		}
+	}
+
+	/**
+	 * Sizes a window to at least {@code desiredMinimum} without allowing it to
+	 * exceed 90% of the usable area of its current screen.  If restored bounds
+	 * would put any part of the window off-screen, the window is centered on that
+	 * screen instead.
+	 *
+	 * @param window the window to constrain
+	 * @param desiredMinimum the preferred minimum size before screen constraints
+	 */
+	public static void constrainWindowToScreen(Window window, Dimension desiredMinimum) {
+		Rectangle usableBounds = getUsableScreenBounds(window);
+		int maxWidth = Math.max(640, (int) Math.floor(usableBounds.width * MAX_SCREEN_FRACTION));
+		int maxHeight = Math.max(480, (int) Math.floor(usableBounds.height * MAX_SCREEN_FRACTION));
+
+		Dimension preferred = window.getSize();
+		if (preferred.width <= 0 || preferred.height <= 0) {
+			preferred = window.getPreferredSize();
+		}
+
+		int width = Math.min(Math.max(preferred.width, Math.min(desiredMinimum.width, maxWidth)), maxWidth);
+		int height = Math.min(Math.max(preferred.height, Math.min(desiredMinimum.height, maxHeight)), maxHeight);
+
+		window.setMinimumSize(new Dimension(Math.min(desiredMinimum.width, maxWidth),
+				Math.min(desiredMinimum.height, maxHeight)));
+		window.setSize(width, height);
+		keepWindowOnScreen(window, usableBounds);
+	}
+
+	private static Rectangle getUsableScreenBounds(Window window) {
+		GraphicsConfiguration config = window.getGraphicsConfiguration();
+		if (config == null) {
+			config = GraphicsEnvironment.getLocalGraphicsEnvironment()
+					.getDefaultScreenDevice()
+					.getDefaultConfiguration();
+		}
+		Rectangle bounds = new Rectangle(config.getBounds());
+		Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(config);
+		bounds.x += insets.left;
+		bounds.y += insets.top;
+		bounds.width -= insets.left + insets.right;
+		bounds.height -= insets.top + insets.bottom;
+		return bounds;
+	}
+
+	private static void keepWindowOnScreen(Window window, Rectangle bounds) {
+		int x = window.getX();
+		int y = window.getY();
+		if (x < bounds.x || x + window.getWidth() > bounds.x + bounds.width) {
+			x = bounds.x + Math.max(0, (bounds.width - window.getWidth()) / 2);
+		}
+		if (y < bounds.y || y + window.getHeight() > bounds.y + bounds.height) {
+			y = bounds.y + Math.max(0, (bounds.height - window.getHeight()) / 2);
+		}
+		window.setLocation(x, y);
 	}
 
 	/**

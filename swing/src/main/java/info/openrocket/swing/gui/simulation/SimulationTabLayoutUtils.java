@@ -5,12 +5,7 @@ import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
-import java.awt.GraphicsConfiguration;
-import java.awt.GraphicsEnvironment;
 import java.awt.Insets;
-import java.awt.Rectangle;
-import java.awt.Toolkit;
-import java.awt.Window;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 
@@ -30,7 +25,6 @@ final class SimulationTabLayoutUtils {
 
 	private static final int SCROLL_UNIT_INCREMENT = 16;
 	private static final int COMPACT_VALUE_LIMIT = 56;
-	private static final double MAX_SCREEN_FRACTION = 0.90;
 
 	private SimulationTabLayoutUtils() {
 	}
@@ -248,25 +242,6 @@ final class SimulationTabLayoutUtils {
 		label.setText(compact(display));
 	}
 
-	static void constrainDialogToScreen(Window window, Dimension desiredMinimum) {
-		Rectangle usableBounds = getUsableScreenBounds(window);
-		int maxWidth = Math.max(640, (int) Math.floor(usableBounds.width * MAX_SCREEN_FRACTION));
-		int maxHeight = Math.max(480, (int) Math.floor(usableBounds.height * MAX_SCREEN_FRACTION));
-
-		Dimension preferred = window.getSize();
-		if (preferred.width <= 0 || preferred.height <= 0) {
-			preferred = window.getPreferredSize();
-		}
-
-		int width = Math.min(Math.max(preferred.width, Math.min(desiredMinimum.width, maxWidth)), maxWidth);
-		int height = Math.min(Math.max(preferred.height, Math.min(desiredMinimum.height, maxHeight)), maxHeight);
-
-		window.setMinimumSize(new Dimension(Math.min(desiredMinimum.width, maxWidth),
-				Math.min(desiredMinimum.height, maxHeight)));
-		window.setSize(width, height);
-		keepWindowOnScreen(window, usableBounds);
-	}
-
 	private static String compact(String value) {
 		if (value.length() <= COMPACT_VALUE_LIMIT) {
 			return value;
@@ -276,31 +251,4 @@ final class SimulationTabLayoutUtils {
 		return value.substring(0, head) + "..." + value.substring(value.length() - tail);
 	}
 
-	private static Rectangle getUsableScreenBounds(Window window) {
-		GraphicsConfiguration config = window.getGraphicsConfiguration();
-		if (config == null) {
-			config = GraphicsEnvironment.getLocalGraphicsEnvironment()
-					.getDefaultScreenDevice()
-					.getDefaultConfiguration();
-		}
-		Rectangle bounds = new Rectangle(config.getBounds());
-		Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(config);
-		bounds.x += insets.left;
-		bounds.y += insets.top;
-		bounds.width -= insets.left + insets.right;
-		bounds.height -= insets.top + insets.bottom;
-		return bounds;
-	}
-
-	private static void keepWindowOnScreen(Window window, Rectangle bounds) {
-		int x = window.getX();
-		int y = window.getY();
-		if (x < bounds.x || x + window.getWidth() > bounds.x + bounds.width) {
-			x = bounds.x + Math.max(0, (bounds.width - window.getWidth()) / 2);
-		}
-		if (y < bounds.y || y + window.getHeight() > bounds.y + bounds.height) {
-			y = bounds.y + Math.max(0, (bounds.height - window.getHeight()) / 2);
-		}
-		window.setLocation(x, y);
-	}
 }
