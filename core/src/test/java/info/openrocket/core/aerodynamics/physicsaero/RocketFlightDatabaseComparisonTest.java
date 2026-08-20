@@ -97,7 +97,7 @@ class RocketFlightDatabaseComparisonTest {
 	private static final Path REPORT_DIR =
 			Path.of("build/reports/rocket-flight-database-comparison")
 					.resolve(PhysicsAeroValidationGate.CODE_VERSION);
-	private static final Map<Integer, String> MODEL_FILES = modelFiles();
+	static final Map<Integer, String> MODEL_FILES = modelFiles();
 
 	@BeforeAll
 	static void initializeCore() {
@@ -248,7 +248,7 @@ class RocketFlightDatabaseComparisonTest {
 	 * established OpenRocket baseline; strict table aerodynamics remains
 	 * explicitly single-stage only below.
 	 */
-	private static Simulation selectOrSynthesizeSimulation(OpenRocketDocument document,
+	static Simulation selectOrSynthesizeSimulation(OpenRocketDocument document,
 			int flightId) {
 		if (!document.getSimulations().isEmpty()) {
 			return document.getSimulations().get(0);
@@ -293,7 +293,7 @@ class RocketFlightDatabaseComparisonTest {
 		};
 	}
 
-	private static void configureDeterministicApogeeRun(Simulation simulation,
+	static void configureDeterministicApogeeRun(Simulation simulation,
 			int flightId) {
 		DeterministicAscentSettings settings = deterministicAscentSettings(flightId);
 		simulation.getOptions().setTimeStep(settings.timeStepS());
@@ -867,7 +867,7 @@ class RocketFlightDatabaseComparisonTest {
 		return values.get(samples - 1);
 	}
 
-	private static TableArtifact loadOrBuildTable(AeroGeometry geometry, String settingsHash,
+	static TableArtifact loadOrBuildTable(AeroGeometry geometry, String settingsHash,
 			AtmosphereState atmosphere, double nozzleExitDiameterM) throws IOException {
 		SamplingConfiguration sampling = SamplingConfiguration.flightDomainDefaults();
 		double[] mach = sampling.mach();
@@ -908,7 +908,7 @@ class RocketFlightDatabaseComparisonTest {
 		return new TableArtifact(built.table(), built.tableHash());
 	}
 
-	private static String referenceSettingsHash(AtmosphereState atmosphere,
+	static String referenceSettingsHash(AtmosphereState atmosphere,
 			boolean forceTurbulentBoundaryLayer, double nozzleExitDiameterM) {
 		return String.format(Locale.US, "%s-bl%s-p%.3f-t%.3f-rho%.8f-mu%.12g-nozzle%.9g",
 				SETTINGS_HASH,
@@ -946,7 +946,7 @@ class RocketFlightDatabaseComparisonTest {
 		return values;
 	}
 
-	private static void preloadRasaeroMotors(List<Path> motorFiles) throws Exception {
+	static void preloadRasaeroMotors(List<Path> motorFiles) throws Exception {
 		RASAeroMotorsLoader.clearAllMotors();
 		int loaded = 0;
 		for (Path motorFile : motorFiles) {
@@ -1278,7 +1278,7 @@ class RocketFlightDatabaseComparisonTest {
 		Files.writeString(output, markdown, StandardCharsets.UTF_8);
 	}
 
-	private static Path resolveDirectory(String property, String defaultRelative) {
+	static Path resolveDirectory(String property, String defaultRelative) {
 		String configured = System.getProperty(property, "").trim();
 		String requested = configured.isEmpty() ? defaultRelative : configured;
 		Path raw = Paths.get(requested);
@@ -1388,7 +1388,7 @@ class RocketFlightDatabaseComparisonTest {
 		return Double.isFinite(prediction) ? 100 * (prediction - measured) / measured : Double.NaN;
 	}
 
-	private record TableArtifact(AerodynamicTable table, String contentHash) { }
+	record TableArtifact(AerodynamicTable table, String contentHash) { }
 
 	private record RasaeroTrajectoryMetrics(double maxVelocityMS, double timeToApogeeS) {
 		private static final RasaeroTrajectoryMetrics EMPTY =

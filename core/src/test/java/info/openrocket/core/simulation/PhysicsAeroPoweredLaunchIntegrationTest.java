@@ -86,7 +86,7 @@ class PhysicsAeroPoweredLaunchIntegrationTest {
 		PhysicsAeroAerodynamicCalculator calculator =
 				(PhysicsAeroAerodynamicCalculator) conditions.getAerodynamicCalculator();
 		assertTrue(calculator.getRuntimeReport().runtimeFlags()
-				.contains(PhysicsAeroRuntimeFlag.OUTSIDE_TABLE_APPLICABILITY_FALLBACK_USED));
+				.contains(PhysicsAeroRuntimeFlag.DIAGNOSTIC_FALLBACK_USED));
 		assertTrue(calculator.getRuntimeReport().runtimeFlags()
 				.contains(PhysicsAeroRuntimeFlag.TABLE_QUERY_USED));
 		assertTrue(calculator.getRuntimeReport().runtimeFlags()

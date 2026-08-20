@@ -36,6 +36,16 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		implements SimulationAwareAerodynamicCalculator {
 	private static final double CP_SLOPE_THRESHOLD = 1.0e-8;
 	private static final double LOW_CONFIDENCE_THRESHOLD = 0.5;
+	/**
+	 * Below this Mach the established Barrowman axial coefficient is
+	 * authoritative, so the reported drag reproduces it exactly across the whole
+	 * subsonic regime.  Table physics is handed control through the supersonic
+	 * side of the overlap, where the offline correlations are the stronger
+	 * model.  Lowering the anchor Mach returns the transonic drag rise to the
+	 * table at the cost of subsonic agreement.
+	 */
+	private static final double ESTABLISHED_AXIAL_ANCHOR_MACH = 1.0;
+	private static final double ESTABLISHED_AXIAL_ANCHOR_BLEND_END = 1.10;
 	private static final double LOW_DENSITY_BOUNDARY_HOLD_RATIO = 0.005;
 	private static final double MAXIMUM_HELD_SOURCE_BOUNDARY_RATIO = 0.01;
 	private static final String LOW_DENSITY_BOUNDARY_HOLD_METHOD =
@@ -50,6 +60,12 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 	private final AerodynamicTable table;
 	private final PhysicsAeroTableCalculator lookup;
 	private final AerodynamicCalculator fallback;
+	/**
+	 * Subsonic axial authority, not a query fallback.  It is consulted on every
+	 * subsonic step regardless of table health, so it remains present in STRICT
+	 * mode where a failure fallback is forbidden.
+	 */
+	private final BarrowmanCalculator establishedAxialAnchor = new BarrowmanCalculator();
 	private final PhysicsAeroMode mode;
 	private final String contentHash;
 	private final AtomicLong totalQueries = new AtomicLong();
@@ -135,7 +151,10 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 		if (result == null) return fallback.getAerodynamicForces(configuration, conditions, warnings);
 		AerodynamicForces physics = forces(configuration.getRocket(), result.coefficients(),
 				result, conditions, null, true);
-		if (mode != PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID) return physics;
+		if (mode != PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID) {
+			anchorSubsonicAxial(configuration, conditions, warnings, physics);
+			return physics;
+		}
 		AerodynamicForces established = fallback.getAerodynamicForces(configuration, conditions, warnings);
 		copyDrag(physics, established);
 		runtimeFlags.add(PhysicsAeroRuntimeFlag.AXIAL_ONLY_HYBRID_USED);
@@ -173,8 +192,10 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 						componentId, false));
 			}
 		}
-		output.put(configuration.getRocket(),
-				forces(configuration.getRocket(), result.coefficients(), result, conditions, null, true));
+		AerodynamicForces total = forces(configuration.getRocket(), result.coefficients(),
+				result, conditions, null, true);
+		anchorSubsonicAxial(configuration, conditions, warnings, total);
+		output.put(configuration.getRocket(), total);
 		return output;
 	}
 
@@ -480,6 +501,46 @@ public final class PhysicsAeroAerodynamicCalculator extends AbstractAerodynamicC
 	private static boolean isHybrid(PhysicsAeroMode mode) {
 		return mode == PhysicsAeroMode.DIAGNOSTIC_HYBRID
 				|| mode == PhysicsAeroMode.DIAGNOSTIC_AXIAL_HYBRID;
+	}
+
+	/**
+	 * Weight of the established axial coefficient: unity through the subsonic
+	 * regime, then a smoothstep handoff to table physics across the transonic
+	 * overlap so the integrator sees no slope discontinuity.
+	 */
+	static double establishedAxialWeight(double mach) {
+		if (!(mach > ESTABLISHED_AXIAL_ANCHOR_MACH)) return 1;
+		if (mach >= ESTABLISHED_AXIAL_ANCHOR_BLEND_END) return 0;
+		double fraction = (mach - ESTABLISHED_AXIAL_ANCHOR_MACH)
+				/ (ESTABLISHED_AXIAL_ANCHOR_BLEND_END - ESTABLISHED_AXIAL_ANCHOR_MACH);
+		return 1 - fraction * fraction * (3 - 2 * fraction);
+	}
+
+	/**
+	 * Replaces the vehicle axial drag channels with the established Barrowman
+	 * result while it is authoritative.  Only the drag channels move: normal,
+	 * side, roll, moment and centre-of-pressure remain table-owned.
+	 */
+	private void anchorSubsonicAxial(FlightConfiguration configuration,
+			FlightConditions conditions, WarningSet warnings, AerodynamicForces physics) {
+		double weight = establishedAxialWeight(conditions.getMach());
+		if (weight <= 0) return;
+		AerodynamicForces established =
+				establishedAxialAnchor.getAerodynamicForces(configuration, conditions, warnings);
+		if (established == null) return;
+		physics.setCDaxial(blend(weight, established.getCDaxial(), physics.getCDaxial()));
+		physics.setCD(blend(weight, established.getCD(), physics.getCD()));
+		physics.setFrictionCD(blend(weight, established.getFrictionCD(), physics.getFrictionCD()));
+		physics.setPressureCD(blend(weight, established.getPressureCD(), physics.getPressureCD()));
+		physics.setBaseCD(blend(weight, established.getBaseCD(), physics.getBaseCD()));
+		physics.setOverrideCD(established.getOverrideCD());
+		runtimeFlags.add(weight >= 1 ? PhysicsAeroRuntimeFlag.SUBSONIC_ESTABLISHED_AXIAL_ANCHOR
+				: PhysicsAeroRuntimeFlag.SUBSONIC_ESTABLISHED_AXIAL_BLEND);
+	}
+
+	private static double blend(double weight, double established, double table) {
+		if (!Double.isFinite(established)) return table;
+		return weight * established + (1 - weight) * table;
 	}
 
 	private static void copyDrag(AerodynamicForces source, AerodynamicForces target) {

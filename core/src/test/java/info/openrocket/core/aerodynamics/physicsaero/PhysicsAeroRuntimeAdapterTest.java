@@ -1,6 +1,7 @@
 package info.openrocket.core.aerodynamics.physicsaero;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -93,6 +94,47 @@ class PhysicsAeroRuntimeAdapterTest {
 		assertEquals(0.1, forces.getCm(), 1e-12);
 		assertEquals(0.05, momentAboutCg, 1e-12);
 		assertTrue(momentAboutCg > 0, "an aft CP must produce OpenRocket's restoring pitch moment");
+	}
+
+	@Test
+	void subsonicAxialReproducesTheEstablishedCalculatorExactly() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		conditions.setAOA(0);
+		conditions.setTheta(0);
+		PhysicsAeroAerodynamicCalculator strict = new PhysicsAeroAerodynamicCalculator(
+				table(reynolds(conditions), 1e-6, 0.6, new double[] {-ALPHA, ALPHA},
+						new double[] {-BETA, BETA}),
+				"geometry", "settings", "content", PhysicsAeroMode.STRICT, null);
+		conditions.setMach(0.6);
+		AerodynamicForces established = new BarrowmanCalculator()
+				.getAerodynamicForces(configuration, conditions, new WarningSet());
+
+		AerodynamicForces forces = strict.getAerodynamicForces(
+				configuration, conditions, new WarningSet());
+
+		// The subsonic regime is owned by the established calculator, so the
+		// table's own axial value must not reach the integrator at all.
+		assertEquals(established.getCDaxial(), forces.getCDaxial(), 1e-12);
+		assertEquals(established.getCD(), forces.getCD(), 1e-12);
+		assertTrue(strict.getRuntimeReport().runtimeFlags().contains(
+				PhysicsAeroRuntimeFlag.SUBSONIC_ESTABLISHED_AXIAL_ANCHOR));
+	}
+
+	@Test
+	void supersonicAxialRemainsTableOwned() {
+		FlightConfiguration configuration = TestRockets.makeEstesAlphaIII().getSelectedConfiguration();
+		FlightConditions conditions = queryConditions(configuration);
+		PhysicsAeroAerodynamicCalculator strict = new PhysicsAeroAerodynamicCalculator(
+				table(reynolds(conditions)), "geometry", "settings", "content",
+				PhysicsAeroMode.STRICT, null);
+
+		AerodynamicForces forces = strict.getAerodynamicForces(
+				configuration, conditions, new WarningSet());
+
+		assertEquals(0.2, forces.getCDaxial(), 1e-12);
+		assertFalse(strict.getRuntimeReport().runtimeFlags().contains(
+				PhysicsAeroRuntimeFlag.SUBSONIC_ESTABLISHED_AXIAL_ANCHOR));
 	}
 
 	@Test
@@ -271,7 +313,9 @@ class PhysicsAeroRuntimeAdapterTest {
 	private static FlightConditions queryConditions(FlightConfiguration configuration) {
 		FlightConditions conditions = new FlightConditions(configuration);
 		conditions.setRefLength(1);
-		conditions.setMach(1);
+		// Supersonic: the adapter mapping under test is table-owned only above the
+		// subsonic established-axial anchor window.
+		conditions.setMach(1.5);
 		conditions.setAOA(Math.hypot(ALPHA, BETA));
 		conditions.setTheta(Math.PI / 4);
 		conditions.setRollRate(3);
@@ -286,18 +330,18 @@ class PhysicsAeroRuntimeAdapterTest {
 	}
 
 	private static AerodynamicTable table(double referenceReynolds) {
-		return table(referenceReynolds, .5, 1, new double[] {-ALPHA, ALPHA},
+		return table(referenceReynolds, .5, 1.5, new double[] {-ALPHA, ALPHA},
 				new double[] {-BETA, BETA});
 	}
 
 	private static AerodynamicTable table(double referenceReynolds, double minimumRatio) {
-		return table(referenceReynolds, minimumRatio, 1, new double[] {-ALPHA, ALPHA},
+		return table(referenceReynolds, minimumRatio, 1.5, new double[] {-ALPHA, ALPHA},
 				new double[] {-BETA, BETA});
 	}
 
 	private static AerodynamicTable table(double referenceReynolds, double[] alphaAxis,
 			double[] betaAxis) {
-		return table(referenceReynolds, .5, 1, alphaAxis, betaAxis);
+		return table(referenceReynolds, .5, 1.5, alphaAxis, betaAxis);
 	}
 
 	private static AerodynamicTable table(double referenceReynolds, double mach,

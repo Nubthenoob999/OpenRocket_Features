@@ -511,3 +511,31 @@ clean.dependsOn([externalComponentsDelete])
 processResources.dependsOn([externalComponentsCopy])
 processResources.dependsOn([copyReadmeMain])
 processResources.dependsOn('serializeEnginesValidate')
+
+tasks.register('maxVelocityAudit', Test) {
+    useJUnitPlatform { includeTags 'velocity-divergence-audit' }
+    description = 'Table-OFF/table-ON A/B trace for the maximum-velocity investigation.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/physicsaero/MaxVelocityDivergenceAuditTest.class'
+    if (project.hasProperty('auditFlightIds')) {
+        systemProperty 'auditFlightIds', project.property('auditFlightIds')
+    }
+    testLogging { showStandardStreams = true }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('subsonicAgreementAudit', Test) {
+    useJUnitPlatform { includeTags 'subsonic-agreement-audit' }
+    description = 'Subsonic zero-incidence table-vs-Barrowman axial agreement decomposition.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include 'info/openrocket/core/aerodynamics/physicsaero/SubsonicBarrowmanAgreementAuditTest.class'
+    if (project.hasProperty('auditFlightIds')) {
+        systemProperty 'auditFlightIds', project.property('auditFlightIds')
+    }
+    testLogging { showStandardStreams = true }
+    outputs.upToDateWhen { false }
+}
