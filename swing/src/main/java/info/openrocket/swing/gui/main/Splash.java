@@ -28,6 +28,13 @@ public class Splash {
 	private static final int VERSION_POSITION_Y = 150;
 	private static final Font VERSION_FONT = new Font(Font.SANS_SERIF, Font.PLAIN, 14);
 	private static final Color VERSION_COLOR = Color.WHITE;
+
+	private static final int WATERMARK_POSITION_X = 617;
+	private static final int WATERMARK_POSITION_Y = 178;
+	private static final Font WATERMARK_FONT = new Font(Font.SANS_SERIF, Font.PLAIN, 11);
+	private static final Color WATERMARK_COLOR = new Color(255, 255, 255, 210);
+	private static final String WATERMARK_TEXT =
+			"Project Imperia is separate from OpenRocket, but based on it";
 	
 	
 	/**
@@ -51,8 +58,9 @@ public class Splash {
 		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
 				RenderingHints.VALUE_ANTIALIAS_ON);
 		
-		// Draw the version number
+		// Draw the version number and Project Imperia watermark
 		drawVersionNumber(g2);
+		drawWatermark(g2);
 		
 		// Update the splash screen
 		s.update();
@@ -62,7 +70,7 @@ public class Splash {
 	
 	
 	private static void drawVersionNumber(Graphics2D g2) {
-		String text = "Version " + BuildProperties.getVersion();
+		String text = "Project Imperia V" + BuildProperties.getVersion();
 		GlyphVector gv = VERSION_FONT.createGlyphVector(g2.getFontRenderContext(), text);
 		
 		Rectangle2D rect = gv.getVisualBounds();
@@ -71,6 +79,15 @@ public class Splash {
 		g2.setColor(VERSION_COLOR);
 		g2.drawGlyphVector(gv, (float) (VERSION_POSITION_X - width), VERSION_POSITION_Y);
 		
+	}
+
+	private static void drawWatermark(Graphics2D g2) {
+		GlyphVector gv = WATERMARK_FONT.createGlyphVector(g2.getFontRenderContext(), WATERMARK_TEXT);
+		Rectangle2D rect = gv.getVisualBounds();
+		double width = rect.getWidth();
+
+		g2.setColor(WATERMARK_COLOR);
+		g2.drawGlyphVector(gv, (float) (WATERMARK_POSITION_X - width), WATERMARK_POSITION_Y);
 	}
 	
 	

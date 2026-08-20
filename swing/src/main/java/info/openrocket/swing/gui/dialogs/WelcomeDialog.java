@@ -47,8 +47,12 @@ public class WelcomeDialog extends JDialog {
                 "spany, top, gapright 20px, cell 0 0");
 
         //	Thank you for downloading!
-        panel.add(new StyledLabel(trans.get("welcome.dlg.lbl.thankYou") + " " + BuildProperties.getVersion() + "!",
+        panel.add(new StyledLabel(trans.get("welcome.dlg.lbl.thankYou") + " V" + BuildProperties.getVersion() + "!",
                 2, StyledLabel.Style.BOLD), "spanx, wrap");
+
+        // Project Imperia is separate from OpenRocket but based on it
+        panel.add(new StyledLabel(trans.get("welcome.dlg.lbl.watermark"),
+                0.9f, StyledLabel.Style.ITALIC), "spanx, wrap para");
 
         // See the release notes below for what's new
         panel.add(new StyledLabel(trans.get("welcome.dlg.lbl.seeReleaseNotes"),

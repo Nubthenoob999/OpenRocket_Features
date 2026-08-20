@@ -129,12 +129,12 @@ def install4jBuildIds = [
         all     : ['60', '248', '168', '244', '213', '240']
 ]
 def install4jExpectedArtifacts = [
-        '60' : "OpenRocket-${projectVersionString}-installer-Windows-x86_64.exe",
-        '248': "OpenRocket-${projectVersionString}-installer-Windows-Arm64.exe",
-        '168': "OpenRocket-${projectVersionString}-installer-Linux-x86_64",
-        '244': "OpenRocket-${projectVersionString}-installer-Linux-Arm64",
-        '213': "OpenRocket-${projectVersionString}-installer-macOS-Intel.dmg",
-        '240': "OpenRocket-${projectVersionString}-installer-macOS-AppleSilicon.dmg"
+        '60' : "Project_Imperia_V${projectVersionString}-installer-Windows-x86_64.exe",
+        '248': "Project_Imperia_V${projectVersionString}-installer-Windows-Arm64.exe",
+        '168': "Project_Imperia_V${projectVersionString}-installer-Linux-x86_64",
+        '244': "Project_Imperia_V${projectVersionString}-installer-Linux-Arm64",
+        '213': "Project_Imperia_V${projectVersionString}-installer-macOS-Intel.dmg",
+        '240': "Project_Imperia_V${projectVersionString}-installer-macOS-AppleSilicon.dmg"
 ]
 
 def install4jArtifactExists = { File outputDir, String expectedName ->

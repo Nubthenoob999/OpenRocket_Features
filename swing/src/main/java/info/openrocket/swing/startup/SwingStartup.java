@@ -72,7 +72,8 @@ public class SwingStartup {
 		
 		// Initialize logging first so we can use it
 		initializeLogging();
-		log.info("Starting up OpenRocket version {}", BuildProperties.getVersion());
+		log.info("Starting up Project Imperia V{} (separate from OpenRocket, but based on it)",
+				BuildProperties.getVersion());
 
 		// Check JRE version
 		boolean ignoreJRE = System.getProperty("openrocket.ignore-jre") != null;

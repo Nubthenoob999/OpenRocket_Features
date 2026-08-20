@@ -105,15 +105,17 @@ public class AboutDialog extends JDialog {
 		JPanel sub;
 		
 		
-		// OpenRocket logo
-		panel.add(new JLabel(Icons.loadImageIcon("pix/icon/icon-128.png", "OpenRocket")), "top");
+		// Project Imperia logo
+		panel.add(new JLabel(Icons.loadImageIcon("pix/icon/icon-128.png", "Project Imperia")), "top");
 		
 		
-		// OpenRocket version info + copyright
+		// Project Imperia version info + copyright
 		sub = new JPanel(new MigLayout("fill"));
 		
-		sub.add(new StyledLabel("OpenRocket", 20), "ax 50%, growy, wrap para");
-		sub.add(new StyledLabel(trans.get("lbl.version").trim() + " " + version, 3), "ax 50%, growy, wrap rel");
+		sub.add(new StyledLabel("Project Imperia", 20), "ax 50%, growy, wrap para");
+		sub.add(new StyledLabel(trans.get("lbl.version").trim() + " V" + version, 3), "ax 50%, growy, wrap rel");
+		sub.add(new StyledLabel("Project Imperia is a separate project from OpenRocket, but based on it.", 0),
+				"ax 50%, growy, wrap para");
 		String copyright = String.format("Copyright %c 2007-%s Sampo Niskanen and others", Chars.COPY, copyrightYear);
 		sub.add(new StyledLabel(copyright), "ax 50%, growy, wrap para");
 		
@@ -170,7 +172,7 @@ public class AboutDialog extends JDialog {
 		panel.add(close, "spanx, right");
 		
 		this.add(panel);
-		this.setTitle("OpenRocket " + version);
+		this.setTitle("Project Imperia V" + version);
 		this.pack();
 		this.setLocationRelativeTo(parent);
 		
