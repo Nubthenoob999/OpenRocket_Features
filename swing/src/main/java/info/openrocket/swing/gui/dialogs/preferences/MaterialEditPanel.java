@@ -34,7 +34,6 @@ import info.openrocket.core.database.Databases;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.material.Material;
 import info.openrocket.core.startup.Application;
-import info.openrocket.core.unit.Unit;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.unit.Value;
 
@@ -114,19 +113,7 @@ public class MaterialEditPanel extends JPanel {
 					@Override
 					public Object getValueAt(int row) {
 						Material m = getMaterial(row);
-						double g = m.getInPlaneShearModulus();
-						// Only show shear modulus for bulk materials
-						if (m.getType() == Material.Type.BULK && g > 0) {
-							// Use GPa for display in the table
-							try {
-								Unit gpaUnit = UnitGroup.UNITS_SHEAR_MODULUS.getUnit("GPa");
-								return gpaUnit.toValue(g);
-							} catch (IllegalArgumentException e) {
-								// Fallback to default unit if GPa is not found
-								return UnitGroup.UNITS_SHEAR_MODULUS.toValue(g);
-							}
-						}
-						return "";
+						return m.getType() == Material.Type.BULK ? structuralValue(m.getInPlaneShearModulus()) : "";
 					}
 					
 					@Override
@@ -137,6 +124,55 @@ public class MaterialEditPanel extends JPanel {
 					@Override
 					public Class<?> getColumnClass() {
 						return Object.class;
+					}
+				},
+				//// Young's Modulus
+				new Column(trans.get("matedtpan.col.YoungsModulus")) {
+					@Override
+					public Object getValueAt(int row) {
+						return structuralValue(getMaterial(row).getYoungsModulus());
+					}
+
+					@Override
+					public int getDefaultWidth() {
+						return 15;
+					}
+				},
+				//// Tensile/yield allowable
+				new Column(trans.get("matedtpan.col.TensileStrength")) {
+					@Override
+					public Object getValueAt(int row) {
+						return structuralValue(getMaterial(row).getTensileStrength());
+					}
+
+					@Override
+					public int getDefaultWidth() {
+						return 15;
+					}
+				},
+				//// Compressive allowable
+				new Column(trans.get("matedtpan.col.CompressiveStrength")) {
+					@Override
+					public Object getValueAt(int row) {
+						return structuralValue(getMaterial(row).getCompressiveStrength());
+					}
+
+					@Override
+					public int getDefaultWidth() {
+						return 15;
+					}
+				},
+				//// Poisson ratio
+				new Column(trans.get("matedtpan.col.PoissonRatio")) {
+					@Override
+					public Object getValueAt(int row) {
+						double ratio = getMaterial(row).getPoissonRatio();
+						return Double.isFinite(ratio) ? ratio : "";
+					}
+
+					@Override
+					public int getDefaultWidth() {
+						return 12;
 					}
 				},
 				//// Group
@@ -375,6 +411,10 @@ public class MaterialEditPanel extends JPanel {
 		this.add(new StyledLabel(trans.get("matedtpan.lbl.edtmaterials"), -2, Style.ITALIC), "span");
 		
 
+	}
+
+	private static Object structuralValue(double value) {
+		return Double.isFinite(value) && value > 0 ? UnitGroup.UNITS_SHEAR_MODULUS.toValue(value) : "";
 	}
 
 	private void fireChange(ColumnTableModel model) {

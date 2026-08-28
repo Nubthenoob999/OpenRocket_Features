@@ -159,7 +159,7 @@ public class CustomMaterialDialog extends JDialog {
 
 		// Structural values are stored on the material selected by a component.
 		// Zero leaves an optional property unspecified for older/non-structural materials.
-		panel.add(new JLabel("Young's modulus (E)"));
+		panel.add(new JLabel(trans.get("custmatdlg.lbl.YoungsModulus")));
 		youngsModulusSpinner = new JSpinner();
 		panel.add(youngsModulusSpinner, "w 70lp");
 		youngsModulusUnit = new UnitSelector((DoubleModel) null);
@@ -167,7 +167,7 @@ public class CustomMaterialDialog extends JDialog {
 		panel.add(new JPanel(), "growx, wrap");
 		updateYoungsModulusModel();
 
-		panel.add(new JLabel("Tensile allowable"));
+		panel.add(new JLabel(trans.get("custmatdlg.lbl.TensileStrength")));
 		tensileStrengthSpinner = new JSpinner();
 		panel.add(tensileStrengthSpinner, "w 70lp");
 		tensileStrengthUnit = new UnitSelector((DoubleModel) null);
@@ -175,7 +175,7 @@ public class CustomMaterialDialog extends JDialog {
 		panel.add(new JPanel(), "growx, wrap");
 		updateTensileStrengthModel();
 
-		panel.add(new JLabel("Compressive allowable"));
+		panel.add(new JLabel(trans.get("custmatdlg.lbl.CompressiveStrength")));
 		compressiveStrengthSpinner = new JSpinner();
 		panel.add(compressiveStrengthSpinner, "w 70lp");
 		compressiveStrengthUnit = new UnitSelector((DoubleModel) null);
@@ -183,7 +183,7 @@ public class CustomMaterialDialog extends JDialog {
 		panel.add(new JPanel(), "growx, wrap");
 		updateCompressiveStrengthModel();
 
-		panel.add(new JLabel("Poisson ratio"));
+		panel.add(new JLabel(trans.get("custmatdlg.lbl.PoissonRatio")));
 		poissonRatioSpinner = new JSpinner();
 		panel.add(poissonRatioSpinner, "w 70lp");
 		poissonRatioUnit = new UnitSelector((DoubleModel) null);
@@ -366,11 +366,7 @@ public class CustomMaterialDialog extends JDialog {
 	}
 
 	private static int shearModulusUnitIndex() {
-		try {
-			Unit gpaUnit = UnitGroup.UNITS_SHEAR_MODULUS.getUnit("GPa");
-			return UnitGroup.UNITS_SHEAR_MODULUS.getUnitIndex(gpaUnit);
-		} catch (IllegalArgumentException e) {
-			return 0;
-		}
+		return UnitGroup.UNITS_SHEAR_MODULUS.getUnitIndex(
+				UnitGroup.UNITS_SHEAR_MODULUS.getDefaultUnit());
 	}
 }

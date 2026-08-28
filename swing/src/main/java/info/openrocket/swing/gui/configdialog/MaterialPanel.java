@@ -23,6 +23,7 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -56,6 +57,21 @@ public class MaterialPanel extends JPanel implements Invalidatable, Invalidating
         this.materialCombo.setToolTipText(trans.get("MaterialPanel.combo.ttip.ComponentMaterialAffects"));
         this.add(this.materialCombo, "spanx 4, growx, wmax 350lp, wrap paragraph");
         order.add(this.materialCombo);
+
+		// Structural properties belong to the bulk material assigned to this
+		// component.  Editing creates a document-scoped material copy by default,
+		// so changing one component does not silently change other components that
+		// happen to use the same material.
+		if (type == Material.Type.BULK) {
+			JButton structuralPropertiesButton = new JButton(
+					trans.get("MaterialPanel.but.StructuralProperties"));
+			structuralPropertiesButton.setToolTipText(
+					trans.get("MaterialPanel.but.StructuralProperties.ttip"));
+			structuralPropertiesButton.addActionListener(e ->
+					SwingUtilities.invokeLater(mm::editSelectedMaterial));
+			this.add(structuralPropertiesButton, "spanx 4, growx, wrap paragraph");
+			order.add(structuralPropertiesButton);
+		}
 
         // No surface finish for internal components
         if (!(component instanceof ExternalComponent)) {

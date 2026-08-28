@@ -114,6 +114,51 @@ public class MaterialModel extends AbstractListModel<Material> implements
 		this.setMethod.invoke(this.rocketComponent, material);
 	}
 
+	/**
+	 * Edit the material properties used by this component.  The dialog starts
+	 * with the currently selected material instead of a blank custom material,
+	 * making this the component-level entry point for structural properties.
+	 * Unless the user explicitly saves the result to the application database,
+	 * the edited material is stored only in this rocket document and assigned to
+	 * this component.
+	 */
+	public void editSelectedMaterial() {
+		Material selected = (Material) getSelectedItem();
+		if (selected == null) {
+			return;
+		}
+
+		CustomMaterialDialog dialog = new CustomMaterialDialog(
+				SwingUtilities.getWindowAncestor(parentUIComponent), selected, true, false, false,
+				trans.get("MaterialModel.title.EditComponentMaterial"),
+				trans.get("MaterialModel.note.EditComponentMaterial"));
+		dialog.setVisible(true);
+
+		if (!dialog.getOkClicked()) {
+			return;
+		}
+
+		Material material = dialog.getMaterial();
+		if (dialog.isAddSelected()) {
+			material.setDocumentMaterial(false);
+			applicationDatabase.add(material);
+		} else {
+			// Databases.findMaterial may return the shared built-in material when
+			// the user confirms without changing every field.  Never change the
+			// scope flag on that shared instance; a component edit gets its own
+			// document material record.
+			material = documentCopyOf(material);
+			documentDatabase.add(material);
+		}
+		setMethod.invoke(rocketComponent, material);
+	}
+
+	private static Material documentCopyOf(Material material) {
+		return Material.newMaterial(material.getType(), material.getName(), material.getDensity(),
+				material.getInPlaneShearModulus(), material.getYoungsModulus(), material.getTensileStrength(),
+				material.getCompressiveStrength(), material.getPoissonRatio(), material.getGroup(), true, true);
+	}
+
 	@Override
 	public Material getElementAt(int index) {
 		if (index < applicationDatabase.size()) {

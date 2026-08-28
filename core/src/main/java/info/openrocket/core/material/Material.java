@@ -325,7 +325,7 @@ public abstract class Material implements Comparable<Material>, Groupable<Materi
 	
 	/**
 	 * Compares this object to another object.  Material objects are equal if and only if
-	 * their types, names, densities, and in-plane shear moduli are identical.
+	 * their types, names, densities, groups, and all mechanical properties are identical.
 	 */
 	@Override
 	public boolean equals(Object o) {

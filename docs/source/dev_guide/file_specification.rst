@@ -258,6 +258,10 @@ Most components share these common attributes:
    * ``density``: Material density
    * ``group``: Material category
    * ``shearModulus``: In-plane shear modulus in Pa (optional)
+   * ``youngsModulus``: Young's modulus (E) in Pa (optional)
+   * ``tensileStrength``: Tensile/yield allowable in Pa (optional)
+   * ``compressiveStrength``: Compressive allowable in Pa (optional)
+   * ``poissonRatio``: Poisson ratio (optional)
 
 Position and Offset Attributes:
 
@@ -1064,6 +1068,8 @@ The ``<docprefs>`` section contains document-wide settings, including material d
 Material string format:
 
 - ``{type}|{name}|{density}|{inPlaneShearModulus}|{group}``
+- Materials with structural properties use
+  ``{type}|{name}|{density}|{inPlaneShearModulus}|{youngsModulus}|{tensileStrength}|{compressiveStrength}|{poissonRatio}|{group}``
 - Older files may omit ``inPlaneShearModulus`` and store ``{type}|{name}|{density}|{group}``
 
 ----

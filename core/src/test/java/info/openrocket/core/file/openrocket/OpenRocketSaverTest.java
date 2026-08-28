@@ -38,6 +38,8 @@ import info.openrocket.core.l10n.DebugTranslator;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.logging.ErrorSet;
 import info.openrocket.core.logging.WarningSet;
+import info.openrocket.core.material.Material;
+import info.openrocket.core.material.MaterialGroup;
 import info.openrocket.core.motor.Manufacturer;
 import info.openrocket.core.motor.Motor;
 import info.openrocket.core.motor.MotorConfiguration;
@@ -684,6 +686,35 @@ public class OpenRocketSaverTest {
 		ThrustCurveMotor loadedTCM = (ThrustCurveMotor) loadedMotor;
 		assertEquals(motor.getDesignation(), loadedTCM.getDesignation());
 		assertEquals(3, loadedTCM.getTimePoints().length);
+	}
+
+	@Test
+	public void componentStructuralMaterialPropertiesRoundTrip() {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createNewRocket();
+		BodyTube bodyTube = new BodyTube();
+		document.getRocket().getStage(0).addChild(bodyTube);
+		bodyTube.setMaterial(Material.newMaterial(Material.Type.BULK, "Structural laminate", 1580.0, 4.2e9,
+				52.0e9, 610.0e6, 390.0e6, 0.29, MaterialGroup.COMPOSITES, true, true));
+
+		StorageOptions options = new StorageOptions();
+		options.setSaveSimulationData(false);
+		OpenRocketDocument loadedDocument = loadRocket(saveRocket(document, options).getPath());
+		BodyTube loadedBodyTube = null;
+		for (info.openrocket.core.rocketcomponent.RocketComponent component : loadedDocument.getRocket()) {
+			if (component instanceof BodyTube) {
+				loadedBodyTube = (BodyTube) component;
+				break;
+			}
+		}
+
+		assertNotNull(loadedBodyTube);
+		Material loadedMaterial = loadedBodyTube.getMaterial();
+		assertEquals(1580.0, loadedMaterial.getDensity(), 1.0e-9);
+		assertEquals(4.2e9, loadedMaterial.getInPlaneShearModulus(), 1.0e-3);
+		assertEquals(52.0e9, loadedMaterial.getYoungsModulus(), 1.0e-3);
+		assertEquals(610.0e6, loadedMaterial.getTensileStrength(), 1.0e-3);
+		assertEquals(390.0e6, loadedMaterial.getCompressiveStrength(), 1.0e-3);
+		assertEquals(0.29, loadedMaterial.getPoissonRatio(), 1.0e-12);
 	}
 	
 
