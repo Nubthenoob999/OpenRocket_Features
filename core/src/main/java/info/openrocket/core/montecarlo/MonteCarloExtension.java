@@ -1,10 +1,13 @@
 package info.openrocket.core.montecarlo;
 
 import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
+import info.openrocket.core.models.wind.WindModelType;
 import info.openrocket.core.simulation.SimulationConditions;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.extension.AbstractSimulationExtension;
+import info.openrocket.core.simulation.montecarlo.MonteCarloDistribution;
+import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,6 +110,13 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
     private static final String K_CD_MULT_SIGMA      = CFG_PREFIX + "cdMultiplierSigma";
     private static final String K_THRUST_MULT_SIGMA  = CFG_PREFIX + "thrustMultiplierSigma";
     private static final String K_MASS_MULT_SIGMA    = CFG_PREFIX + "massMultiplierSigma";
+    private static final String K_DENSITY_MULT_SIGMA = CFG_PREFIX + "densityMultiplierSigma";
+    private static final String K_CG_AXIAL_SIGMA_M = CFG_PREFIX + "cgAxialSigmaM";
+    private static final String K_NORMAL_FORCE_SIGMA = CFG_PREFIX + "normalForceMultiplierSigma";
+    private static final String K_IGNITION_DELAY_SIGMA_S = CFG_PREFIX + "ignitionDelaySigmaS";
+    private static final String K_RECOVERY_DRAG_SIGMA = CFG_PREFIX + "recoveryDragMultiplierSigma";
+    private static final String K_DEPLOYMENT_DELAY_SIGMA_S = CFG_PREFIX + "deploymentDelaySigmaS";
+    private static final String K_DISTRIBUTION_PREFIX = CFG_PREFIX + "distribution.";
 
     // -------------------------------------------------------------------------
     // Defaults
@@ -170,6 +180,9 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
     private Object invokeConfigGetRaw(String key) {
         if (key == null) return null;
+		try {
+			return config.get(key, null);
+		} catch (RuntimeException ignored) { }
         try {
             Method m = config.getClass().getMethod("get", String.class);
             return m.invoke(config, key);
@@ -295,6 +308,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
     // -------------------------------------------------------------------------
 
     private transient boolean batchRunContext = false;
+    private transient boolean batchAuxiliaryOnly = false;
     private transient long batchSeed = Long.MIN_VALUE;
     private transient long effectiveSeedUsed = Long.MIN_VALUE;
 
@@ -312,6 +326,12 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
     /** Called by MonteCarloBatchRunner on cloned extensions only. */
     public void setBatchRunContext(boolean v) { this.batchRunContext = v; }
+
+    /**
+     * Use the upstream sampler for ordinary uncertainties while retaining this
+     * extension's gust and shear listener for a trajectory.
+     */
+    public void setBatchAuxiliaryOnly(boolean v) { this.batchAuxiliaryOnly = v; }
 
     /** Called by MonteCarloBatchRunner on cloned extensions only. */
     public void setBatchSeed(long seed) { this.batchSeed = seed; }
@@ -333,6 +353,11 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
     /** Per-run mass multiplier actually used (1.0 if disabled). */
     public double getLastMassMultiplier() { return lastMassMultiplier; }
+
+    @Override
+    public boolean isMonteCarloSafe() {
+        return true;
+    }
 
     // -------------------------------------------------------------------------
     // OpenRocket entry point
@@ -359,6 +384,11 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
         final boolean debugEnabled = isDebugEnabled();
 
+        if (batchAuxiliaryOnly) {
+			attachWindDisturbances(conditions, seed, debugEnabled);
+            return;
+        }
+
         // ---- Atmosphere: if varying temp/pressure, disable ISA and ensure sane defaults ----
         final double temperatureStdDevC = getTemperatureStdDevC();
         final double pressureStdDevMbar = getPressureStdDevMbar();
@@ -376,13 +406,13 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         final double launchRodAngleStdDevDeg = getLaunchRodAngleStdDevDeg();
         if (launchRodAngleStdDevDeg > 0) {
             double base = opts.getLaunchRodAngle();
-            double varied = base + rng.nextGaussian() * launchRodAngleStdDevDeg;
+			double varied = base + rng.nextGaussian() * Math.toRadians(launchRodAngleStdDevDeg);
             opts.setLaunchRodAngle(varied);
         }
         final double launchRodDirectionStdDevDeg = getLaunchRodDirectionStdDevDeg();
         if (launchRodDirectionStdDevDeg > 0) {
             double base = opts.getLaunchRodDirection();
-            double varied = base + rng.nextGaussian() * launchRodDirectionStdDevDeg;
+			double varied = base + rng.nextGaussian() * Math.toRadians(launchRodDirectionStdDevDeg);
             opts.setLaunchRodDirection(varied);
         }
 
@@ -415,7 +445,8 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
         final double avgSigmaMps  = Math.max(0.0, finiteOrZero(getWindSpeedAverageSigmaMps()));
         final double turbSigmaMps = Math.max(0.0, finiteOrZero(getWindSpeedTurbulenceSigmaMps()));
-        final double dirSigmaRad = Math.max(0.0, finiteOrZero(getWindDirectionStdDevDeg()));
+		final double dirSigmaRad = Math.max(0.0,
+				Math.toRadians(finiteOrZero(getWindDirectionStdDevDeg())));
 
         final boolean multiLevelActive = isMultiLevelActive(conditions, opts, windModel);
 
@@ -487,32 +518,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         // Per-step wind disturbances (gusts + shear)
         // -----------------------------------------------------------------
 
-        this.lastGustShearMetrics = null;
-        this.lastWindDisturbanceProfile = null;
-
-        if (isGustEventsEnabled() || isShearLayerEnabled()) {
-            try {
-                RunWindDisturbanceProfile profile = RunWindDisturbanceProfile.sampleFromConfig(this, rng);
-                GustShearMetrics metrics = new GustShearMetrics();
-                metrics.resetAccumulators();
-
-                WindSnapshot baseline = WindSnapshot.capture(conditions, opts);
-
-                this.lastWindDisturbanceProfile = profile;
-                this.lastGustShearMetrics = metrics;
-
-                GustShearListener listener = new GustShearListener(baseline, profile, metrics, debugEnabled);
-                addSimulationListener(conditions, listener);
-
-                if (debugEnabled) {
-                    log.debug("MC Gust/Shear: enabled, gusts={}, shearEnabled={}",
-                            profile.gusts.size(), profile.shear != null);
-                }
-            } catch (Throwable t) {
-                // Never fail the whole run due to this optional feature.
-                if (debugEnabled) log.warn("MC Gust/Shear: failed to attach listener", t);
-            }
-        }
+		attachWindDisturbances(conditions, seed, debugEnabled);
 
         // -----------------------------------------------------------------
         // Vehicle / Motor physics overrides (CD, thrust, mass multipliers)
@@ -558,6 +564,30 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
             } catch (Throwable t) {
                 if (debugEnabled) log.warn("MC Physics: failed to attach listener", t);
             }
+        }
+    }
+
+	private void attachWindDisturbances(SimulationConditions conditions, long seed, boolean debugEnabled) {
+        this.lastGustShearMetrics = null;
+        this.lastWindDisturbanceProfile = null;
+        if (!isGustEventsEnabled() && !isShearLayerEnabled()) return;
+
+        try {
+			RunWindDisturbanceProfile profile = RunWindDisturbanceProfile.sampleFromConfig(this, seed);
+            GustShearMetrics metrics = new GustShearMetrics();
+            metrics.resetAccumulators();
+            this.lastWindDisturbanceProfile = profile;
+            this.lastGustShearMetrics = metrics;
+            addSimulationListener(conditions,
+					new GustShearListener(profile, metrics, debugEnabled));
+            if (debugEnabled) {
+                log.debug("MC Gust/Shear: enabled, gusts={}, shearEnabled={}",
+                        profile.gusts.size(), profile.shear != null);
+            }
+        } catch (RuntimeException exception) {
+            // Invalid disturbance configuration is a trajectory failure, not a
+            // silent omission that would make the CSV claim it was applied.
+            throw exception;
         }
     }
 
@@ -671,6 +701,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
     }
 
     private static boolean isMultiLevelActive(SimulationConditions conditions, SimulationOptions opts, Object windModel) {
+		if (opts != null) return opts.getWindModelType() == WindModelType.MULTI_LEVEL;
         if (windModel instanceof MultiLevelPinkNoiseWindModel) return true;
 
         Object t = invokeObject(conditions, "getWindModelType");
@@ -1190,6 +1221,41 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         fireChangeEvent();
     }
 
+    public double getDensityMultiplierSigma() { return nonNegativeConfig(K_DENSITY_MULT_SIGMA); }
+    public void setDensityMultiplierSigma(double value) { putNonNegative(K_DENSITY_MULT_SIGMA, value); }
+    public double getCgAxialSigmaM() { return nonNegativeConfig(K_CG_AXIAL_SIGMA_M); }
+    public void setCgAxialSigmaM(double value) { putNonNegative(K_CG_AXIAL_SIGMA_M, value); }
+    public double getNormalForceMultiplierSigma() { return nonNegativeConfig(K_NORMAL_FORCE_SIGMA); }
+    public void setNormalForceMultiplierSigma(double value) { putNonNegative(K_NORMAL_FORCE_SIGMA, value); }
+    public double getIgnitionDelaySigmaS() { return nonNegativeConfig(K_IGNITION_DELAY_SIGMA_S); }
+    public void setIgnitionDelaySigmaS(double value) { putNonNegative(K_IGNITION_DELAY_SIGMA_S, value); }
+    public double getRecoveryDragMultiplierSigma() { return nonNegativeConfig(K_RECOVERY_DRAG_SIGMA); }
+    public void setRecoveryDragMultiplierSigma(double value) { putNonNegative(K_RECOVERY_DRAG_SIGMA, value); }
+    public double getDeploymentDelaySigmaS() { return nonNegativeConfig(K_DEPLOYMENT_DELAY_SIGMA_S); }
+    public void setDeploymentDelaySigmaS(double value) { putNonNegative(K_DEPLOYMENT_DELAY_SIGMA_S, value); }
+
+    private double nonNegativeConfig(String key) {
+        return Math.max(0.0, finiteOrZero(cfgDouble(key, 0.0)));
+    }
+
+    private void putNonNegative(String key, double value) {
+        cfgPutDouble(key, Math.max(0.0, finiteOrZero(value)));
+        fireChangeEvent();
+    }
+
+    public MonteCarloDistribution getParameterDistribution(MonteCarloParameter parameter) {
+        // The application-level Monte Carlo workflow intentionally uses one
+        // sampling family for every parameter.  Ignore older persisted choices.
+        return MonteCarloDistribution.NORMAL;
+    }
+
+    public void setParameterDistribution(MonteCarloParameter parameter,
+                                         MonteCarloDistribution distribution) {
+        // Normalize callers and legacy UI code to the only supported choice.
+        cfgPutString(K_DISTRIBUTION_PREFIX + parameter.name(), MonteCarloDistribution.NORMAL.name());
+        fireChangeEvent();
+    }
+
     public int getWorkerThreads() {
         return Math.max(1, cfgInt(K_WORKER_THREADS, D_WORKER_THREADS));
     }
@@ -1278,6 +1344,16 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         cfgPutDouble(K_CD_MULT_SIGMA, other.getCdMultiplierSigma());
         cfgPutDouble(K_THRUST_MULT_SIGMA, other.getThrustMultiplierSigma());
         cfgPutDouble(K_MASS_MULT_SIGMA, other.getMassMultiplierSigma());
+		cfgPutDouble(K_DENSITY_MULT_SIGMA, other.getDensityMultiplierSigma());
+		cfgPutDouble(K_CG_AXIAL_SIGMA_M, other.getCgAxialSigmaM());
+		cfgPutDouble(K_NORMAL_FORCE_SIGMA, other.getNormalForceMultiplierSigma());
+		cfgPutDouble(K_IGNITION_DELAY_SIGMA_S, other.getIgnitionDelaySigmaS());
+		cfgPutDouble(K_RECOVERY_DRAG_SIGMA, other.getRecoveryDragMultiplierSigma());
+		cfgPutDouble(K_DEPLOYMENT_DELAY_SIGMA_S, other.getDeploymentDelaySigmaS());
+		for (MonteCarloParameter parameter : MonteCarloParameter.values()) {
+			cfgPutString(K_DISTRIBUTION_PREFIX + parameter.name(),
+					other.getParameterDistribution(parameter).name());
+		}
 
         // Batch
         cfgPutInt(K_WORKER_THREADS, other.getWorkerThreads());

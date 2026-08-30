@@ -37,15 +37,11 @@ final class Vec2 {
      *  - direction is where the wind is COMING FROM
      *  - angle is in radians, 0 = North, pi/2 = East, increasing clockwise
      *
-     * This returns the wind VELOCITY vector (where the air is moving TO) in ENU:
-     *  u = East (m/s), v = North (m/s)
+     * This returns the same horizontal vector produced by
+     * {@code PinkNoiseWindModel.getWindVelocity}: u=x and v=y.
      */
     static Vec2 fromOpenRocketWind(double speed, double windFromDirRad) {
-        // Wind comes FROM dirFromRad, therefore it blows TOWARD dirFromRad + pi.
-        // Compass bearing uses: east = s*sin(bearing), north = s*cos(bearing)
-        double east = -speed * Math.sin(windFromDirRad);
-        double north = -speed * Math.cos(windFromDirRad);
-        return new Vec2(east, north);
+		return new Vec2(speed * Math.sin(windFromDirRad), speed * Math.cos(windFromDirRad));
     }
 
     /**
@@ -58,10 +54,8 @@ final class Vec2 {
         double speed = windToENU.mag();
         if (speed <= 0.0 || !Double.isFinite(speed)) return new OpenRocketWind(0.0, 0.0);
 
-        // bearing_to: 0=N, pi/2=E, clockwise; for ENU, bearing_to = atan2(east, north)
-        double bearingTo = Math.atan2(windToENU.u, windToENU.v);
-        double dirFrom = wrapRad(bearingTo - Math.PI);
-        return new OpenRocketWind(speed, dirFrom);
+		double direction = Math.atan2(windToENU.u, windToENU.v);
+		return new OpenRocketWind(speed, wrapRad(direction));
     }
 
     static double wrapRad(double a) {

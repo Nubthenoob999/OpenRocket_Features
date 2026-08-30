@@ -17,6 +17,10 @@ import info.openrocket.core.simulation.listeners.SimulationListener;
 import com.google.inject.Inject;
 
 public class ScriptingExtension extends AbstractSimulationExtension {
+	@Override
+	public boolean isMonteCarloSafe() {
+		return !isEnabled();
+	}
 
 	private static final String DEFAULT_LANGUAGE = "JavaScript";
 

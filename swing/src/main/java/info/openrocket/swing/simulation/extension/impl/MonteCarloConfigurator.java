@@ -13,6 +13,9 @@ import info.openrocket.swing.gui.SpinnerEditor;
 import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.components.UnitSelector;
 import info.openrocket.swing.simulation.extension.AbstractSwingSimulationExtensionConfigurator;
+import info.openrocket.swing.gui.simulation.LandingDispersionAnalysisCache;
+import info.openrocket.core.simulation.montecarlo.MonteCarloResult;
+import info.openrocket.core.simulation.montecarlo.MonteCarloSettings;
 import net.miginfocom.swing.MigLayout;
 
 import javax.swing.*;
@@ -123,10 +126,13 @@ public class MonteCarloConfigurator
 
         // Row 2: Number of simulations
         p.add(new JLabel("Simulations"), "align label");
+		int initialRunCount = Math.max(MonteCarloSettings.MIN_RUN_COUNT,
+				Math.min(MonteCarloSettings.MAX_RUN_COUNT, ext.getNumberOfSimulations()));
+		if (initialRunCount != ext.getNumberOfSimulations()) ext.setNumberOfSimulations(initialRunCount);
         JSpinner nSpinner = new JSpinner(new SpinnerNumberModel(
-                (Number) Integer.valueOf(ext.getNumberOfSimulations()),
-                (Comparable<Integer>) Integer.valueOf(1),
-                (Comparable<Integer>) Integer.valueOf(1_000_000),
+				(Number) Integer.valueOf(initialRunCount),
+				(Comparable<Integer>) Integer.valueOf(MonteCarloSettings.MIN_RUN_COUNT),
+				(Comparable<Integer>) Integer.valueOf(MonteCarloSettings.MAX_RUN_COUNT),
                 (Number) Integer.valueOf(1)));
         nSpinner.setEditor(new SpinnerEditor(nSpinner));
         nSpinner.setToolTipText("Total number of Monte Carlo simulation runs.");
@@ -187,23 +193,19 @@ public class MonteCarloConfigurator
 
         // Wind speed average sigma
         JLabel windAvgLabel = new JLabel("Wind speed average " + SIGMA);
-        windAvgLabel.setEnabled(!multiLevel);
         p.add(windAvgLabel, "align label");
 
         DoubleModel windAvgModel = new DoubleModel(ext, "WindSpeedAverageSigmaMps",
                 UnitGroup.UNITS_VELOCITY, 0);
         JSpinner windAvgSpinner = new JSpinner(windAvgModel.getSpinnerModel());
         windAvgSpinner.setEditor(new SpinnerEditor(windAvgSpinner));
-        windAvgSpinner.setEnabled(!multiLevel);
         UnitSelector windAvgUnits = new UnitSelector(windAvgModel);
-        windAvgUnits.setEnabled(!multiLevel);
 
         if (multiLevel) {
-            String tip = "Disabled \u2014 base simulation uses Multi-level wind.";
+			String tip = "A single sampled mean-speed offset is applied to every active multi-level wind layer.";
             windAvgLabel.setToolTipText(tip);
             windAvgSpinner.setToolTipText(tip);
             windAvgUnits.setToolTipText(tip);
-            ext.setWindSpeedAverageSigmaMps(0.0);
         } else {
             String tip = "Standard deviation of mean wind speed perturbation.";
             windAvgLabel.setToolTipText(tip);
@@ -233,6 +235,11 @@ public class MonteCarloConfigurator
                 ext::setPressureStdDevMbar,
                 "Standard deviation of launch pressure perturbation (mbar).");
 
+		addPercentSigma(p, "Air density multiplier " + SIGMA,
+				ext.getDensityMultiplierSigma() * 100.0,
+				v -> ext.setDensityMultiplierSigma(v / 100.0),
+				"Relative atmospheric-density uncertainty applied throughout the flight.");
+
         p.add(new JLabel(), "span 3, growy, pushy");
         return p;
     }
@@ -244,28 +251,21 @@ public class MonteCarloConfigurator
     private JPanel buildDisturbancesTab(MonteCarloExtension ext) {
         JPanel p = new JPanel(new MigLayout("ins 8, wrap 1, gap 0 8", "[grow, fill]"));
 
-        // ---- Gust events sub-panel ----
         p.add(buildGustPanel(ext), "growx");
-
-        // ---- Shear layer sub-panel ----
         p.add(buildShearPanel(ext), "growx");
 
         p.add(new JLabel(), "growy, pushy");
         return p;
     }
 
-    /**
-     * Gust events sub-panel with enable checkbox controlling child enabled state.
-     */
+    /** Gust events sub-panel with enable checkbox controlling child enabled state. */
     private JPanel buildGustPanel(MonteCarloExtension ext) {
         JPanel gust = titledPanel("Gust Events");
         gust.setLayout(new MigLayout("ins 8, wrap 3, gap 8 4",
                 "[grow 0, 160::][grow][grow 0]"));
 
-        // Collect child components for enable/disable toggling
         final List<JComponent> gustChildren = new ArrayList<>();
 
-        // Enable checkbox
         JCheckBox gustEnable = new JCheckBox("Enable gust events", ext.isGustEventsEnabled());
         gustEnable.setToolTipText("Add random discrete gust events during the simulation.");
         gustEnable.addActionListener(e -> {
@@ -274,9 +274,8 @@ public class MonteCarloConfigurator
         });
         gust.add(gustEnable, "span 3, wrap");
 
-        // Gust parameters
         gustChildren.addAll(addIntRow(gust, "Event count", ext.getGustEventCount(), 0, 50,
-                v -> ext.setGustEventCount(v), "events",
+                ext::setGustEventCount, "events",
                 "Number of discrete gust events per simulation run."));
 
         gustChildren.addAll(addTimeRow(gust, "Window start", ext.getGustWindowStartS(),
@@ -302,15 +301,11 @@ public class MonteCarloConfigurator
                 "GustPeakDeltaSigmaMps",
                 "Standard deviation of peak wind speed change."));
 
-        // Set initial enabled state
         setChildrenEnabled(gustChildren, ext.isGustEventsEnabled());
-
         return gust;
     }
 
-    /**
-     * Shear layer sub-panel with enable checkbox controlling child enabled state.
-     */
+    /** Wind shear layer sub-panel with enable checkbox controlling child enabled state. */
     private JPanel buildShearPanel(MonteCarloExtension ext) {
         JPanel shear = titledPanel("Wind Shear Layer");
         shear.setLayout(new MigLayout("ins 8, wrap 3, gap 8 4",
@@ -343,7 +338,6 @@ public class MonteCarloConfigurator
                 "Standard deviation of wind speed change across the shear layer."));
 
         setChildrenEnabled(shearChildren, ext.isShearLayerEnabled());
-
         return shear;
     }
 
@@ -371,6 +365,21 @@ public class MonteCarloConfigurator
                 v -> ext.setMassMultiplierSigma(v / 100.0),
                 "Rocket mass variation (e.g. 2 = " + PLUS_MINUS + "2% at 1" + SIGMA + "). " +
                 "Accounts for epoxy, paint, and hardware tolerances.");
+
+		addLengthRow(p, "Axial CG offset " + SIGMA, ext, "CgAxialSigmaM",
+				"Axial center-of-gravity uncertainty.");
+		addPercentSigma(p, "Normal force multiplier " + SIGMA,
+				ext.getNormalForceMultiplierSigma() * 100.0,
+				v -> ext.setNormalForceMultiplierSigma(v / 100.0),
+				"Normal-force, moment, and damping uncertainty.");
+		addPercentSigma(p, "Recovery drag multiplier " + SIGMA,
+				ext.getRecoveryDragMultiplierSigma() * 100.0,
+				v -> ext.setRecoveryDragMultiplierSigma(v / 100.0),
+				"Recovery-device drag uncertainty, including Euler recovery/tumble flight.");
+		addTimeRow(p, "Ignition delay " + SIGMA, ext.getIgnitionDelaySigmaS(),
+				ext::setIgnitionDelaySigmaS, "Upper-stage ignition timing uncertainty.");
+		addTimeRow(p, "Deployment delay " + SIGMA, ext.getDeploymentDelaySigmaS(),
+				ext::setDeploymentDelaySigmaS, "Recovery deployment timing uncertainty.");
 
         p.add(new JLabel(), "span 3, growy, pushy");
         return p;
@@ -402,7 +411,7 @@ public class MonteCarloConfigurator
 
         // Auto-export controls
         JCheckBox autoExportCheckBox = new JCheckBox("Auto-export after batch", ext.isAutoExportEnabled());
-        autoExportCheckBox.setToolTipText("Automatically export CSV/KML/PNG files when a batch run finishes.");
+		autoExportCheckBox.setToolTipText("Automatically export CSV/KML/PNG/PDF files when a batch run finishes.");
         autoExportCheckBox.addActionListener(e -> ext.setAutoExportEnabled(autoExportCheckBox.isSelected()));
         p.add(autoExportCheckBox, "span 4, wrap");
 
@@ -460,14 +469,14 @@ public class MonteCarloConfigurator
 
         // Buttons
         final JButton runBatch = new JButton("Run Monte Carlo Batch");
-        final JButton exportAll = new JButton("Export All Results (CSV + KML + PNG)");
+		final JButton exportAll = new JButton("Export All Results (CSV + KML + PNG + PDF)");
 
         // Style the run button to stand out
         runBatch.setFont(runBatch.getFont().deriveFont(Font.BOLD));
         runBatch.setToolTipText("Start the Monte Carlo batch simulation.");
 
         exportAll.setEnabled(false);
-        exportAll.setToolTipText("Export detailed Monte Carlo CSV plus landing dispersion KML/PNG/CSV files.");
+		exportAll.setToolTipText("Export sampled inputs, branches, failures, KML/PNG dispersion plots, and a PDF report.");
 
         // ---- Run batch action ----
         runBatch.addActionListener(e -> {
@@ -489,20 +498,25 @@ public class MonteCarloConfigurator
             SwingWorker<List<MonteCarloRunRecord>, String> worker = new SwingWorker<>() {
                 @Override
                 protected List<MonteCarloRunRecord> doInBackground() throws Exception {
-                    if (threads <= 1) {
-                        return MonteCarloBatchRunner.runBatch(sim, runs,
-                                (completed, total) -> SwingUtilities.invokeLater(() -> {
-                                    progress.setMaximum(total);
-                                    progress.setValue(completed);
-                                    progress.setString(completed + " / " + total);
-                                }));
-                    }
-                    return MonteCarloBatchRunner.runBatchParallel(sim, runs, threads,
-                            (completed, total) -> SwingUtilities.invokeLater(() -> {
-                                progress.setMaximum(total);
-                                progress.setValue(completed);
-                                progress.setString(completed + " / " + total);
-                            }));
+					MonteCarloSettings settings = MonteCarloBatchRunner.buildSettings(ext, runs, threads);
+					MonteCarloResult analysis = LandingDispersionAnalysisCache.get(sim, settings);
+					if (analysis == null) {
+						analysis = MonteCarloBatchRunner.runAnalysis(sim, settings,
+								(completed, total) -> SwingUtilities.invokeLater(() -> {
+									progress.setMaximum(total);
+									progress.setValue(completed);
+									progress.setString(completed + " / " + total);
+								}));
+						LandingDispersionAnalysisCache.put(sim, analysis);
+					} else {
+						int total = settings.getRunCount() + 1;
+						SwingUtilities.invokeLater(() -> {
+							progress.setMaximum(total);
+							progress.setValue(total);
+							progress.setString("Reused valid cached result");
+						});
+					}
+					return MonteCarloBatchRunner.toLegacyRecords(sim, analysis);
                 }
 
                 @Override
@@ -513,7 +527,7 @@ public class MonteCarloConfigurator
                         updateBatchSummaryLabels(results);
                         populateRunDetailsTable(results);
                         progress.setValue(progress.getMaximum());
-                        progress.setString("Done (" + results.size() + " runs)");
+						progress.setString("Done (" + (results.size() - 1) + " dispersed + nominal)");
                         exportAll.setEnabled(true);
 
                         Path exportDirectory = resolveExportDirectory(exportDirectoryField.getText(), ext, sim);
@@ -598,23 +612,46 @@ public class MonteCarloConfigurator
             return;
         }
 
-        long withApogee = results.stream().filter(r -> Double.isFinite(r.apogee_m)).count();
-        long withLanding = results.stream().filter(r -> Double.isFinite(r.landingEast_m) && Double.isFinite(r.landingNorth_m)).count();
-        double meanApogee = results.stream().mapToDouble(r -> r.apogee_m).filter(Double::isFinite).average().orElse(Double.NaN);
-        double meanFlightTime = results.stream().mapToDouble(r -> r.flightTime_s).filter(Double::isFinite).average().orElse(Double.NaN);
-        double maxRadius = results.stream()
-                .filter(r -> Double.isFinite(r.landingEast_m) && Double.isFinite(r.landingNorth_m))
+		List<MonteCarloRunRecord> dispersed = results.stream().filter(r -> !r.nominal).toList();
+		List<MonteCarloRunRecord> successful = dispersed.stream()
+				.filter(r -> r.failureMessage == null).toList();
+		long withApogee = successful.stream().filter(r -> Double.isFinite(r.apogee_m)).count();
+		long withLanding = successful.stream().filter(r -> r.results.hasLanding).count();
+		double meanApogee = successful.stream().mapToDouble(r -> r.apogee_m)
+				.filter(Double::isFinite).average().orElse(Double.NaN);
+		double meanFlightTime = successful.stream().mapToDouble(r -> r.flightTime_s)
+				.filter(Double::isFinite).average().orElse(Double.NaN);
+		double maxRadius = successful.stream()
+				.filter(r -> r.results.hasLanding)
                 .mapToDouble(r -> Math.hypot(r.landingEast_m, r.landingNorth_m))
                 .max()
                 .orElse(Double.NaN);
 
-        runSummaryLabel.setText("Runs=" + results.size() +
+		double[] containment = empiricalContainment(successful);
+		runSummaryLabel.setText("Runs=" + dispersed.size() + " + nominal" +
+				" | Failures=" + (dispersed.size() - successful.size()) +
                 " | Apogee points=" + withApogee +
                 " | Landing points=" + withLanding +
                 " | Mean apogee=" + formatDouble(meanApogee) + " m" +
                 " | Mean flight=" + formatDouble(meanFlightTime) + " s");
-        dispersionSummaryLabel.setText("Landing dispersion max radius=" + formatDouble(maxRadius) + " m");
+		dispersionSummaryLabel.setText("Landing R50/R90/R95=" + formatDouble(containment[0]) + "/" +
+				formatDouble(containment[1]) + "/" + formatDouble(containment[2]) +
+				" m | max pad range=" + formatDouble(maxRadius) + " m");
     }
+
+	private static double[] empiricalContainment(List<MonteCarloRunRecord> records) {
+		List<MonteCarloRunRecord> landed = records.stream().filter(r -> r.results.hasLanding).toList();
+		if (landed.isEmpty()) return new double[] { Double.NaN, Double.NaN, Double.NaN };
+		double meanEast = landed.stream().mapToDouble(r -> r.landingEast_m).average().orElse(0);
+		double meanNorth = landed.stream().mapToDouble(r -> r.landingNorth_m).average().orElse(0);
+		double[] radii = landed.stream().mapToDouble(r ->
+				Math.hypot(r.landingEast_m - meanEast, r.landingNorth_m - meanNorth)).sorted().toArray();
+		return new double[] { nearestRank(radii, 0.50), nearestRank(radii, 0.90), nearestRank(radii, 0.95) };
+	}
+
+	private static double nearestRank(double[] sorted, double probability) {
+		return sorted[Math.max(0, (int) Math.ceil(probability * sorted.length) - 1)];
+	}
 
     private void populateRunDetailsTable(List<MonteCarloRunRecord> results) {
         runDetailTableModel.setRowCount(0);
@@ -624,7 +661,7 @@ public class MonteCarloConfigurator
 
         for (MonteCarloRunRecord record : results) {
             runDetailTableModel.addRow(new Object[] {
-                    record.runIndex,
+					record.nominal ? "Nominal" : record.runIndex,
                     record.seedUsed,
                     formatDouble(record.apogee_m),
                     formatDouble(record.maxVelocity_mps),
@@ -664,7 +701,11 @@ public class MonteCarloConfigurator
         double launchLonDeg = opts.getLaunchLongitude();
 
         MonteCarloCsvExporter.exportDetailedCsv(detailedCsv, results);
+		MonteCarloCsvExporter.exportBranchesCsv(
+				outDir.resolve(orkStem + "_montecarlo_branches.csv").toFile(), results);
         LandingDispersion6DOF.exportAll(outDir, dispersionStem, results, launchLatDeg, launchLonDeg);
+		MonteCarloPdfExporter.export(outDir.resolve(orkStem + "_montecarlo_report.pdf").toFile(),
+				orkStem, results, outDir.resolve(dispersionStem + ".png").toFile());
 
         return new String[] { detailedCsvName, dispersionStem };
     }
@@ -673,10 +714,13 @@ public class MonteCarloConfigurator
         return "Exported to:\n" + outDir.toAbsolutePath() + "\n\n" +
                 "Files:\n" +
                 " • " + detailedCsvName + "\n" +
+				" • " + detailedCsvName.replace("_detailed.csv", "_branches.csv") + "\n" +
+				" • " + detailedCsvName.replace("_detailed.csv", "_report.pdf") + "\n" +
                 " • " + dispersionStem + ".kml\n" +
                 " • " + dispersionStem + ".png\n" +
                 " • " + dispersionStem + "_points.csv\n" +
-                " • " + dispersionStem + "_summary.csv";
+				" • " + dispersionStem + "_summary.csv\n" +
+				" • one KML/PNG/points/summary bundle per landing body";
     }
 
     private static Path resolveExportDirectory(String configuredDirectory, MonteCarloExtension ext, Simulation sim) {
@@ -755,22 +799,22 @@ public class MonteCarloConfigurator
     private static List<JComponent> addVelocityRowCollect(JPanel panel, String label,
                                                           MonteCarloExtension ext,
                                                           String property, String tooltip) {
-        List<JComponent> comps = new ArrayList<>();
-        JLabel lbl = tooltipLabel(label, tooltip);
-        panel.add(lbl, "align label");
-        comps.add(lbl);
+        List<JComponent> components = new ArrayList<>();
+        JLabel labelComponent = tooltipLabel(label, tooltip);
+        panel.add(labelComponent, "align label");
+        components.add(labelComponent);
 
         DoubleModel model = new DoubleModel(ext, property, UnitGroup.UNITS_VELOCITY, 0);
         JSpinner spinner = new JSpinner(model.getSpinnerModel());
         spinner.setEditor(new SpinnerEditor(spinner));
         if (tooltip != null) spinner.setToolTipText(tooltip);
         panel.add(spinner, "growx");
-        comps.add(spinner);
+        components.add(spinner);
 
-        UnitSelector us = new UnitSelector(model);
-        panel.add(us);
-        comps.add(us);
-        return comps;
+        UnitSelector units = new UnitSelector(model);
+        panel.add(units);
+        components.add(units);
+        return components;
     }
 
     /** Length row using OpenRocket's DoubleModel + UnitSelector. */
@@ -786,26 +830,26 @@ public class MonteCarloConfigurator
         panel.add(new UnitSelector(model));
     }
 
-    /** Length row that returns components for enable/disable toggling. */
+    /** Length row that returns all created components for enable/disable toggling. */
     private static List<JComponent> addLengthRowCollect(JPanel panel, String label,
                                                         MonteCarloExtension ext,
                                                         String property, String tooltip) {
-        List<JComponent> comps = new ArrayList<>();
-        JLabel lbl = tooltipLabel(label, tooltip);
-        panel.add(lbl, "align label");
-        comps.add(lbl);
+        List<JComponent> components = new ArrayList<>();
+        JLabel labelComponent = tooltipLabel(label, tooltip);
+        panel.add(labelComponent, "align label");
+        components.add(labelComponent);
 
         DoubleModel model = new DoubleModel(ext, property, UnitGroup.UNITS_LENGTH, 0);
         JSpinner spinner = new JSpinner(model.getSpinnerModel());
         spinner.setEditor(new SpinnerEditor(spinner));
         if (tooltip != null) spinner.setToolTipText(tooltip);
         panel.add(spinner, "growx");
-        comps.add(spinner);
+        components.add(spinner);
 
-        UnitSelector us = new UnitSelector(model);
-        panel.add(us);
-        comps.add(us);
-        return comps;
+        UnitSelector units = new UnitSelector(model);
+        panel.add(units);
+        components.add(units);
+        return components;
     }
 
     /** Temperature row with fixed degree-C unit. */
@@ -836,37 +880,37 @@ public class MonteCarloConfigurator
         panel.add(new JLabel("mbar"));
     }
 
-    /** Time-in-seconds row that returns components for enable/disable toggling. */
+    /** Time-in-seconds row that returns all created components for enable/disable toggling. */
     private static List<JComponent> addTimeRow(JPanel panel, String label,
                                                double initialSeconds, DoubleConsumer setter,
                                                String tooltip) {
-        List<JComponent> comps = new ArrayList<>();
+        List<JComponent> components = new ArrayList<>();
         JLabel lbl = tooltipLabel(label, tooltip);
         panel.add(lbl, "align label");
-        comps.add(lbl);
+        components.add(lbl);
 
         JSpinner spinner = new JSpinner(new SpinnerNumberModel(initialSeconds, 0.0, 10_000.0, 0.05));
         spinner.setEditor(new SpinnerEditor(spinner));
         spinner.addChangeListener(e -> setter.accept(((Number) spinner.getValue()).doubleValue()));
         if (tooltip != null) spinner.setToolTipText(tooltip);
         panel.add(spinner, "growx");
-        comps.add(spinner);
+        components.add(spinner);
 
         JLabel unit = new JLabel("s");
         panel.add(unit);
-        comps.add(unit);
-        return comps;
+        components.add(unit);
+        return components;
     }
 
-    /** Integer row that returns components for enable/disable toggling. */
+    /** Integer row that returns all created components for enable/disable toggling. */
     private static List<JComponent> addIntRow(JPanel panel, String label,
                                               int initial, int min, int max,
                                               java.util.function.IntConsumer setter,
                                               String unitText, String tooltip) {
-        List<JComponent> comps = new ArrayList<>();
-        JLabel lbl = tooltipLabel(label, tooltip);
-        panel.add(lbl, "align label");
-        comps.add(lbl);
+        List<JComponent> components = new ArrayList<>();
+        JLabel labelComponent = tooltipLabel(label, tooltip);
+        panel.add(labelComponent, "align label");
+        components.add(labelComponent);
 
         JSpinner spinner = new JSpinner(new SpinnerNumberModel(
                 (Number) Integer.valueOf(initial),
@@ -877,12 +921,12 @@ public class MonteCarloConfigurator
         spinner.addChangeListener(e -> setter.accept(((Number) spinner.getValue()).intValue()));
         if (tooltip != null) spinner.setToolTipText(tooltip);
         panel.add(spinner, "growx");
-        comps.add(spinner);
+        components.add(spinner);
 
         JLabel unit = new JLabel(unitText);
         panel.add(unit);
-        comps.add(unit);
-        return comps;
+        components.add(unit);
+        return components;
     }
 
     /**
@@ -925,12 +969,11 @@ public class MonteCarloConfigurator
         return l;
     }
 
-    /** Recursively enables or disables a list of components. */
+    /** Enables or disables the disturbance controls and their child widgets. */
     private static void setChildrenEnabled(List<JComponent> components, boolean enabled) {
-        for (JComponent c : components) {
-            c.setEnabled(enabled);
-            // Also disable sub-components (e.g. spinner buttons)
-            for (Component child : c.getComponents()) {
+        for (JComponent component : components) {
+            component.setEnabled(enabled);
+            for (Component child : component.getComponents()) {
                 child.setEnabled(enabled);
             }
         }

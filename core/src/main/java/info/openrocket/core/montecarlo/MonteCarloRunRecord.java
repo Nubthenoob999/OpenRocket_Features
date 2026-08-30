@@ -7,6 +7,10 @@ import info.openrocket.core.simulation.SimulationOptions;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Collections;
+import java.util.Map;
+import info.openrocket.core.simulation.montecarlo.MonteCarloMetric;
+import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
 
 /**
  * A single Monte Carlo run record. Stored to CSV by MonteCarloCsvExporter.
@@ -19,6 +23,42 @@ import java.util.List;
  * This avoids the common bug where opts.getMultiLevelWindModel() is always non-null even when not active.
  */
 public class MonteCarloRunRecord {
+	public boolean nominal;
+	public int simulationSeed;
+	public int masterSeed;
+	public String failureMessage;
+	public String windDisturbanceSample = "";
+	public Map<MonteCarloParameter, Double> sampledVariations = Collections.emptyMap();
+	public Map<MonteCarloParameter, String> uncertaintySettings = Collections.emptyMap();
+	public List<BodyResult> bodyResults = Collections.emptyList();
+
+	public static final class BodyResult {
+		public final String bodyId;
+		public final int branchIndex;
+		public final String branchName;
+		public final boolean groundHit;
+		public final double eastM;
+		public final double northM;
+		public final double latitudeDeg;
+		public final double longitudeDeg;
+		public final String failureMessage;
+		public final Map<MonteCarloMetric, Double> metrics;
+
+		public BodyResult(String bodyId, int branchIndex, String branchName, boolean groundHit,
+				double eastM, double northM, double latitudeDeg, double longitudeDeg,
+				String failureMessage, Map<MonteCarloMetric, Double> metrics) {
+			this.bodyId = bodyId;
+			this.branchIndex = branchIndex;
+			this.branchName = branchName;
+			this.groundHit = groundHit;
+			this.eastM = eastM;
+			this.northM = northM;
+			this.latitudeDeg = latitudeDeg;
+			this.longitudeDeg = longitudeDeg;
+			this.failureMessage = failureMessage;
+			this.metrics = Map.copyOf(metrics);
+		}
+	}
 
     public final int runIndex;
     public final String simulationName;

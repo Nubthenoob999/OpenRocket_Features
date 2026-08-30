@@ -726,6 +726,34 @@ public class Simulation implements ChangeSource, Cloneable {
 		return clone(true);
 	}
 
+	/**
+	 * Create a fully independent copy for concurrent simulation.  Unlike
+	 * {@link #copy()} and {@link #clone()}, this also copies the rocket while
+	 * preserving component IDs so flight-configuration and branch identities
+	 * remain stable across Monte Carlo runs.
+	 */
+	public synchronized Simulation duplicateForIndependentSimulation() {
+		mutex.lock("duplicateForIndependentSimulation");
+		try {
+			Simulation copy = new Simulation(null, rocket.copyWithOriginalID());
+			copy.name = this.name;
+			copy.configId = this.configId;
+			copy.options = this.options.clone();
+			copy.options.addChangeListener(copy.new ConditionListener());
+			copy.listeners = new ArrayList<>();
+			copy.simulationExtensions = new ArrayList<>();
+			for (SimulationExtension extension : this.simulationExtensions) {
+				copy.simulationExtensions.add(extension.clone());
+			}
+			copy.simulationStepperClass = this.simulationStepperClass;
+			copy.aerodynamicCalculatorClass = this.aerodynamicCalculatorClass;
+			copy.physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
+			return copy;
+		} finally {
+			mutex.unlock("duplicateForIndependentSimulation");
+		}
+	}
+
 	public Simulation clone(boolean includeSimulatedDate) {
 		mutex.lock("clone");
 		try {

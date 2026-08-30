@@ -1,8 +1,5 @@
 package info.openrocket.core.montecarlo;
 
-import info.openrocket.core.document.Simulation;
-import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
-import info.openrocket.core.simulation.SimulationConditions;
 import info.openrocket.core.unit.Unit;
 import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.core.util.Chars;
@@ -10,15 +7,11 @@ import info.openrocket.core.util.Chars;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
+import info.openrocket.core.simulation.montecarlo.MonteCarloMetric;
+import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
 
 /**
  * Writes Monte Carlo batch results into a "wide" CSV suitable for histogram/scatter plots.
@@ -51,91 +44,39 @@ public final class MonteCarloCsvExporter {
         }
     }
 
-    /**
-     * Starts an asynchronous CSV writer thread.
-     * Returns a handler that accepts records and must be closed to finish writing.
-     */
-    public static AsyncCsvWriter createAsyncWriter(File file, Simulation baseSimulation) throws IOException {
-        // Estimate header size from base simulation configuration
-        int maxWindLevels = 1;
-        try {
-            maxWindLevels = countWindLevels(baseSimulation);
-        } catch (Exception ignored) {}
-        
-        return new AsyncCsvWriter(file, Math.max(1, maxWindLevels));
-    }
-
-    /**
-     * Consumer/AutoCloseable for streaming results to CSV on a dedicated I/O thread.
-     */
-    public static class AsyncCsvWriter implements Consumer<MonteCarloRunRecord>, AutoCloseable {
-        private final BlockingQueue<MonteCarloRunRecord> queue = new LinkedBlockingQueue<>(5000); // Backpressure buffer
-        private final AtomicBoolean finished = new AtomicBoolean(false);
-        private final Thread writerThread;
-        private volatile IOException ioException;
-
-        public AsyncCsvWriter(File file, int windLevelColumns) throws IOException {
-            // Validate file creation early
-            final BufferedWriter writer = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8);
-            
-            // Write header immediately
-            writeHeader(writer, windLevelColumns);
-
-            this.writerThread = new Thread(() -> {
-                try (writer) {
-                    while (true) {
-                        try {
-                            MonteCarloRunRecord r = queue.poll(500, TimeUnit.MILLISECONDS);
-                            if (r != null) {
-                                writeRow(writer, r, windLevelColumns);
-                            } else if (finished.get() && queue.isEmpty()) {
-                                break;
-                            }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                    writer.flush();
-                } catch (IOException e) {
-                    ioException = e;
-                }
-            }, "CSV-Writer-Thread");
-            
-            this.writerThread.start();
-        }
-
-        @Override
-        public void accept(MonteCarloRunRecord record) {
-            if (record == null) return;
-            if (ioException != null) throw new RuntimeException("Async CSV write failed", ioException);
-            try {
-                // Determine if we should block or drop? Blocking provides backpressure to simulations.
-                queue.put(record);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        @Override
-        public void close() {
-            finished.set(true);
-            try {
-                writerThread.join(10000); // wait up to 10s for drain
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            if (ioException != null) {
-                throw new RuntimeException("Error during CSV write", ioException);
-            }
-        }
-    }
+	/** Write one row per flight-data branch/body, including failures and all metrics. */
+	public static void exportBranchesCsv(File file, List<MonteCarloRunRecord> records) throws IOException {
+		try (BufferedWriter writer = Files.newBufferedWriter(file.toPath(), StandardCharsets.UTF_8)) {
+			writer.write("run_index,nominal,simulation_seed,body_id,branch_index,branch_name,ground_hit,"
+					+ "landing_east_m,landing_north_m,landing_lat_deg,landing_lon_deg,failure");
+			for (MonteCarloMetric metric : MonteCarloMetric.values()) {
+				writer.write("," + metric.name().toLowerCase());
+			}
+			writer.newLine();
+			for (MonteCarloRunRecord record : records) {
+				for (MonteCarloRunRecord.BodyResult body : record.bodyResults) {
+					StringBuilder row = new StringBuilder();
+					row.append(record.runIndex).append(',').append(record.nominal).append(',')
+							.append(record.simulationSeed).append(',').append(csv(body.bodyId)).append(',')
+							.append(body.branchIndex).append(',').append(csv(body.branchName)).append(',')
+							.append(body.groundHit).append(',').append(body.eastM).append(',')
+							.append(body.northM).append(',').append(body.latitudeDeg).append(',')
+							.append(body.longitudeDeg).append(',').append(csv(body.failureMessage));
+					for (MonteCarloMetric metric : MonteCarloMetric.values()) {
+						row.append(',').append(body.metrics.getOrDefault(metric, Double.NaN));
+					}
+					writer.write(row.toString());
+					writer.newLine();
+				}
+			}
+		}
+	}
 
     // --- Internal Helpers ---
 
     private static void writeHeader(BufferedWriter w, int maxWindLevels) throws IOException {
         StringBuilder header = new StringBuilder();
-        header.append("run_index,simulation_name,deterministic_seed,seed_used,")
+		header.append("run_index,nominal,simulation_name,deterministic_seed,master_seed,seed_used,simulation_seed,failure,wind_disturbance_sample,")
               .append("launch_lat_deg,launch_lon_deg,launch_alt_m,")
               .append("launch_rod_angle_deg,launch_rod_direction_deg,")
               .append("temperature_C,pressure_mbar,")
@@ -154,6 +95,11 @@ public final class MonteCarloCsvExporter {
               .append("delta_wind_impulse_mps_s,max_tilt_deg,max_aoa_deg,")
               .append("cd_mult_sigma,thrust_mult_sigma,mass_mult_sigma,")
               .append("cd_mult_used,thrust_mult_used,mass_mult_used,");
+
+		for (MonteCarloParameter parameter : MonteCarloParameter.values()) {
+			header.append("setting_").append(parameter.name().toLowerCase()).append(',')
+					.append("sample_").append(parameter.name().toLowerCase()).append(',');
+		}
 
         for (int i = 0; i < maxWindLevels; i++) {
             int n = i + 1;
@@ -177,9 +123,14 @@ public final class MonteCarloCsvExporter {
         StringBuilder row = new StringBuilder(512);
 
         row.append(r.runIndex).append(",")
+		   .append(r.nominal).append(",")
            .append(csv(safe(r.simulationName))).append(",")
            .append(r.deterministicSeed).append(",")
+		   .append(r.masterSeed).append(",")
            .append(r.seedUsed).append(",")
+		   .append(r.simulationSeed).append(",")
+		   .append(csv(r.failureMessage)).append(",")
+		   .append(csv(r.windDisturbanceSample)).append(",")
 
            .append(r.launchLatitudeDeg).append(",")
            .append(r.launchLongitudeDeg).append(",")
@@ -228,6 +179,11 @@ public final class MonteCarloCsvExporter {
            .append(r.thrustMultiplierUsed).append(",")
            .append(r.massMultiplierUsed).append(",");
 
+		for (MonteCarloParameter parameter : MonteCarloParameter.values()) {
+			row.append(csv(r.uncertaintySettings.get(parameter))).append(',')
+					.append(r.sampledVariations.getOrDefault(parameter, 0.0)).append(',');
+		}
+
         for (int i = 0; i < maxWindLevels; i++) {
             if (i < r.windLevels.size()) {
                 MonteCarloRunRecord.WindLevel wl = r.windLevels.get(i);
@@ -273,32 +229,4 @@ public final class MonteCarloCsvExporter {
         return s == null ? "" : s;
     }
 
-    private static int countWindLevels(Simulation s) {
-        if (s == null) return 1;
-        try {
-            SimulationConditions c = getConditions(s.getOptions());
-            Object mlObj = (c != null) ? getMultiLevelWindModel(c) : null;
-            if (mlObj == null) mlObj = s.getOptions().getMultiLevelWindModel();
-            
-            if (mlObj instanceof MultiLevelPinkNoiseWindModel) {
-                 return ((MultiLevelPinkNoiseWindModel) mlObj).getLevels().size();
-            }
-        } catch (Throwable ignored) {}
-        return 1;
-    }
-
-    // Best-effort reflection helpers to peek at base simulation config
-    private static SimulationConditions getConditions(info.openrocket.core.simulation.SimulationOptions opts) {
-        try {
-             Method m = opts.getClass().getMethod("getConditions");
-             return (SimulationConditions) m.invoke(opts);
-        } catch(Exception e) { return null; }
-    }
-    
-    private static MultiLevelPinkNoiseWindModel getMultiLevelWindModel(SimulationConditions c) {
-        try {
-            Method m = c.getClass().getMethod("getMultiLevelWindModel");
-            return (MultiLevelPinkNoiseWindModel) m.invoke(c);
-        } catch(Exception e) { return null; }
-    }
 }

@@ -71,6 +71,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.models.gravity;
 	exports info.openrocket.core.models.wind;
 	exports info.openrocket.core.montecarlo;
+	exports info.openrocket.core.simulation.montecarlo;
 	exports info.openrocket.core.motor;
 	exports info.openrocket.core.optimization.general;
 	exports info.openrocket.core.optimization.general.multidim;

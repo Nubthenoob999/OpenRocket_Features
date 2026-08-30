@@ -84,8 +84,9 @@ public class RigidBody {
 
 	@Override
 	public int hashCode() {
-		return (int) (Double.doubleToLongBits(this.Ixx) ^ Double.doubleToLongBits(this.Iyy)
-				^ Double.doubleToLongBits(this.Ixx));
+		// equals uses tolerance-based floating point comparison, so no useful
+		// value-derived hash can satisfy the equals/hashCode contract.
+		return 0;
 	}
 
 	@Override
@@ -96,8 +97,13 @@ public class RigidBody {
 			return false;
 
 		RigidBody other = (RigidBody) obj;
-		return (MathUtil.equals(this.Ixx, other.Ixx) && MathUtil.equals(this.Iyy, other.Iyy) &&
-				MathUtil.equals(this.Izz, other.Izz));
+		return MathUtil.equals(this.cm.getX(), other.cm.getX()) &&
+				MathUtil.equals(this.cm.getY(), other.cm.getY()) &&
+				MathUtil.equals(this.cm.getZ(), other.cm.getZ()) &&
+				MathUtil.equals(this.cm.getWeight(), other.cm.getWeight()) &&
+				MathUtil.equals(this.Ixx, other.Ixx) &&
+				MathUtil.equals(this.Iyy, other.Iyy) &&
+				MathUtil.equals(this.Izz, other.Izz);
 	}
 
 	/**

@@ -11,6 +11,10 @@ import com.google.inject.Inject;
 import com.google.inject.Injector;
 
 public class JavaCode extends AbstractSimulationExtension {
+	@Override
+	public boolean isMonteCarloSafe() {
+		return StringUtils.isEmpty(getClassName());
+	}
 
 	@Inject
 	private Injector injector;

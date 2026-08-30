@@ -34,6 +34,10 @@ import java.lang.reflect.Method;
  * </p>
  */
 public class AirbrakeExtension extends AbstractSimulationExtension {
+	@Override
+	public boolean isMonteCarloSafe() {
+		return true;
+	}
 
     private static final Logger log = LoggerFactory.getLogger(AirbrakeExtension.class);
 

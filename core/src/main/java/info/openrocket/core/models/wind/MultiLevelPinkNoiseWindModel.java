@@ -34,7 +34,7 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 	private static final Translator trans = Application.getTranslator();
 	private static final ApplicationPreferences prefs = Application.getPreferences();
 
-	private final List<StateChangeListener> listeners = new ArrayList<>();
+	private List<StateChangeListener> listeners = new ArrayList<>();
 	private AltitudeReference altitudeReference;
 
 	public MultiLevelPinkNoiseWindModel() {
@@ -194,7 +194,9 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 	public void loadFrom(MultiLevelPinkNoiseWindModel source) {
 		this.levels.clear();
 		for (LevelWindModel level : source.levels) {
-			this.levels.add(level.clone());
+			LevelWindModel copy = level.clone();
+			copy.addChangeListener(event -> fireChangeEvent());
+			this.levels.add(copy);
 		}
 		this.altitudeReference = source.altitudeReference;
 	}
@@ -433,6 +435,7 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 	public MultiLevelPinkNoiseWindModel clone() {
 		try {
 			MultiLevelPinkNoiseWindModel clone = (MultiLevelPinkNoiseWindModel) super.clone();
+			clone.listeners = new ArrayList<>();
 			clone.levels = new ArrayList<>(this.levels.size());
 			clone.loadFrom(this);
 			return clone;
@@ -469,7 +472,7 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 		protected double altitude;
 		protected PinkNoiseWindModel model;
 
-		private final List<StateChangeListener> listeners = new ArrayList<>();
+		private List<StateChangeListener> listeners = new ArrayList<>();
 
 		LevelWindModel(double altitude, PinkNoiseWindModel model) {
 			this.altitude = altitude;
@@ -491,6 +494,10 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 
 		public void setSpeed(double speed) {
 			model.setAverage(speed);
+		}
+
+		public void setSpeedPreservingStandardDeviation(double speed) {
+			model.setAveragePreservingStandardDeviation(speed);
 		}
 
 		public double getDirection() {
@@ -525,6 +532,7 @@ public class MultiLevelPinkNoiseWindModel implements WindModel {
 		public LevelWindModel clone() {
 			try {
 				LevelWindModel clone = (LevelWindModel) super.clone();
+				clone.listeners = new ArrayList<>();
 				clone.model = this.model.clone();
 				return clone;
 			} catch (CloneNotSupportedException e) {

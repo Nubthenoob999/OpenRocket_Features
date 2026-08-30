@@ -1,16 +1,18 @@
 package info.openrocket.core.montecarlo;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
 
 /**
- * A per-run realization of gusts + a shear layer.
+ * A fixed per-run realization of gusts and a shear layer.
  *
- * The listener evaluates this profile each simulation step and temporarily
- * perturbs the simulation's wind model.
+ * The realization is a pure function of time and altitude.  It contains no
+ * evolving random state, so repeated queries and queries made by co-located
+ * separated stages return exactly the same disturbance.
  */
-final class RunWindDisturbanceProfile {
+public final class RunWindDisturbanceProfile {
 
     final List<GustEvent> gusts = new ArrayList<>();
     final ShearLayer shear; // null if disabled
@@ -19,6 +21,28 @@ final class RunWindDisturbanceProfile {
         if (gusts != null) this.gusts.addAll(gusts);
         this.shear = shear;
     }
+
+	public int getGustCount() {
+		return gusts.size();
+	}
+
+	/** Stable per-run representation for audit exports. */
+	public String toAuditString() {
+		StringBuilder value = new StringBuilder("gusts=[");
+		for (int index = 0; index < gusts.size(); index++) {
+			GustEvent gust = gusts.get(index);
+			if (index > 0) value.append(';');
+			value.append(gust.t0_s).append('|').append(gust.duration_s).append('|')
+					.append(gust.peakDelta.u).append('|').append(gust.peakDelta.v);
+		}
+		value.append(']');
+		if (shear != null) {
+			value.append(",shear=").append(shear.centerAlt_m).append('|')
+					.append(shear.thickness_m).append('|').append(shear.deltaTop.u)
+					.append('|').append(shear.deltaTop.v);
+		}
+		return value.toString();
+	}
 
     Vec2 deltaWindXY(double t_s, double alt_m) {
         Vec2 sum = new Vec2(0, 0);
@@ -33,9 +57,11 @@ final class RunWindDisturbanceProfile {
         return sum;
     }
 
-    static RunWindDisturbanceProfile sampleFromConfig(MonteCarloExtension ext, Random rng) {
+    static RunWindDisturbanceProfile sampleFromConfig(MonteCarloExtension ext, long seed) {
         if (ext == null) return new RunWindDisturbanceProfile(null, null);
-        if (rng == null) rng = new Random();
+		RandomStreamManager streams = new RandomStreamManager(seed);
+		Random gustRng = streams.stream("wind.gusts");
+		Random shearRng = streams.stream("wind.shear");
 
         final boolean gustEnabled = ext.isGustEventsEnabled();
         final boolean shearEnabled = ext.isShearLayerEnabled();
@@ -66,12 +92,12 @@ final class RunWindDisturbanceProfile {
             double peakSigma = Math.max(0.0, ext.getGustPeakDeltaSigmaMps());
 
             for (int i = 0; i < n; i++) {
-                double t0 = lerp(tStart, tEnd, rng.nextDouble());
-                double dur = sampleTruncNormal(rng, durMean, durSigma, 0.05, 60.0);
-                double peak = sampleTruncNormal(rng, peakMean, peakSigma, 0.0, 200.0);
+				double t0 = lerp(tStart, tEnd, gustRng.nextDouble());
+				double dur = sampleTruncNormal(gustRng, durMean, durSigma, 0.05, 60.0);
+				double peak = sampleTruncNormal(gustRng, peakMean, peakSigma, 0.0, 200.0);
 
                 // Direction: random 0..2pi (in the simulation's u/v frame)
-                double theta = 2.0 * Math.PI * rng.nextDouble();
+				double theta = 2.0 * Math.PI * gustRng.nextDouble();
                 Vec2 peakDelta = new Vec2(peak * Math.cos(theta), peak * Math.sin(theta));
 
                 // Ensure the gust stays within [tStart,tEnd] if possible
@@ -81,6 +107,7 @@ final class RunWindDisturbanceProfile {
 
                 gusts.add(new GustEvent(t0, dur, peakDelta));
             }
+			gusts.sort(Comparator.comparingDouble(gust -> gust.t0_s));
         }
 
         // ------------------------------------------------------------
@@ -92,10 +119,10 @@ final class RunWindDisturbanceProfile {
 
             double mean = Math.max(0.0, ext.getShearDeltaMeanMps());
             double sigma = Math.max(0.0, ext.getShearDeltaSigmaMps());
-            double mag = sampleTruncNormal(rng, mean, sigma, 0.0, 200.0);
+			double mag = sampleTruncNormal(shearRng, mean, sigma, 0.0, 200.0);
 
             // Direction random; can be aligned with prevailing wind in a future enhancement.
-            double theta = 2.0 * Math.PI * rng.nextDouble();
+			double theta = 2.0 * Math.PI * shearRng.nextDouble();
             Vec2 deltaTop = new Vec2(mag * Math.cos(theta), mag * Math.sin(theta));
 
             shear = new ShearLayer(centerAlt, thickness, deltaTop);

@@ -998,6 +998,8 @@ public class SimulationOptions implements ChangeSource, Cloneable, SimulationOpt
 			// Deep clone the wind models
 			copy.averageWindModel = this.averageWindModel.clone();
 			copy.multiLevelPinkNoiseWindModel = this.multiLevelPinkNoiseWindModel.clone();
+			copy.averageWindModel.addChangeListener(event -> copy.fireChangeEvent());
+			copy.multiLevelPinkNoiseWindModel.addChangeListener(event -> copy.fireChangeEvent());
 
 			copy.windModelType = this.windModelType;
 			copy.dragLookupCsvPath = this.dragLookupCsvPath;

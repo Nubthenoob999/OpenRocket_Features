@@ -26,6 +26,7 @@ import info.openrocket.core.util.ModID;
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
  */
 public class FlightDataBranch extends DataBranch<FlightDataType> {
+	private final UUID sourceComponentId;
 	private double timeToOptimumAltitude = Double.NaN;
 	private double optimumAltitude = Double.NaN;
 	private double separationTime = Double.NaN;
@@ -39,6 +40,17 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 	 */
 	public FlightDataBranch(String name, FlightDataType... types) {
 		super(name, types);
+		this.sourceComponentId = null;
+	}
+
+	public FlightDataBranch(String name, RocketComponent srcComponent, FlightDataType... types) {
+		super(name, types);
+		this.sourceComponentId = srcComponent == null ? null : srcComponent.getID();
+	}
+
+	private FlightDataBranch(String name, UUID sourceComponentId, FlightDataType... types) {
+		super(name, types);
+		this.sourceComponentId = sourceComponentId;
 	}
 
 	/**
@@ -52,6 +64,7 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 	 */
 	public FlightDataBranch(String name, RocketComponent srcComponent, FlightDataBranch parent) {
 		super(name);
+		this.sourceComponentId = srcComponent == null ? null : srcComponent.getID();
 
 		// Copy all the values from the parent
 		copyValuesFromBranch(parent, srcComponent);
@@ -62,10 +75,15 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 	 */
 	public FlightDataBranch() {
 		super("Empty branch");
+		this.sourceComponentId = null;
 		for (FlightDataType type : FlightDataType.ALL_TYPES) {
 			this.setValue(type, Double.NaN);
 		}
 		this.immute();
+	}
+
+	public UUID getSourceComponentId() {
+		return sourceComponentId;
 	}
 
 
@@ -276,7 +294,7 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 
 	public FlightDataBranch clone() {
 		FlightDataType[] types = getTypes();
-		FlightDataBranch clone = new FlightDataBranch(name, types);
+		FlightDataBranch clone = new FlightDataBranch(name, sourceComponentId, types);
 		for (Map.Entry<FlightDataType, ArrayList<Double>> entry : values.entrySet()) {
 			clone.values.put(entry.getKey(), entry.getValue().clone());
 		}

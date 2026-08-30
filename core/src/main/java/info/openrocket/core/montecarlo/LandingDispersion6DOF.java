@@ -6,6 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Collections;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -79,6 +82,9 @@ public final class LandingDispersion6DOF {
         public Ellipse oneSigma;
         public Ellipse twoSigma;
         public Ellipse threeSigma;
+		public double containment50_m;
+		public double containment90_m;
+		public double containment95_m;
     }
 
     /**
@@ -101,6 +107,7 @@ public final class LandingDispersion6DOF {
         // 3) Process each run record
         for (int i = 0; i < runRecords.size(); i++) {
             MonteCarloRunRecord r = runRecords.get(i);
+			if (r.nominal || r.failureMessage != null || !r.results.hasLanding) continue;
 
             // 3a) Pull landing offsets
             double east = r.getLandingEastM();
@@ -117,7 +124,7 @@ public final class LandingDispersion6DOF {
 
             // 3d) Build point object
             LandingPoint p = new LandingPoint();
-            p.runIndex = i;
+			p.runIndex = r.runIndex;
             p.east_m = east;
             p.north_m = north;
             p.lat_deg = latLon[0];
@@ -134,7 +141,40 @@ public final class LandingDispersion6DOF {
         writeSummaryCsv(outDir.resolve(stem + "_summary.csv"), summary);
         writeKml(outDir.resolve(stem + ".kml"), points, summary);
         writePng(outDir.resolve(stem + ".png"), points, summary);
+
+		// Export every independently simulated landing body under a stable,
+		// body-specific stem.  This keeps booster and sustainer clouds distinct.
+		Map<String, List<LandingPoint>> byBody = new LinkedHashMap<>();
+		Map<String, String> bodyNames = new LinkedHashMap<>();
+		for (MonteCarloRunRecord record : runRecords) {
+			if (record.nominal) continue;
+			for (MonteCarloRunRecord.BodyResult body : record.bodyResults) {
+				if (!body.groundHit || body.failureMessage != null) continue;
+				LandingPoint point = new LandingPoint();
+				point.runIndex = record.runIndex;
+				point.east_m = body.eastM;
+				point.north_m = body.northM;
+				point.lat_deg = body.latitudeDeg;
+				point.lon_deg = body.longitudeDeg;
+				byBody.computeIfAbsent(body.bodyId, ignored -> new ArrayList<>()).add(point);
+				bodyNames.putIfAbsent(body.bodyId, body.branchName);
+			}
+		}
+		for (Map.Entry<String, List<LandingPoint>> entry : byBody.entrySet()) {
+			String bodyStem = stem + "_body_" + safeFileStem(bodyNames.get(entry.getKey()))
+					+ "_" + safeFileStem(entry.getKey());
+			Summary bodySummary = computeSummary(entry.getValue(), launchLatDeg, launchLonDeg);
+			writePointsCsv(outDir.resolve(bodyStem + "_points.csv"), entry.getValue(), launchLatDeg, launchLonDeg);
+			writeSummaryCsv(outDir.resolve(bodyStem + "_summary.csv"), bodySummary);
+			writeKml(outDir.resolve(bodyStem + ".kml"), entry.getValue(), bodySummary);
+			writePng(outDir.resolve(bodyStem + ".png"), entry.getValue(), bodySummary);
+		}
     }
+
+	private static String safeFileStem(String value) {
+		String stem = value == null ? "body" : value.replaceAll("[^A-Za-z0-9._-]+", "_");
+		return stem.isBlank() ? "body" : stem;
+	}
 
     private static Summary computeSummary(List<LandingPoint> pts, double launchLatDeg, double launchLonDeg) {
         Summary s = new Summary();
@@ -160,6 +200,9 @@ public final class LandingDispersion6DOF {
             s.oneSigma = new Ellipse(0, 0, 0);
             s.twoSigma = new Ellipse(0, 0, 0);
             s.threeSigma = new Ellipse(0, 0, 0);
+			s.containment50_m = 0;
+			s.containment90_m = 0;
+			s.containment95_m = 0;
             return s;
         }
 
@@ -232,8 +275,23 @@ public final class LandingDispersion6DOF {
         s.twoSigma = new Ellipse(2.0 * a1, 2.0 * b1, bearingDeg);
         s.threeSigma = new Ellipse(3.0 * a1, 3.0 * b1, bearingDeg);
 
+		List<Double> radii = new ArrayList<>(pts.size());
+		for (LandingPoint point : pts) {
+			radii.add(Math.hypot(point.east_m - meanE, point.north_m - meanN));
+		}
+		Collections.sort(radii);
+		s.containment50_m = nearestRank(radii, 0.50);
+		s.containment90_m = nearestRank(radii, 0.90);
+		s.containment95_m = nearestRank(radii, 0.95);
+
         return s;
     }
+
+	private static double nearestRank(List<Double> sorted, double probability) {
+		if (sorted.isEmpty()) return Double.NaN;
+		int index = Math.max(0, (int) Math.ceil(probability * sorted.size()) - 1);
+		return sorted.get(index);
+	}
 
     public static double[] enuToLatLonDeg(double east_m, double north_m, double lat0_deg, double lon0_deg) {
         double lat0 = Math.toRadians(lat0_deg);
@@ -302,19 +360,21 @@ public final class LandingDispersion6DOF {
                          "cxx,cxy,cyy," +
                          "one_sigma_a_m,one_sigma_b_m,one_sigma_bearing_deg," +
                          "two_sigma_a_m,two_sigma_b_m,two_sigma_bearing_deg," +
-                         "three_sigma_a_m,three_sigma_b_m,three_sigma_bearing_deg");
+                         "three_sigma_a_m,three_sigma_b_m,three_sigma_bearing_deg," +
+						 "empirical_r50_m,empirical_r90_m,empirical_r95_m");
             writer.newLine();
 
             // Write Data
             String line = String.format(Locale.US,
-                    "%d,%.8f,%.8f,%.8f,%.8f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
+                    "%d,%.8f,%.8f,%.8f,%.8f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
                     s.n, s.launchLat_deg, s.launchLon_deg,
                     s.meanLat_deg, s.meanLon_deg,
                     s.meanEast_m, s.meanNorth_m,
                     s.cxx, s.cxy, s.cyy,
                     s.oneSigma.a_m, s.oneSigma.b_m, s.oneSigma.bearing_deg,
                     s.twoSigma.a_m, s.twoSigma.b_m, s.twoSigma.bearing_deg,
-                    s.threeSigma.a_m, s.threeSigma.b_m, s.threeSigma.bearing_deg
+                    s.threeSigma.a_m, s.threeSigma.b_m, s.threeSigma.bearing_deg,
+					s.containment50_m, s.containment90_m, s.containment95_m
             );
             writer.write(line);
             writer.newLine();

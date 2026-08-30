@@ -2,6 +2,7 @@ package info.openrocket.core.masscalc;
 
 //import junit.framework.TestCase;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import info.openrocket.core.util.Coordinate;
 import info.openrocket.core.util.CoordinateIF;
@@ -11,6 +12,12 @@ import info.openrocket.core.util.MathUtil;
 import info.openrocket.core.util.BaseTestCase;
 
 public class RigidBodyTest extends BaseTestCase {
+	@Test
+	public void testEqualityIncludesMassAndCenterOfMass() {
+		RigidBody reference = new RigidBody(new Coordinate(1, 2, 3, 4), 5, 6, 7);
+		assertNotEquals(reference, new RigidBody(new Coordinate(1, 2, 3, 8), 5, 6, 7));
+		assertNotEquals(reference, new RigidBody(new Coordinate(2, 2, 3, 4), 5, 6, 7));
+	}
 
 	// tolerance for compared double test results
 	protected final double EPSILON = MathUtil.EPSILON;

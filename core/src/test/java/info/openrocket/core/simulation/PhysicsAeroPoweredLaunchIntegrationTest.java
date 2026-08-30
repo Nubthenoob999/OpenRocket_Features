@@ -1,6 +1,8 @@
 package info.openrocket.core.simulation;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -76,16 +78,18 @@ class PhysicsAeroPoweredLaunchIntegrationTest {
 		SimulationConditions conditions = simulation.getOptions().toSimulationConditions(table);
 		conditions.setSimulation(simulation);
 		BasicEventSimulationEngine engine = new BasicEventSimulationEngine();
+		PhysicsAeroAerodynamicCalculator calculator =
+				(PhysicsAeroAerodynamicCalculator) conditions.getAerodynamicCalculator();
 
-		assertDoesNotThrow(() -> engine.simulate(conditions));
+		assertDoesNotThrow(() -> engine.simulate(conditions),
+				() -> calculator.getRuntimeReport().toString());
 
 		List<FlightEvent.Type> events = engine.getFlightData().getBranch(0).getEvents().stream()
 				.map(FlightEvent::getType).toList();
 		assertTrue(events.contains(FlightEvent.Type.IGNITION));
 		assertTrue(events.contains(FlightEvent.Type.LAUNCHROD));
-		PhysicsAeroAerodynamicCalculator calculator =
-				(PhysicsAeroAerodynamicCalculator) conditions.getAerodynamicCalculator();
-		assertTrue(calculator.getRuntimeReport().runtimeFlags()
+		assertEquals(0, calculator.getRuntimeReport().fallbackCount());
+		assertFalse(calculator.getRuntimeReport().runtimeFlags()
 				.contains(PhysicsAeroRuntimeFlag.DIAGNOSTIC_FALLBACK_USED));
 		assertTrue(calculator.getRuntimeReport().runtimeFlags()
 				.contains(PhysicsAeroRuntimeFlag.TABLE_QUERY_USED));
@@ -101,7 +105,10 @@ class PhysicsAeroPoweredLaunchIntegrationTest {
 
 	private static AerodynamicTable table(FlightConfiguration configuration, double[] poweredAxis) {
 		double[] mach = {0, 0.1, 0.3, 1.0};
-		double[] alpha = degrees(-15, 0, 15);
+		// Match the certified production-table radial-incidence contract.  A narrow
+		// fixture can turn a valid wind-driven trajectory into an artificial strict
+		// out-of-domain failure immediately after launch-guide clearance.
+		double[] alpha = degrees(-90, 0, 90);
 		double[] beta = degrees(-5, 0, 5);
 		TableAxes axes = new TableAxes(mach, alpha, beta, poweredAxis);
 		double referenceLength = configuration.getReferenceLength();

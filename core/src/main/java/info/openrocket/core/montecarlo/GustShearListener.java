@@ -3,27 +3,30 @@ package info.openrocket.core.montecarlo;
 import info.openrocket.core.simulation.SimulationStatus;
 import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.simulation.listeners.AbstractSimulationListener;
+import info.openrocket.core.util.Coordinate;
+import info.openrocket.core.util.CoordinateIF;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /**
- * Simulation listener that applies per-run wind gusts/shear by mutating the wind model each step.
- *
- * This intentionally uses only very small amounts of OpenRocket API directly and relies on
- * reflection for many getters so it survives minor version differences.
+ * Adds a fixed per-run gust/shear realization to each wind-model query.
+ * <p>
+ * Applying the delta in {@link #postWindModel(SimulationStatus, CoordinateIF)} is
+ * important: it neither mutates the shared base model nor depends on the solver's
+ * step boundaries.  Two stage branches querying the same time and altitude thus
+ * receive the same wind, while their normal altitude divergence naturally exposes
+ * different parts of the shear profile.
  */
 final class GustShearListener extends AbstractSimulationListener {
 
-    private final WindSnapshot windSnapshot;
     private final RunWindDisturbanceProfile profile;
     private final GustShearMetrics metrics;
     private final boolean debug;
 
     private double lastTime_s = Double.NaN;
 
-    GustShearListener(WindSnapshot windSnapshot, RunWindDisturbanceProfile profile, GustShearMetrics metrics, boolean debug) {
-        this.windSnapshot = windSnapshot;
+	GustShearListener(RunWindDisturbanceProfile profile, GustShearMetrics metrics, boolean debug) {
         this.profile = profile;
         this.metrics = metrics;
         this.debug = debug;
@@ -44,16 +47,21 @@ final class GustShearListener extends AbstractSimulationListener {
         lastTime_s = safeSimulationTime(status);
     }
 
-    @Override
-    public boolean preStep(SimulationStatus status) throws SimulationException {
-        if (windSnapshot == null || profile == null) return true;
+	@Override
+	public CoordinateIF postWindModel(SimulationStatus status, CoordinateIF wind) {
+		if (profile == null || wind == null) return null;
+		Vec2 delta = profile.deltaWindXY(safeSimulationTime(status), safeAltitude(status));
+		if (!Double.isFinite(delta.u) || !Double.isFinite(delta.v)) {
+			throw new IllegalStateException("Non-finite Monte Carlo wind disturbance");
+		}
+		if (delta.u == 0.0 && delta.v == 0.0) return null;
+		return new Coordinate(wind.getX() + delta.u, wind.getY() + delta.v, wind.getZ(), wind.getWeight());
+	}
 
-        double t = safeSimulationTime(status);
-        double alt = safeAltitude(status);
-
-        windSnapshot.applyDelta(profile, t, alt);
-        return true;
-    }
+	@Override
+	public boolean isSystemListener() {
+		return true;
+	}
 
     @Override
     public void postStep(SimulationStatus status) throws SimulationException {
@@ -87,13 +95,6 @@ final class GustShearListener extends AbstractSimulationListener {
         double aoaDeg = safeAoADeg(status);
         if (Double.isFinite(aoaDeg) && (!Double.isFinite(metrics.maxAoA_deg) || aoaDeg > metrics.maxAoA_deg)) {
             metrics.maxAoA_deg = aoaDeg;
-        }
-    }
-
-    @Override
-    public void endSimulation(SimulationStatus status, SimulationException exception) {
-        if (windSnapshot != null) {
-            windSnapshot.restore();
         }
     }
 

@@ -11,6 +11,14 @@ import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.util.Config;
 
 public interface SimulationExtension {
+	/**
+	 * Whether this extension is safe to execute repeatedly and concurrently in
+	 * a Monte Carlo ensemble.  Extensions must explicitly opt in after proving
+	 * they have no external side effects and no shared mutable state.
+	 */
+	default boolean isMonteCarloSafe() {
+		return false;
+	}
 
 	/**
 	 * Return the simulation extension ID that is used when storing this

@@ -179,32 +179,16 @@ public final class SimulationData {
             }
 
         } else {
-            // No landing event found (sim stopped early or crashed).
-            // Fallback: use the very last sample point available.
-            int iLand = n - 1;
-
-            out.landingTime_s = time.get(iLand);
+            // No ground-hit event means there is no auditable landing.  Keep
+            // the final trajectory sample out of all landing statistics.
+            out.landingTime_s = Double.NaN;
             out.hasLanding = false;
-
-            double down = posX.get(iLand);
-            double cross = posY.get(iLand);
-            out.landingDownrange_m = down;
-            out.landingCrossrange_m = cross;
-
-            if (hasLatLonAtIndex(latSeries, lonSeries, iLand)) {
-                out.landingLat_deg = latSeries.get(iLand);
-                out.landingLon_deg = lonSeries.get(iLand);
-                double[] enu = LandingDispersion6DOF.latLonToEnuM(
-                        out.landingLat_deg,
-                        out.landingLon_deg,
-                        out.launchLat_deg,
-                        out.launchLon_deg
-                );
-                out.landingEast_m = enu[0];
-                out.landingNorth_m = enu[1];
-            } else {
-                computeLandingENU(out, down, cross);
-            }
+            out.landingDownrange_m = Double.NaN;
+            out.landingCrossrange_m = Double.NaN;
+            out.landingEast_m = Double.NaN;
+            out.landingNorth_m = Double.NaN;
+            out.landingLat_deg = Double.NaN;
+            out.landingLon_deg = Double.NaN;
         }
 
         return out;
