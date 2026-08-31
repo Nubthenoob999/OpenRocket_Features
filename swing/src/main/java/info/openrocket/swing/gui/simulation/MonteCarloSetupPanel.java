@@ -567,6 +567,7 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 
 			final int runs = ext.getNumberOfSimulations();
 			final int threads = Math.max(1, ext.getWorkerThreads());
+			final SimulationOptions batchOptions = sim.getOptions().clone();
 
 			SwingWorker<List<MonteCarloRunRecord>, String> worker = new SwingWorker<>() {
 				@Override
@@ -589,7 +590,7 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 							progress.setString("Reused valid cached result");
 						});
 					}
-					return MonteCarloBatchRunner.toLegacyRecords(sim, analysis);
+					return MonteCarloBatchRunner.toLegacyRecords(sim, analysis, batchOptions);
 				}
 
 				@Override

@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 
 import info.openrocket.core.document.Simulation;
+import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.simulation.extension.SimulationExtension;
 import info.openrocket.core.simulation.montecarlo.LandingBodyFailure;
 import info.openrocket.core.simulation.montecarlo.LandingPoint;
@@ -43,8 +44,10 @@ public final class MonteCarloBatchRunner {
 
     public static List<MonteCarloRunRecord> runBatchParallel(Simulation simulation, int runs,
             int threads, ProgressCallback callback) {
+		Objects.requireNonNull(simulation, "simulation");
+		SimulationOptions batchOptions = simulation.getOptions().clone();
         MonteCarloResult result = runAnalysis(simulation, runs, threads, callback);
-        return toLegacyRecords(simulation, result);
+		return toLegacyRecords(simulation, result, batchOptions);
     }
 
     public static void runBatchParallelStreaming(Simulation simulation, int runs, int threads,
@@ -134,23 +137,32 @@ public final class MonteCarloBatchRunner {
     }
 
 	public static List<MonteCarloRunRecord> toLegacyRecords(Simulation source, MonteCarloResult result) {
+		return toLegacyRecords(source, result, source.getOptions().clone());
+	}
+
+	public static List<MonteCarloRunRecord> toLegacyRecords(Simulation source, MonteCarloResult result,
+			SimulationOptions batchOptions) {
+		Objects.requireNonNull(source, "source");
+		Objects.requireNonNull(result, "result");
+		Objects.requireNonNull(batchOptions, "batchOptions");
         List<MonteCarloRunRecord> records = new ArrayList<>(result.getRunResults().size() + 1);
         MonteCarloExtension extension = findMonteCarloExtension(source);
-		records.add(toLegacyRecord(source, extension, result.getNominalResult(), true,
+		records.add(toLegacyRecord(source, batchOptions, extension, result.getNominalResult(), true,
 				result.getSettings().getSeed()));
         for (MonteCarloRunResult run : result.getRunResults()) {
-			records.add(toLegacyRecord(source, extension, run, false, result.getSettings().getSeed()));
+			records.add(toLegacyRecord(source, batchOptions, extension, run, false,
+					result.getSettings().getSeed()));
         }
         return records;
     }
 
-    private static MonteCarloRunRecord toLegacyRecord(Simulation source, MonteCarloExtension extension,
-			MonteCarloRunResult run, boolean nominal, int masterSeed) {
+    private static MonteCarloRunRecord toLegacyRecord(Simulation source, SimulationOptions batchOptions,
+			MonteCarloExtension extension, MonteCarloRunResult run, boolean nominal, int masterSeed) {
         SimulationData data = new SimulationData();
         data.simulationName = source.getName();
-        data.launchLat_deg = source.getOptions().getLaunchLatitude();
-        data.launchLon_deg = source.getOptions().getLaunchLongitude();
-        data.launchRodDirection_deg = Math.toDegrees(source.getOptions().getLaunchRodDirection());
+        data.launchLat_deg = batchOptions.getLaunchLatitude();
+        data.launchLon_deg = batchOptions.getLaunchLongitude();
+        data.launchRodDirection_deg = Math.toDegrees(batchOptions.getLaunchRodDirection());
         data.apogee_m = run.maximumAltitude();
         data.flightTime_s = run.flightTime();
         data.hasApogee = Double.isFinite(run.maximumAltitude());
@@ -209,7 +221,7 @@ public final class MonteCarloBatchRunner {
                 multiplier(run, MonteCarloParameter.AXIAL_DRAG),
                 multiplier(run, MonteCarloParameter.THRUST),
                 multiplier(run, MonteCarloParameter.TOTAL_MASS),
-                source.getOptions(), data);
+                batchOptions, data);
         record.nominal = nominal;
         record.simulationSeed = run.sample().getSimulationSeed();
 		record.masterSeed = masterSeed;

@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import javax.swing.AbstractAction;
@@ -61,6 +62,7 @@ final class OpenStreetMapPanel extends JPanel {
 	}
 
 	private record TileKey(int zoom, int x, int y) { }
+	private record TileRequest(TileKey key, long regionGeneration) { }
 
 	private static final int TILE_SIZE = 256;
 	private static final int MIN_ZOOM = 1;
@@ -98,8 +100,9 @@ final class OpenStreetMapPanel extends JPanel {
 
 	private final TileProvider tileProvider;
 	private final Map<TileKey, BufferedImage> tileCache = new ConcurrentHashMap<>();
-	private final Set<TileKey> pendingTiles = ConcurrentHashMap.newKeySet();
+	private final Set<TileRequest> pendingTiles = ConcurrentHashMap.newKeySet();
 	private final Map<TileKey, Long> failedTiles = new ConcurrentHashMap<>();
+	private final AtomicLong tileRegionGeneration = new AtomicLong();
 	private volatile Set<TileKey> tileRegion = Set.of();
 	private volatile int tileRegionZoom = 16;
 	private List<MapMarker> markers = List.of();
@@ -191,10 +194,14 @@ final class OpenStreetMapPanel extends JPanel {
 						Math.floorMod(firstTileX + column, tileCount), firstTileY + row));
 			}
 		}
+		Set<TileKey> immutableRegion = Set.copyOf(newRegion);
+		if (nativeZoom == tileRegionZoom && immutableRegion.equals(tileRegion)) return;
+		tileRegionGeneration.incrementAndGet();
 		tileRegionZoom = nativeZoom;
-		tileRegion = Set.copyOf(newRegion);
+		tileRegion = immutableRegion;
 		tileCache.keySet().retainAll(tileRegion);
 		failedTiles.keySet().retainAll(tileRegion);
+		tileFailureMessage = null;
 		repaint();
 	}
 
@@ -404,17 +411,20 @@ final class OpenStreetMapPanel extends JPanel {
 
 	private void requestTile(TileKey key) {
 		long retryAfter = failedTiles.getOrDefault(key, 0L);
-		if (retryAfter > System.currentTimeMillis() || !pendingTiles.add(key)) return;
+		long generation = tileRegionGeneration.get();
+		TileRequest request = new TileRequest(key, generation);
+		if (retryAfter > System.currentTimeMillis() || !pendingTiles.add(request)) return;
 		statusListener.accept("Loading OpenStreetMap tiles...");
 		TILE_EXECUTOR.execute(() -> {
 			try {
-				if (!tileRegion.contains(key)) return;
+				if (!isCurrent(request)) return;
 				BufferedImage image = tileProvider.load(key.zoom(), key.x(), key.y());
-				if (image != null && tileRegion.contains(key)) {
+				if (image != null && isCurrent(request)) {
 					tileCache.put(key, image);
 					failedTiles.remove(key);
 				}
 				SwingUtilities.invokeLater(() -> {
+					if (!isCurrent(request)) return;
 					tileFailureMessage = null;
 					statusListener.accept("OpenStreetMap tiles loaded");
 					repaint();
@@ -424,18 +434,25 @@ final class OpenStreetMapPanel extends JPanel {
 			} catch (IOException | RuntimeException | LinkageError exception) {
 				// LinkageError covers a runtime image that is missing a transport class: without
 				// this the tile thread would die silently and the map would stay blank forever.
+				if (!isCurrent(request)) return;
 				failedTiles.put(key, System.currentTimeMillis() + RETRY_DELAY_MILLIS);
 				String reason = describe(exception);
 				SwingUtilities.invokeLater(() -> {
+					if (!isCurrent(request)) return;
 					tileFailureMessage = reason;
 					statusListener.accept("Map tiles unavailable (" + reason
 							+ "); landing coordinates and overlays remain available.");
 					repaint();
 				});
 			} finally {
-				pendingTiles.remove(key);
+				pendingTiles.remove(request);
 			}
 		});
+	}
+
+	private boolean isCurrent(TileRequest request) {
+		return request.regionGeneration() == tileRegionGeneration.get()
+				&& tileRegion.contains(request.key());
 	}
 
 	private static String describe(Throwable exception) {

@@ -280,7 +280,8 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		updateControlVisibility();
 		refreshChart();
 		refreshStatistics();
-		landingMapPanel.setResults(this.records, launchLatitudeDeg(), launchLongitudeDeg());
+		LaunchSite launchSite = resultLaunchSite();
+		landingMapPanel.setResults(this.records, launchSite.latitudeDeg(), launchSite.longitudeDeg());
 	}
 
 	private List<MonteCarloRunRecord> dispersedRuns() {
@@ -363,8 +364,9 @@ public class MonteCarloVisualizationPanel extends JPanel {
 	}
 
 	private JFreeChart buildDispersionChart(List<MonteCarloRunRecord> runs) {
-		double launchLat = launchLatitudeDeg();
-		double launchLon = launchLongitudeDeg();
+		LaunchSite launchSite = resultLaunchSite();
+		double launchLat = launchSite.latitudeDeg();
+		double launchLon = launchSite.longitudeDeg();
 
 		XYSeriesCollection dataset = new XYSeriesCollection();
 		List<Color> seriesColors = new ArrayList<>();
@@ -849,6 +851,18 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		SimulationOptions options = (simulation == null) ? null : simulation.getOptions();
 		return (options == null) ? 0.0 : options.getLaunchLongitude();
 	}
+
+	private LaunchSite resultLaunchSite() {
+		for (MonteCarloRunRecord record : records) {
+			if (record != null && Double.isFinite(record.launchLatitudeDeg)
+					&& Double.isFinite(record.launchLongitudeDeg)) {
+				return new LaunchSite(record.launchLatitudeDeg, record.launchLongitudeDeg);
+			}
+		}
+		return new LaunchSite(launchLatitudeDeg(), launchLongitudeDeg());
+	}
+
+	private record LaunchSite(double latitudeDeg, double longitudeDeg) { }
 
 	private static String format(double value) {
 		return Double.isFinite(value) ? DECIMAL.format(value) : "n/a";

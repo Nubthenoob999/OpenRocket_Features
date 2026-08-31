@@ -1,6 +1,7 @@
 package info.openrocket.swing.gui.simulation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,11 +11,14 @@ import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.SwingUtilities;
 
@@ -156,6 +160,92 @@ public class OpenStreetMapPanelTest {
 		assertEquals(16, requested.size(),
 				"panning must reuse the bounded mosaic instead of contacting OSM again");
 	}
+
+	@Test
+	public void testChangingBetweenScreenshotCoordinatesIgnoresOldRegionFailure() throws Exception {
+		GeoPoint northCarolina = new GeoPoint(35.1758, -76.8283);
+		GeoPoint alabama = new GeoPoint(34.90128, -86.57376);
+		AtomicBoolean firstRequest = new AtomicBoolean(true);
+		CountDownLatch oldRequestStarted = new CountDownLatch(1);
+		CountDownLatch releaseOldRequest = new CountDownLatch(1);
+		CountDownLatch newRequestStarted = new CountDownLatch(1);
+		CountDownLatch releaseNewRequests = new CountDownLatch(1);
+		CountDownLatch newMosaicLoaded = new CountDownLatch(16);
+		List<String> statuses = new CopyOnWriteArrayList<>();
+		Set<RequestedTile> newRegionRequests = ConcurrentHashMap.newKeySet();
+		OpenStreetMapPanel panel = new OpenStreetMapPanel((zoom, x, y) -> {
+			if (firstRequest.getAndSet(false)) {
+				oldRequestStarted.countDown();
+				assertTrue(releaseOldRequest.await(2, TimeUnit.SECONDS));
+				throw new IOException("old launch-site request failed");
+			}
+			newRequestStarted.countDown();
+			assertTrue(releaseNewRequests.await(2, TimeUnit.SECONDS));
+			newRegionRequests.add(new RequestedTile(zoom, x, y));
+			newMosaicLoaded.countDown();
+			return new BufferedImage(256, 256, BufferedImage.TYPE_INT_RGB);
+		});
+		panel.setStatusListener(statuses::add);
+		panel.setSize(400, 300);
+		panel.setTileRegion(List.of(northCarolina));
+		panel.centerOn(northCarolina.latitudeDeg(), northCarolina.longitudeDeg(), 16);
+		assertEquals(15, panel.getTileRegionZoom());
+		paint(panel);
+		assertTrue(oldRequestStarted.await(2, TimeUnit.SECONDS));
+
+		panel.setTileRegion(List.of(alabama));
+		panel.centerOn(alabama.latitudeDeg(), alabama.longitudeDeg(), 16);
+		assertEquals(16, panel.getTileRegionZoom());
+		paint(panel);
+		releaseOldRequest.countDown();
+		assertTrue(newRequestStarted.await(2, TimeUnit.SECONDS));
+		SwingUtilities.invokeAndWait(() -> { });
+
+		assertFalse(statuses.stream().anyMatch(status -> status.contains("old launch-site")),
+				"a completed request from the replaced coordinate region must not fail the new map");
+		releaseNewRequests.countDown();
+		assertTrue(newMosaicLoaded.await(2, TimeUnit.SECONDS));
+		assertEquals(expectedMosaic(16, 17005, 25978), newRegionRequests,
+				"the dynamically entered Alabama site must generate the expected valid OSM URLs");
+	}
+
+	@Test
+	public void testTileRegionStaysInBoundsAtDateLineAndMercatorLimits() throws Exception {
+		for (GeoPoint point : List.of(
+				new GeoPoint(85.05112878, 179.999999),
+				new GeoPoint(-85.05112878, -179.999999))) {
+			Set<RequestedTile> requests = ConcurrentHashMap.newKeySet();
+			CountDownLatch loaded = new CountDownLatch(16);
+			OpenStreetMapPanel panel = new OpenStreetMapPanel((zoom, x, y) -> {
+				requests.add(new RequestedTile(zoom, x, y));
+				loaded.countDown();
+				return new BufferedImage(256, 256, BufferedImage.TYPE_INT_RGB);
+			});
+			panel.setSize(400, 300);
+			panel.setTileRegion(List.of(point));
+			panel.centerOn(point.latitudeDeg(), point.longitudeDeg(), 16);
+			paint(panel);
+			assertTrue(loaded.await(2, TimeUnit.SECONDS));
+			assertEquals(16, requests.size());
+			for (RequestedTile request : requests) {
+				int tileCount = 1 << request.zoom();
+				assertTrue(request.x() >= 0 && request.x() < tileCount);
+				assertTrue(request.y() >= 0 && request.y() < tileCount);
+			}
+		}
+	}
+
+	private static Set<RequestedTile> expectedMosaic(int zoom, int firstX, int firstY) {
+		Set<RequestedTile> expected = ConcurrentHashMap.newKeySet();
+		for (int row = 0; row < 4; row++) {
+			for (int column = 0; column < 4; column++) {
+				expected.add(new RequestedTile(zoom, firstX + column, firstY + row));
+			}
+		}
+		return Set.copyOf(expected);
+	}
+
+	private record RequestedTile(int zoom, int x, int y) { }
 
 	private static void paint(OpenStreetMapPanel panel) {
 		BufferedImage frame = new BufferedImage(panel.getWidth(), panel.getHeight(),

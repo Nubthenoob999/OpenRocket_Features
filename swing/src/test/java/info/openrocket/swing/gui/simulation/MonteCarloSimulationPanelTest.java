@@ -197,6 +197,39 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 	}
 
 	@Test
+	public void testLandingMapUsesBatchCoordinatesAfterSimulationCoordinatesChange() throws Exception {
+		Simulation simulation = newSimulation();
+		simulation.getOptions().setLaunchLatitude(35.1758);
+		simulation.getOptions().setLaunchLongitude(-76.8283);
+		MonteCarloExtension extension = new MonteCarloExtension();
+		extension.setUseDeterministicSeed(true);
+		extension.setRandomSeed(8675309);
+		simulation.getSimulationExtensions().add(extension);
+		var batchOptions = simulation.getOptions().clone();
+		var analysis = MonteCarloBatchRunner.runAnalysis(simulation, 2, 2, null);
+
+		// This is the second launch site from the supplied screenshots. Results from the first
+		// site must remain tied to their snapshot even if the editable simulation changes before
+		// the analysis is converted into the records consumed by the map.
+		simulation.getOptions().setLaunchLatitude(34.90128);
+		simulation.getOptions().setLaunchLongitude(-86.57376);
+		List<MonteCarloRunRecord> records =
+				MonteCarloBatchRunner.toLegacyRecords(simulation, analysis, batchOptions);
+		assertEquals(35.1758, records.get(0).launchLatitudeDeg, 1.0e-9);
+		assertEquals(-76.8283, records.get(0).launchLongitudeDeg, 1.0e-9);
+		MonteCarloVisualizationPanel panel = new MonteCarloVisualizationPanel(simulation);
+		panel.setResults(records);
+		MonteCarloLandingMapPanel landingMap = findFirst(panel, MonteCarloLandingMapPanel.class);
+		assertNotNull(landingMap);
+
+		OpenStreetMapPanel.GeoPoint center = landingMap.getMapPanel().getCenter();
+		assertEquals(35.1758, center.latitudeDeg(), 0.01);
+		assertEquals(-76.8283, center.longitudeDeg(), 0.01);
+		assertTrue(Math.abs(center.longitudeDeg() - (-86.57376)) > 9.0,
+				"the map must not jump to the simulation's subsequently edited launch site");
+	}
+
+	@Test
 	public void testLandingScatterShowsEverySimulatedBodyByDefault() throws Exception {
 		var rocket = TestRockets.makeMultiStageEventTestRocket();
 		rocket.getSelectedConfiguration().setAllStages();
