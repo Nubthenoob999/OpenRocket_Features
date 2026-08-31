@@ -19,9 +19,10 @@ import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.Scrollable;
+import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
-import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 
@@ -222,11 +223,49 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		MonteCarloLandingMapPanel landingMap = findFirst(panel, MonteCarloLandingMapPanel.class);
 		assertNotNull(landingMap);
 
-		OpenStreetMapPanel.GeoPoint center = landingMap.getMapPanel().getCenter();
+		GeoToolsMapPanel.GeoPoint center = landingMap.getMapPanel().getCenter();
 		assertEquals(35.1758, center.latitudeDeg(), 0.01);
 		assertEquals(-76.8283, center.longitudeDeg(), 0.01);
 		assertTrue(Math.abs(center.longitudeDeg() - (-86.57376)) > 9.0,
 				"the map must not jump to the simulation's subsequently edited launch site");
+	}
+
+	@Test
+	public void testLaunchCoordinateTransitionEnteredThroughUiRecentersGeoToolsMap() throws Exception {
+		Simulation simulation = newSimulation();
+		SimulationConditionsPanel conditions = new SimulationConditionsPanel(simulation);
+		JSpinner latitude = findAll(conditions, JSpinner.class).stream()
+				.filter(spinner -> "LaunchLatitude".equals(spinner.getName()))
+				.findFirst().orElseThrow();
+		JSpinner longitude = findAll(conditions, JSpinner.class).stream()
+				.filter(spinner -> "LaunchLongitude".equals(spinner.getName()))
+				.findFirst().orElseThrow();
+		GeoToolsMapPanel mapPanel = new GeoToolsMapPanel();
+		MonteCarloLandingMapPanel landingMap = new MonteCarloLandingMapPanel(mapPanel);
+
+		SwingUtilities.invokeAndWait(() -> {
+			enterSpinnerText(latitude, "35.1758");
+			enterSpinnerText(longitude, "-76.8283");
+			landingMap.setResults(List.of(), simulation.getOptions().getLaunchLatitude(),
+					simulation.getOptions().getLaunchLongitude());
+		});
+		assertEquals(35.1758, simulation.getOptions().getLaunchLatitude(), 1.0e-9);
+		assertEquals(-76.8283, simulation.getOptions().getLaunchLongitude(), 1.0e-9);
+		assertEquals(35.1758, mapPanel.getCenter().latitudeDeg(), 1.0e-9);
+		assertEquals(-76.8283, mapPanel.getCenter().longitudeDeg(), 1.0e-9);
+		assertEquals(1, mapPanel.getFeatureLayerCount());
+
+		SwingUtilities.invokeAndWait(() -> {
+			enterSpinnerText(latitude, "34.90128");
+			enterSpinnerText(longitude, "-86.57376");
+			landingMap.setResults(List.of(), simulation.getOptions().getLaunchLatitude(),
+					simulation.getOptions().getLaunchLongitude());
+		});
+		assertEquals(34.90128, simulation.getOptions().getLaunchLatitude(), 1.0e-9);
+		assertEquals(-86.57376, simulation.getOptions().getLaunchLongitude(), 1.0e-9);
+		assertEquals(34.90128, mapPanel.getCenter().latitudeDeg(), 1.0e-9);
+		assertEquals(-86.57376, mapPanel.getCenter().longitudeDeg(), 1.0e-9);
+		assertEquals(1, mapPanel.getFeatureLayerCount());
 	}
 
 	@Test
@@ -383,6 +422,16 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 			}
 		}
 		throw new AssertionError("Missing combo-box item: " + label);
+	}
+
+	private static void enterSpinnerText(JSpinner spinner, String value) {
+		JTextField field = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();
+		field.setText(value);
+		try {
+			spinner.commitEdit();
+		} catch (java.text.ParseException exception) {
+			throw new AssertionError("Could not enter coordinate " + value, exception);
+		}
 	}
 
 	private static <T extends Component> T findFirst(Component root, Class<T> type) {

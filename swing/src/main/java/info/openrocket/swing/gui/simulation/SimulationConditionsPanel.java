@@ -250,6 +250,7 @@ public class SimulationConditionsPanel extends SimulationScrollablePanel {
 		m = new DoubleModel(target, "LaunchLatitude", UnitGroup.UNITS_LATITUDE, -90, 90);
 
 		spin = new JSpinner(m.getSpinnerModel());
+		spin.setName("LaunchLatitude");
 		spin.setEditor(new SpinnerEditor(spin));
 		spin.setToolTipText(tip);
 		sub.add(spin, "growx");
@@ -271,6 +272,7 @@ public class SimulationConditionsPanel extends SimulationScrollablePanel {
 		m = new DoubleModel(target, "LaunchLongitude", UnitGroup.UNITS_LONGITUDE, -180, 180);
 
 		spin = new JSpinner(m.getSpinnerModel());
+		spin.setName("LaunchLongitude");
 		spin.setEditor(new SpinnerEditor(spin));
 		spin.setToolTipText(tip);
 		sub.add(spin, "growx");
