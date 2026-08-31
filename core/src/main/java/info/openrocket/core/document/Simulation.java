@@ -348,6 +348,16 @@ public class Simulation implements ChangeSource, Cloneable {
 	}
 
 	/**
+	 * Notify listeners after callers mutate the extension list or an extension's configuration.
+	 * The extension list remains directly mutable for compatibility, so managed native UIs must
+	 * call this after such a change to participate in document dirty-state and undo handling.
+	 */
+	public void notifySimulationExtensionsChanged() {
+		mutex.verify();
+		fireChangeEvent();
+	}
+
+	/**
 	 * Applies the simulation extensions to the simulation.
 	 *
 	 * @param extensions the simulation extensions to apply.

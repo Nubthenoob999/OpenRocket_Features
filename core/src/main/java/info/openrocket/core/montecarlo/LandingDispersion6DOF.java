@@ -87,6 +87,82 @@ public final class LandingDispersion6DOF {
 		public double containment95_m;
     }
 
+	/** Landing points of a single independently simulated body (sustainer, booster, ...). */
+	public static final class BodyPoints {
+		public final String bodyId;
+		public final String branchName;
+		public final List<LandingPoint> points = new ArrayList<>();
+
+		private BodyPoints(String bodyId, String branchName) {
+			this.bodyId = bodyId;
+			this.branchName = branchName;
+		}
+	}
+
+	/**
+	 * Collects the primary landing point of every successful dispersed run.
+	 * Nominal runs, failed runs and non-finite coordinates are skipped.
+	 */
+	public static List<LandingPoint> collectLandingPoints(
+			List<MonteCarloRunRecord> runRecords,
+			double launchLatDeg,
+			double launchLonDeg
+	) {
+		List<LandingPoint> points = new ArrayList<>();
+		if (runRecords == null) return points;
+
+		for (MonteCarloRunRecord r : runRecords) {
+			if (r == null || r.nominal || r.failureMessage != null || !r.results.hasLanding) continue;
+
+			double east = r.getLandingEastM();
+			double north = r.getLandingNorthM();
+			if (!Double.isFinite(east) || !Double.isFinite(north)) continue;
+
+			double[] latLon = enuToLatLonDeg(east, north, launchLatDeg, launchLonDeg);
+
+			LandingPoint p = new LandingPoint();
+			p.runIndex = r.runIndex;
+			p.east_m = east;
+			p.north_m = north;
+			p.lat_deg = latLon[0];
+			p.lon_deg = latLon[1];
+			points.add(p);
+		}
+		return points;
+	}
+
+	/**
+	 * Groups landing points by simulated body so booster and sustainer clouds stay distinct.
+	 * Insertion order follows first appearance in the run records.
+	 */
+	public static List<BodyPoints> collectBodyLandingPoints(List<MonteCarloRunRecord> runRecords) {
+		Map<String, BodyPoints> byBody = new LinkedHashMap<>();
+		if (runRecords == null) return new ArrayList<>();
+
+		for (MonteCarloRunRecord record : runRecords) {
+			if (record == null || record.nominal) continue;
+			for (MonteCarloRunRecord.BodyResult body : record.bodyResults) {
+				if (!body.groundHit || body.failureMessage != null) continue;
+				if (!Double.isFinite(body.eastM) || !Double.isFinite(body.northM)) continue;
+
+				LandingPoint point = new LandingPoint();
+				point.runIndex = record.runIndex;
+				point.east_m = body.eastM;
+				point.north_m = body.northM;
+				point.lat_deg = body.latitudeDeg;
+				point.lon_deg = body.longitudeDeg;
+				byBody.computeIfAbsent(body.bodyId, id -> new BodyPoints(id, body.branchName))
+						.points.add(point);
+			}
+		}
+		return new ArrayList<>(byBody.values());
+	}
+
+	/** Mean, covariance, sigma ellipses and empirical containment radii of a landing cloud. */
+	public static Summary summarize(List<LandingPoint> points, double launchLatDeg, double launchLonDeg) {
+		return computeSummary(points == null ? Collections.emptyList() : points, launchLatDeg, launchLonDeg);
+	}
+
     /**
      * Main entry point to process run records and generate export files.
      */
@@ -102,38 +178,9 @@ public final class LandingDispersion6DOF {
         Files.createDirectories(outDir);
 
         // 2) Build landing points list
-        List<LandingPoint> points = new ArrayList<>();
+        List<LandingPoint> points = collectLandingPoints(runRecords, launchLatDeg, launchLonDeg);
 
-        // 3) Process each run record
-        for (int i = 0; i < runRecords.size(); i++) {
-            MonteCarloRunRecord r = runRecords.get(i);
-			if (r.nominal || r.failureMessage != null || !r.results.hasLanding) continue;
-
-            // 3a) Pull landing offsets
-            double east = r.getLandingEastM();
-            double north = r.getLandingNorthM();
-
-            // 3b) Skip invalid points (simulations that crashed or failed to converge)
-            if (Double.isNaN(east) || Double.isInfinite(east) ||
-                Double.isNaN(north) || Double.isInfinite(north)) {
-                continue;
-            }
-
-            // 3c) Compute lat/lon from ENU + launch site
-            double[] latLon = enuToLatLonDeg(east, north, launchLatDeg, launchLonDeg);
-
-            // 3d) Build point object
-            LandingPoint p = new LandingPoint();
-			p.runIndex = r.runIndex;
-            p.east_m = east;
-            p.north_m = north;
-            p.lat_deg = latLon[0];
-            p.lon_deg = latLon[1];
-
-            points.add(p);
-        }
-
-        // 4) Compute summary statistics + ellipses
+        // 3) Compute summary statistics + ellipses
         Summary summary = computeSummary(points, launchLatDeg, launchLonDeg);
 
         // 5) Write outputs
@@ -144,30 +191,14 @@ public final class LandingDispersion6DOF {
 
 		// Export every independently simulated landing body under a stable,
 		// body-specific stem.  This keeps booster and sustainer clouds distinct.
-		Map<String, List<LandingPoint>> byBody = new LinkedHashMap<>();
-		Map<String, String> bodyNames = new LinkedHashMap<>();
-		for (MonteCarloRunRecord record : runRecords) {
-			if (record.nominal) continue;
-			for (MonteCarloRunRecord.BodyResult body : record.bodyResults) {
-				if (!body.groundHit || body.failureMessage != null) continue;
-				LandingPoint point = new LandingPoint();
-				point.runIndex = record.runIndex;
-				point.east_m = body.eastM;
-				point.north_m = body.northM;
-				point.lat_deg = body.latitudeDeg;
-				point.lon_deg = body.longitudeDeg;
-				byBody.computeIfAbsent(body.bodyId, ignored -> new ArrayList<>()).add(point);
-				bodyNames.putIfAbsent(body.bodyId, body.branchName);
-			}
-		}
-		for (Map.Entry<String, List<LandingPoint>> entry : byBody.entrySet()) {
-			String bodyStem = stem + "_body_" + safeFileStem(bodyNames.get(entry.getKey()))
-					+ "_" + safeFileStem(entry.getKey());
-			Summary bodySummary = computeSummary(entry.getValue(), launchLatDeg, launchLonDeg);
-			writePointsCsv(outDir.resolve(bodyStem + "_points.csv"), entry.getValue(), launchLatDeg, launchLonDeg);
+		for (BodyPoints body : collectBodyLandingPoints(runRecords)) {
+			String bodyStem = stem + "_body_" + safeFileStem(body.branchName)
+					+ "_" + safeFileStem(body.bodyId);
+			Summary bodySummary = computeSummary(body.points, launchLatDeg, launchLonDeg);
+			writePointsCsv(outDir.resolve(bodyStem + "_points.csv"), body.points, launchLatDeg, launchLonDeg);
 			writeSummaryCsv(outDir.resolve(bodyStem + "_summary.csv"), bodySummary);
-			writeKml(outDir.resolve(bodyStem + ".kml"), entry.getValue(), bodySummary);
-			writePng(outDir.resolve(bodyStem + ".png"), entry.getValue(), bodySummary);
+			writeKml(outDir.resolve(bodyStem + ".kml"), body.points, bodySummary);
+			writePng(outDir.resolve(bodyStem + ".png"), body.points, bodySummary);
 		}
     }
 
@@ -446,25 +477,25 @@ public final class LandingDispersion6DOF {
         if (s.n >= 2) {
             // 1-Sigma Polygon
             sb.append("  <Placemark>\n    <name>1-Sigma Dispersion</name>\n    <styleUrl>#oneSigmaStyle</styleUrl>\n    <Polygon>\n      <outerBoundaryIs>\n        <LinearRing>\n          <coordinates>\n");
-            List<String> oneSigmaCoords = buildEllipseRingLonLat(s, s.oneSigma);
-            for (String coord : oneSigmaCoords) {
-                sb.append("            ").append(coord).append("\n");
+            List<LandingPoint> oneSigmaCoords = buildEllipseRing(s, s.oneSigma);
+            for (LandingPoint point : oneSigmaCoords) {
+                appendKmlCoordinate(sb, point);
             }
             sb.append("          </coordinates>\n        </LinearRing>\n      </outerBoundaryIs>\n    </Polygon>\n  </Placemark>\n");
 
             // 2-Sigma Polygon
             sb.append("  <Placemark>\n    <name>2-Sigma Dispersion</name>\n    <styleUrl>#twoSigmaStyle</styleUrl>\n    <Polygon>\n      <outerBoundaryIs>\n        <LinearRing>\n          <coordinates>\n");
-            List<String> twoSigmaCoords = buildEllipseRingLonLat(s, s.twoSigma);
-            for (String coord : twoSigmaCoords) {
-                sb.append("            ").append(coord).append("\n");
+            List<LandingPoint> twoSigmaCoords = buildEllipseRing(s, s.twoSigma);
+            for (LandingPoint point : twoSigmaCoords) {
+                appendKmlCoordinate(sb, point);
             }
             sb.append("          </coordinates>\n        </LinearRing>\n      </outerBoundaryIs>\n    </Polygon>\n  </Placemark>\n");
 
             // 3-Sigma Polygon
             sb.append("  <Placemark>\n    <name>3-Sigma Dispersion</name>\n    <styleUrl>#threeSigmaStyle</styleUrl>\n    <Polygon>\n      <outerBoundaryIs>\n        <LinearRing>\n          <coordinates>\n");
-            List<String> threeSigmaCoords = buildEllipseRingLonLat(s, s.threeSigma);
-            for (String coord : threeSigmaCoords) {
-                sb.append("            ").append(coord).append("\n");
+            List<LandingPoint> threeSigmaCoords = buildEllipseRing(s, s.threeSigma);
+            for (LandingPoint point : threeSigmaCoords) {
+                appendKmlCoordinate(sb, point);
             }
             sb.append("          </coordinates>\n        </LinearRing>\n      </outerBoundaryIs>\n    </Polygon>\n  </Placemark>\n");
         }
@@ -482,8 +513,13 @@ public final class LandingDispersion6DOF {
         return sb.toString();
     }
 
-    private static List<String> buildEllipseRingLonLat(Summary s, Ellipse e) {
-        List<String> coords = new ArrayList<>();
+    /**
+     * Build the WGS84 polygon used for a KML or on-screen dispersion ellipse.
+     * The returned ring is closed: its final point equals its first point.
+     */
+    public static List<LandingPoint> buildEllipseRing(Summary s, Ellipse e) {
+        List<LandingPoint> points = new ArrayList<>();
+        if (s == null || e == null) return points;
         int N = ELLIPSE_VERTS;
 
         // Convert bearing (Clockwise from North) to math angle (Counter-Clockwise from East)
@@ -511,11 +547,20 @@ public final class LandingDispersion6DOF {
             // 4) Convert ENU to Lat/Lon
             double[] latLon = enuToLatLonDeg(eastWorld, northWorld, s.launchLat_deg, s.launchLon_deg);
 
-            // 5) Add to KML string list (Format: lon,lat,alt)
-            coords.add(String.format(Locale.US, "%.8f,%.8f,0", latLon[1], latLon[0]));
+            LandingPoint point = new LandingPoint();
+            point.east_m = eastWorld;
+            point.north_m = northWorld;
+            point.lat_deg = latLon[0];
+            point.lon_deg = latLon[1];
+            points.add(point);
         }
 
-        return coords;
+        return points;
+    }
+
+    private static void appendKmlCoordinate(StringBuilder builder, LandingPoint point) {
+        builder.append(String.format(Locale.US, "            %.8f,%.8f,0\n",
+                point.lon_deg, point.lat_deg));
     }
 
     private static void writePng(Path file, List<LandingPoint> pts, Summary s) throws IOException {

@@ -2,6 +2,7 @@ package info.openrocket.swing.simulation.extension.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -18,10 +19,18 @@ import org.junit.jupiter.api.Test;
 
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.montecarlo.MonteCarloExtension;
+import info.openrocket.core.plugin.Plugin;
 import info.openrocket.core.util.TestRockets;
 import info.openrocket.swing.util.BaseTestCase;
 
+@SuppressWarnings("deprecation")
 public class MonteCarloConfiguratorTest extends BaseTestCase {
+	@Test
+	public void testLegacyConfiguratorIsNotPluginRegistered() {
+		assertNull(MonteCarloConfigurator.class.getAnnotation(Plugin.class),
+				"the native Monte Carlo tab must be the only registered configuration UI");
+	}
+
 	@Test
 	public void testDisturbanceControlsAreDisplayedAndPreserveTheirSettings() {
         Simulation simulation = new Simulation(TestRockets.makeEstesAlphaIII());

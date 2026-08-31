@@ -17,7 +17,6 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
@@ -78,8 +77,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 	private JPanel currentExtensions;
 	final JPopupMenu extensionMenu;
 	JMenu extensionMenuCopyExtension;
-	private JCheckBox monteCarloEnabledCheckBox;
-	private JButton monteCarloConfigureButton;
 	private JCheckBox weathercockingEnabledCheckBox;
 	private JCheckBox airbrakesEnabledCheckBox;
 	private AirbrakeSettingsPanel airbrakeSettingsPanel;
@@ -271,39 +268,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		optionsForm.add(maxSimulationTimeUnit);
 		optionsForm.add(new JPanel(), "growx, wrap");
 
-		monteCarloEnabledCheckBox = new JCheckBox("Enable Monte Carlo analysis");
-		monteCarloEnabledCheckBox.setToolTipText("Turn Monte Carlo batch analysis on or off for this simulation.");
-		monteCarloEnabledCheckBox.addActionListener(e -> {
-			if (monteCarloEnabledCheckBox.isSelected()) {
-				MonteCarloExtension ext = ensureMonteCarloExtension();
-				ext.setEnabled(true);
-			} else {
-				removeMonteCarloExtensions();
-			}
-			updateCurrentExtensions();
-			updateMonteCarloControls();
-		});
-		optionsForm.add(monteCarloEnabledCheckBox, "span 2, gaptop para, alignx left");
-
-		monteCarloConfigureButton = new JButton("Configure Monte Carlo...");
-		monteCarloConfigureButton.addActionListener(e -> {
-			MonteCarloExtension ext = ensureMonteCarloExtension();
-			ext.setEnabled(true);
-			SwingSimulationExtensionConfigurator configurator = findConfigurator(ext);
-			if (configurator != null) {
-				configurator.configure(ext, simulation, SwingUtilities.windowForComponent(SimulationOptionsPanel.this));
-				updateCurrentExtensions();
-				updateMonteCarloControls();
-			} else {
-				JOptionPane.showMessageDialog(
-						SwingUtilities.windowForComponent(SimulationOptionsPanel.this),
-						"Monte Carlo configurator plugin was not found.",
-						"Monte Carlo",
-						JOptionPane.WARNING_MESSAGE);
-			}
-		});
-		optionsForm.add(monteCarloConfigureButton, "span 2, alignx left, wrap");
-
 		airbrakesEnabledCheckBox = new JCheckBox("Enable airbrakes");
 		airbrakesEnabledCheckBox.setToolTipText("Enable native airbrakes for this simulation.");
 		airbrakesEnabledCheckBox.addActionListener(e -> {
@@ -383,7 +347,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		add(defaultsPanel, "growx, wmin 0, wrap");
 
 		updateCurrentExtensions();
-		updateMonteCarloControls();
 
 		options.addChangeListener(e -> SwingUtilities.invokeLater(this::refreshManagedOptionPresentation));
 		refreshManagedOptionPresentation();
@@ -519,46 +482,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		return "Physics-Based Aerodynamics (Experimental) - " + options.getPhysicsAeroMode();
 	}
 
-	private MonteCarloExtension findMonteCarloExtension() {
-		for (SimulationExtension extension : simulation.getSimulationExtensions()) {
-			if (extension instanceof MonteCarloExtension monteCarloExtension) {
-				return monteCarloExtension;
-			}
-		}
-		return null;
-	}
-
-	private MonteCarloExtension ensureMonteCarloExtension() {
-		MonteCarloExtension extension = findMonteCarloExtension();
-		if (extension != null) {
-			return extension;
-		}
-
-		extension = new MonteCarloExtension();
-		simulation.getSimulationExtensions().add(extension);
-		return extension;
-	}
-
-	private void removeMonteCarloExtensions() {
-		Iterator<SimulationExtension> iterator = simulation.getSimulationExtensions().iterator();
-		while (iterator.hasNext()) {
-			if (iterator.next() instanceof MonteCarloExtension) {
-				iterator.remove();
-			}
-		}
-	}
-
-	private void updateMonteCarloControls() {
-		if (monteCarloEnabledCheckBox == null || monteCarloConfigureButton == null) {
-			return;
-		}
-
-		MonteCarloExtension extension = findMonteCarloExtension();
-		boolean enabled = extension != null && extension.isEnabled();
-		monteCarloEnabledCheckBox.setSelected(enabled);
-		monteCarloConfigureButton.setEnabled(true);
-	}
-
 	private void updateAirbrakeControls() {
 		if (airbrakesEnabledCheckBox == null || airbrakeSettingsPanel == null) {
 			return;
@@ -604,8 +527,6 @@ class SimulationOptionsPanel extends SimulationScrollablePanel {
 		}
 
 		updateExtensionMenuCopyExtension(this.extensionMenu);
-		updateMonteCarloControls();
-
 		revalidate();
 		repaint();
 	}

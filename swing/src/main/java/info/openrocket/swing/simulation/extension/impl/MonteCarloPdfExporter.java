@@ -23,10 +23,10 @@ import info.openrocket.core.simulation.montecarlo.MonteCarloMetric;
 import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
 
 /** Compact, auditable Monte Carlo PDF report using OpenRocket's existing iText runtime. */
-final class MonteCarloPdfExporter {
+public final class MonteCarloPdfExporter {
     private MonteCarloPdfExporter() { }
 
-    static void export(File file, String title, List<MonteCarloRunRecord> records, File chart)
+    public static void export(File file, String title, List<MonteCarloRunRecord> records, File chart)
             throws IOException {
         Document document = new Document();
 		FileOutputStream stream = new FileOutputStream(file);

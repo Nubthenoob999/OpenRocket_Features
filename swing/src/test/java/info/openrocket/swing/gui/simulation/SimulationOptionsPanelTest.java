@@ -43,6 +43,7 @@ import info.openrocket.core.formatting.RocketDescriptor;
 import info.openrocket.core.formatting.RocketDescriptorImpl;
 import info.openrocket.core.l10n.DebugTranslator;
 import info.openrocket.core.l10n.Translator;
+import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.startup.Application;
@@ -97,6 +98,25 @@ public class SimulationOptionsPanelTest {
 		assertTrue(airbrakePanel.isVisible());
 
 		assertFalse(menuContainsText(panel.extensionMenu, "AirBrakes Simulation"));
+	}
+
+	@Test
+	public void testMonteCarloIsOnlyExposedByTheNativeSimulationTab() throws Exception {
+		OpenRocketDocument document = OpenRocketDocumentFactory.createDocumentFromRocket(TestRockets.makeEstesAlphaIII());
+		Simulation simulation = new Simulation(document.getRocket());
+		simulation.getSimulationExtensions().add(new MonteCarloExtension());
+		document.addSimulation(simulation);
+
+		final SimulationOptionsPanel[] holder = new SimulationOptionsPanel[1];
+		SwingUtilities.invokeAndWait(() -> holder[0] = new SimulationOptionsPanel(document, simulation));
+		SimulationOptionsPanel panel = holder[0];
+
+		assertFalse(menuContainsText(panel.extensionMenu, "Monte Carlo"),
+				"native Monte Carlo must not be offered in the extension menu");
+		assertFalse(containsText(panel, "HPRC Monte Carlo"),
+				"the legacy extension label must not be rendered");
+		assertFalse(containsText(panel, "Configure Monte Carlo..."),
+				"the removed extension configurator must not remain as a second entry point");
 	}
 
 	@Test
@@ -302,6 +322,28 @@ public class SimulationOptionsPanelTest {
 			if (component instanceof JMenu menu) {
 				if (text.equals(menu.getText()) || menuContainsText(menu.getPopupMenu(), text)) {
 					return true;
+				}
+			} else if (component instanceof javax.swing.JMenuItem item && text.equals(item.getText())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean containsText(Container root, String text) {
+		Deque<Component> queue = new ArrayDeque<>();
+		queue.add(root);
+		while (!queue.isEmpty()) {
+			Component component = queue.removeFirst();
+			if (component instanceof JLabel label && text.equals(label.getText())) {
+				return true;
+			}
+			if (component instanceof javax.swing.AbstractButton button && text.equals(button.getText())) {
+				return true;
+			}
+			if (component instanceof Container container) {
+				for (Component child : container.getComponents()) {
+					queue.addLast(child);
 				}
 			}
 		}

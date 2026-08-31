@@ -17,9 +17,10 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * OpenRocket Simulation Extension entry point for the "HPRC Monte Carlo" plugin.
+ * Persistent backing state for OpenRocket's native Monte Carlo simulation tab.
  *
- * Configured via the Simulation Extensions tab (MonteCarloConfigurator).
+ * The historical simulation-extension ID is retained so existing {@code .ork} files remain
+ * readable.  It is managed by the simulation dialog and is not offered as an add-on extension.
  *
  * <p><b>Persistence (run-to-run / .ork save-load):</b>
  * OpenRocket persists a simulation extension's settings into the <code>.ork</code> file via the
@@ -910,7 +911,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
 
     @Override
     public String getName() {
-        return "HPRC Monte Carlo";
+        return "Monte Carlo";
     }
 
     @Override
