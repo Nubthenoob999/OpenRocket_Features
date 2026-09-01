@@ -42,15 +42,6 @@ open module info.openrocket.swing {
 	requires org.checkerframework.checker.qual;
 	requires org.apache.commons.lang3;
 	requires java.management;
-	requires org.geotools.api;
-	requires org.geotools.main;
-	requires org.geotools.metadata;
-	requires org.geotools.render;
-	requires org.geotools.referencing;
-	requires org.geotools.swing;
-	requires org.geotools.wms;
-	requires org.locationtech.jts;
-
 	// Service providers
 	// Also edit swing/src/main/resources/META-INF/services !! (until gradle-modules-plugin supports service
 	// copying, see https://github.com/java9-modularity/gradle-modules-plugin/issues/85)

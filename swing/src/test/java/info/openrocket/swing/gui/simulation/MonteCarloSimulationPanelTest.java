@@ -223,7 +223,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		MonteCarloLandingMapPanel landingMap = findFirst(panel, MonteCarloLandingMapPanel.class);
 		assertNotNull(landingMap);
 
-		GeoToolsMapPanel.GeoPoint center = landingMap.getMapPanel().getCenter();
+		OpenStreetMapPanel.GeoPoint center = landingMap.getMapPanel().getCenter();
 		assertEquals(35.1758, center.latitudeDeg(), 0.01);
 		assertEquals(-76.8283, center.longitudeDeg(), 0.01);
 		assertTrue(Math.abs(center.longitudeDeg() - (-86.57376)) > 9.0,
@@ -231,7 +231,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 	}
 
 	@Test
-	public void testLaunchCoordinateTransitionEnteredThroughUiRecentersGeoToolsMap() throws Exception {
+	public void testLaunchCoordinateTransitionEnteredThroughUiRecentersOpenStreetMap() throws Exception {
 		Simulation simulation = newSimulation();
 		SimulationConditionsPanel conditions = new SimulationConditionsPanel(simulation);
 		JSpinner latitude = findAll(conditions, JSpinner.class).stream()
@@ -240,7 +240,8 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		JSpinner longitude = findAll(conditions, JSpinner.class).stream()
 				.filter(spinner -> "LaunchLongitude".equals(spinner.getName()))
 				.findFirst().orElseThrow();
-		GeoToolsMapPanel mapPanel = new GeoToolsMapPanel();
+		OpenStreetMapPanel mapPanel = new OpenStreetMapPanel((zoom, x, y) ->
+				new java.awt.image.BufferedImage(256, 256, java.awt.image.BufferedImage.TYPE_INT_ARGB));
 		MonteCarloLandingMapPanel landingMap = new MonteCarloLandingMapPanel(mapPanel);
 
 		SwingUtilities.invokeAndWait(() -> {
@@ -253,7 +254,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		assertEquals(-76.8283, simulation.getOptions().getLaunchLongitude(), 1.0e-9);
 		assertEquals(35.1758, mapPanel.getCenter().latitudeDeg(), 1.0e-9);
 		assertEquals(-76.8283, mapPanel.getCenter().longitudeDeg(), 1.0e-9);
-		assertEquals(1, mapPanel.getFeatureLayerCount());
+		assertEquals(1, mapPanel.getMarkerCount());
 
 		SwingUtilities.invokeAndWait(() -> {
 			enterSpinnerText(latitude, "34.90128");
@@ -265,7 +266,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		assertEquals(-86.57376, simulation.getOptions().getLaunchLongitude(), 1.0e-9);
 		assertEquals(34.90128, mapPanel.getCenter().latitudeDeg(), 1.0e-9);
 		assertEquals(-86.57376, mapPanel.getCenter().longitudeDeg(), 1.0e-9);
-		assertEquals(1, mapPanel.getFeatureLayerCount());
+		assertEquals(1, mapPanel.getMarkerCount());
 	}
 
 	@Test
