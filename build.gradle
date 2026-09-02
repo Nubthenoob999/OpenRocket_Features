@@ -227,9 +227,6 @@ jacoco {
 allprojects {
     repositories {
         mavenCentral()
-        // GeoTools releases are published by OSGeo rather than Maven Central. Keep this at the
-        // shared level because the root shadowJar resolves subproject runtime dependencies too.
-        maven { url = "https://repo.osgeo.org/repository/release/" }
         maven { url = "https://jitpack.io" }
         maven { url = "https://jogamp.org/deployment/maven/" }
     }
@@ -403,12 +400,6 @@ tasks.named('shadowJar', ShadowJar) {
     archiveBaseName = 'Project-Imperia'
     archiveVersion = '' + version
     archiveClassifier = ''
-
-    // GeoTools discovers CRS, styling and rendering implementations through Java SPI files.
-    // A fat JAR must merge these entries rather than keeping only one dependency's copy.
-    mergeServiceFiles()
-    append('META-INF/org.eclipse.imagen.registryFile.imagen')
-    append('META-INF/registryFile.imagen')
 
     manifest {
         attributes(baseManifestAttributes)

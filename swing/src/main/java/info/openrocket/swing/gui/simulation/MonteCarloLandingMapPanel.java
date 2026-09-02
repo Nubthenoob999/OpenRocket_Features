@@ -1,7 +1,9 @@
 package info.openrocket.swing.gui.simulation;
 
 import java.awt.Color;
+import java.awt.Desktop;
 import java.awt.Font;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,13 +24,13 @@ import info.openrocket.core.montecarlo.LandingDispersion6DOF.BodyPoints;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF.LandingPoint;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF.Summary;
 import info.openrocket.core.montecarlo.MonteCarloRunRecord;
-import info.openrocket.swing.gui.simulation.GeoToolsMapPanel.GeoPoint;
-import info.openrocket.swing.gui.simulation.GeoToolsMapPanel.MapMarker;
-import info.openrocket.swing.gui.simulation.GeoToolsMapPanel.MapPolyline;
-import info.openrocket.swing.gui.simulation.GeoToolsMapPanel.MarkerType;
+import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.GeoPoint;
+import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MapMarker;
+import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MapPolyline;
+import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MarkerType;
 import net.miginfocom.swing.MigLayout;
 
-/** GeoTools view of Monte Carlo landing coordinates and KML-equivalent dispersion rings. */
+/** OpenStreetMap view of Monte Carlo landing coordinates and KML-equivalent dispersion rings. */
 final class MonteCarloLandingMapPanel extends JPanel {
 	private static final String ALL_BODIES = "All bodies";
 	private static final Color LAUNCH_COLOR = new Color(0x27, 0xAE, 0x60);
@@ -44,7 +46,7 @@ final class MonteCarloLandingMapPanel extends JPanel {
 	private record LandingCloud(String id, String name, List<LandingPoint> points, Color color) { }
 	private record TableLanding(String markerId, String bodyName, LandingPoint point) { }
 
-	private final GeoToolsMapPanel mapPanel;
+	private final OpenStreetMapPanel mapPanel;
 	private final JComboBox<String> bodyCombo = new JComboBox<>();
 	private final JCheckBox showLandings = new JCheckBox("Landing points", true);
 	private final JCheckBox showMeans = new JCheckBox("Mean impacts", true);
@@ -62,10 +64,10 @@ final class MonteCarloLandingMapPanel extends JPanel {
 	private boolean updatingBodyChoices;
 
 	MonteCarloLandingMapPanel() {
-		this(new GeoToolsMapPanel());
+		this(new OpenStreetMapPanel());
 	}
 
-	MonteCarloLandingMapPanel(GeoToolsMapPanel mapPanel) {
+	MonteCarloLandingMapPanel(OpenStreetMapPanel mapPanel) {
 		this.mapPanel = mapPanel;
 		setLayout(new MigLayout("fill, ins 0, wrap 1, hidemode 3", "[grow,fill]", "[]4[grow,fill]4[]4[150!]4[]"));
 		add(buildToolbar(), "growx");
@@ -129,9 +131,23 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		fit.addActionListener(event -> mapPanel.fitToOverlays());
 		toolbar.add(fit);
 
-		JLabel renderer = new JLabel("GeoTools + USGS map");
-		renderer.setToolTipText("Native Java GeoTools rendering with an offline grid fallback.");
-		toolbar.add(renderer, "gapleft 8");
+		JButton reloadTiles = new JButton("Reload map");
+		reloadTiles.setToolTipText("Retry any OpenStreetMap tiles that failed to download.");
+		reloadTiles.addActionListener(event -> {
+			statusLabel.setText("Retrying OpenStreetMap tiles...");
+			mapPanel.retryFailedTiles();
+		});
+		toolbar.add(reloadTiles);
+
+		JLabel attribution = new JLabel("<html><a href=''>© OpenStreetMap contributors</a></html>");
+		attribution.setToolTipText("Open OpenStreetMap copyright and attribution information.");
+		attribution.addMouseListener(new java.awt.event.MouseAdapter() {
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent event) {
+				openAttributionPage();
+			}
+		});
+		toolbar.add(attribution, "gapleft 8");
 		return toolbar;
 	}
 
@@ -151,14 +167,6 @@ final class MonteCarloLandingMapPanel extends JPanel {
 			if (!primary.isEmpty()) found.add(new LandingCloud("primary", "Primary", primary, BODY_COLORS[0]));
 		}
 		clouds = List.copyOf(found);
-		List<GeoPoint> viewRegionPoints = new ArrayList<>();
-		viewRegionPoints.add(new GeoPoint(launchLatitudeDeg, launchLongitudeDeg));
-		for (LandingCloud cloud : clouds) {
-			for (LandingPoint point : cloud.points()) {
-				viewRegionPoints.add(new GeoPoint(point.lat_deg, point.lon_deg));
-			}
-		}
-		mapPanel.setViewRegion(viewRegionPoints);
 
 		String selection = (String) bodyCombo.getSelectedItem();
 		updatingBodyChoices = true;
@@ -216,15 +224,14 @@ final class MonteCarloLandingMapPanel extends JPanel {
 			}
 		}
 
-		mapPanel.setOverlays(markers, polylines, () -> {
-			if (fit) {
-				mapPanel.centerOn(launchLatitudeDeg, launchLongitudeDeg, 13);
-				// With no completed landing cloud, fitting the launch marker alone jumps to street
-				// level. Keep the useful launch-area overview until there are results to frame.
-				if (!clouds.isEmpty()) mapPanel.fitToOverlays();
-			}
-		});
+		mapPanel.setOverlays(markers, polylines);
 		rebuildCoordinateTable(tableLandings);
+		if (fit) {
+			mapPanel.centerOn(launchLatitudeDeg, launchLongitudeDeg, 13);
+			// With no completed landing cloud, fitting the launch marker alone jumps to street
+			// level. Keep the useful launch-area overview until there are results to frame.
+			if (!clouds.isEmpty()) mapPanel.fitToOverlays();
+		}
 		statusLabel.setText(String.format(Locale.US,
 				"%d landing coordinate%s plotted%s", tableLandings.size(),
 				tableLandings.size() == 1 ? "" : "s",
@@ -266,7 +273,7 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		}
 	}
 
-	GeoToolsMapPanel getMapPanel() {
+	OpenStreetMapPanel getMapPanel() {
 		return mapPanel;
 	}
 
@@ -276,5 +283,14 @@ final class MonteCarloLandingMapPanel extends JPanel {
 
 	private static String formatCoordinates(double latitude, double longitude) {
 		return String.format(Locale.US, "%.7f, %.7f", latitude, longitude);
+	}
+
+	private void openAttributionPage() {
+		if (!Desktop.isDesktopSupported()) return;
+		try {
+			Desktop.getDesktop().browse(URI.create("https://www.openstreetmap.org/copyright"));
+		} catch (Exception exception) {
+			statusLabel.setText("Could not open OpenStreetMap attribution: " + exception.getMessage());
+		}
 	}
 }

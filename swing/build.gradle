@@ -41,12 +41,6 @@ extraJavaModuleInfo {
     automaticModule('slf4j-api-1.7.25.jar', 'org.slf4j.api')
     automaticModule('slf4j-api-1.7.32.jar', 'org.slf4j.api')
     automaticModule('versioncompare-1.5.0.jar', 'versioncompare')
-    // ImageN ships its original and replacement scale operators as two JARs with one package.
-    // GeoTools vector rendering reaches ScaleOpImage while WMS raster rendering reaches
-    // Scale2OpImage, so both are needed. Merge them into one JPMS module to remove the split.
-    automaticModule('org.eclipse.imagen:scale', 'org.eclipse.imagen.scale') {
-        mergeJar('org.eclipse.imagen:scale2')
-    }
     module('gluegen-rt-2.6.0.jar', 'org.jogamp.gluegen.rt', '2.6.0') {
         requires('java.desktop')
         exportAllPackages()
@@ -98,40 +92,8 @@ dependencies {
     implementation 'org.jogamp.gluegen:gluegen-rt-main:2.6.0'
     implementation 'org.jogamp.jogl:jogl-all-main:2.6.0'
 
-    implementation platform('org.geotools:gt-bom:35.1')
-    implementation('org.geotools:gt-swing') {
-        // GeoTools still declares the pre-module MigLayout 3.7 bundle. OpenRocket already uses
-        // the split core/swing artifacts, and keeping both exposes duplicate Java packages.
-        exclude group: 'com.miglayout', module: 'miglayout'
-    }
-    implementation 'org.geotools:gt-epsg-hsql'
-    implementation 'org.geotools:gt-wms'
-    // systems-common 2.1 has an explicit JPMS requirement but omits this artifact from its POM.
-    implementation 'systems.uom:systems-quantity:2.1'
-    // GeoTools upgrades Guava to a release that no longer pulls this existing Swing JPMS module.
-    implementation 'org.checkerframework:checker-qual:3.54.0'
-
     testImplementation 'ch.qos.logback:logback-classic:1.5.20'
     testImplementation 'org.assertj:assertj-core:3.26.3'
-}
-
-tasks.register('geoToolsMapLiveTest', JavaExec) {
-    group = 'verification'
-    description = 'Loads a real ORK file, runs 100 Monte Carlo trajectories, and opens the GeoTools diagnostic viewer.'
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'info.openrocket.swing.gui.simulation.GeoToolsMapLiveDiagnostic'
-    workingDir = rootProject.projectDir
-    systemProperty 'java.awt.headless', System.getProperty('java.awt.headless', 'false')
-
-    args '--ork=' + providers.gradleProperty('geoToolsOrk').getOrElse(
-                    rootProject.file('core/src/main/resources/datafiles/examples/A simple model rocket.ork').absolutePath),
-            '--runs=' + providers.gradleProperty('geoToolsRuns').getOrElse('100'),
-            '--latitude=' + providers.gradleProperty('geoToolsLatitude').getOrElse('35.1758'),
-            '--longitude=' + providers.gradleProperty('geoToolsLongitude').getOrElse('-76.8283'),
-            '--viewer-seconds=' + providers.gradleProperty('geoToolsViewerSeconds').getOrElse('20'),
-            '--output=' + providers.gradleProperty('geoToolsOutput').getOrElse(
-                    rootProject.layout.buildDirectory.dir('reports/geotools-live').get().asFile.absolutePath)
 }
 
 jacocoTestCoverageVerification {
