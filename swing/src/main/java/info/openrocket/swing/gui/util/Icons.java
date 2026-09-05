@@ -298,6 +298,9 @@ public class Icons {
 					0x006cb6, "OR.icons.plot"
 			));
 
+	public static final Icon SIM_MONTE_CARLO = loadToolbarImageIcon(
+			"pix/icons/monte-carlo.png", "Monte Carlo");
+
 	public static final Icon HELP_ABOUT = loadIcon(
 			"pix/icons/lucide/info.svg",
 			"pix/icons/help-about.png",
@@ -551,6 +554,15 @@ public class Icons {
 		}
 		ImageIcon icon = new ImageIcon(url, name);
 		return (ImageIcon) getScaledIcon(icon, prefs.getUIScale());
+	}
+
+	private static Icon loadToolbarImageIcon(String file, String name) {
+		ImageIcon icon = loadImageIcon(file, name);
+		if (icon == null || icon.getIconHeight() <= 0) {
+			return icon;
+		}
+		int height = (int) Math.round(prefs.getUIFontSize() * ICON_FONT_SIZE_MULTIPLIER);
+		return getScaledIcon(icon, (double) height / icon.getIconHeight());
 	}
 
 	/**

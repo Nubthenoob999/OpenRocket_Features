@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.util.List;
 import info.openrocket.core.simulation.montecarlo.MonteCarloMetric;
 import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
 
 /**
  * Writes Monte Carlo batch results into a "wide" CSV suitable for histogram/scatter plots.
@@ -94,7 +95,12 @@ public final class MonteCarloCsvExporter {
               .append("shear_delta_mps,shear_delta_mph,")
               .append("delta_wind_impulse_mps_s,max_tilt_deg,max_aoa_deg,")
               .append("cd_mult_sigma,thrust_mult_sigma,mass_mult_sigma,")
-              .append("cd_mult_used,thrust_mult_used,mass_mult_used,");
+              .append("cd_mult_used,thrust_mult_used,mass_mult_used,")
+              .append("table_valid,table_total_queries,table_successful_queries,table_interpolated_queries,")
+              .append("table_reynolds_corrected_queries,table_fallback_count,table_failure_counts,")
+              .append("table_runtime_flags,table_first_failure_reason,table_first_failure_time_s,")
+              .append("table_first_failure_mach,table_first_failure_alpha_rad,table_first_failure_beta_rad,")
+              .append("table_first_failure_powered_fraction,table_first_failure_reynolds,table_first_failure_detail,");
 
 		for (MonteCarloParameter parameter : MonteCarloParameter.values()) {
 			header.append("setting_").append(parameter.name().toLowerCase()).append(',')
@@ -179,6 +185,8 @@ public final class MonteCarloCsvExporter {
            .append(r.thrustMultiplierUsed).append(",")
            .append(r.massMultiplierUsed).append(",");
 
+		appendTableRuntime(row, r.physicsAeroRuntimeReport);
+
 		for (MonteCarloParameter parameter : MonteCarloParameter.values()) {
 			row.append(csv(r.uncertaintySettings.get(parameter))).append(',')
 					.append(r.sampledVariations.getOrDefault(parameter, 0.0)).append(',');
@@ -217,6 +225,27 @@ public final class MonteCarloCsvExporter {
         row.append("\n"); // explicit newline
         w.write(row.toString());
     }
+
+	private static void appendTableRuntime(StringBuilder row, PhysicsAeroRuntimeReport report) {
+		PhysicsAeroRuntimeReport r = report == null ? PhysicsAeroRuntimeReport.disabled() : report;
+		row.append(r.tableValid()).append(',').append(r.totalQueries()).append(',')
+				.append(r.successfulTableQueries()).append(',').append(r.interpolatedQueries()).append(',')
+				.append(r.reynoldsCorrectedQueries()).append(',').append(r.fallbackCount()).append(',')
+				.append(csv(r.failureCounts().toString())).append(',')
+				.append(csv(r.runtimeFlags().toString())).append(',');
+		if (r.firstOccurrences().isEmpty()) {
+			row.append(",,,,,,,,");
+			return;
+		}
+		var entry = r.firstOccurrences().entrySet().iterator().next();
+		var occurrence = entry.getValue();
+		var coordinates = occurrence.coordinates();
+		row.append(entry.getKey().name()).append(',')
+				.append(occurrence.simulationTimeSeconds()).append(',')
+				.append(coordinates.mach()).append(',').append(coordinates.alphaRad()).append(',')
+				.append(coordinates.betaRad()).append(',').append(coordinates.poweredFraction()).append(',')
+				.append(coordinates.reynoldsNumber()).append(',').append(csv(occurrence.detail())).append(',');
+	}
 
     private static String csv(String s) {
         if (s == null) return "";

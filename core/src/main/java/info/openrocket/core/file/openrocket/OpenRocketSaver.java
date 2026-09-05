@@ -35,6 +35,8 @@ import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
 import info.openrocket.core.simulation.FlightDataType;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
+import info.openrocket.core.montecarlo.MonteCarloAnalysisCodec;
 import info.openrocket.core.simulation.FlightEvent;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.simulation.customexpression.CustomExpression;
@@ -231,7 +233,7 @@ public class OpenRocketSaver extends RocketSaver {
 		/*
 		 * NOTE:  Remember to update the supported versions in DocumentConfig as well!
 		 */
-		return FILE_VERSION_DIVISOR + 11;
+		return FILE_VERSION_DIVISOR + 12;
 		
 	}
 	
@@ -458,6 +460,15 @@ public class OpenRocketSaver extends RocketSaver {
 			}
 			indent--;
 			writeln("</extension>");
+		}
+
+		// Monte Carlo summaries are compact, user-authored analysis results and are
+		// persisted independently of the regular full-flight-data preference.
+		MonteCarloAnalysis monteCarloAnalysis = simulation.getMonteCarloAnalysis();
+		if (monteCarloAnalysis != null) {
+			writeln("<montecarloanalysis version=\"" + MonteCarloAnalysis.FORMAT_VERSION + "\">" +
+					TextUtil.escapeXML(MonteCarloAnalysisCodec.encode(monteCarloAnalysis)) +
+					"</montecarloanalysis>");
 		}
 		
 		// Write basic simulation data

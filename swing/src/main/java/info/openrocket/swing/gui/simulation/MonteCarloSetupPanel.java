@@ -1,7 +1,10 @@
 package info.openrocket.swing.gui.simulation;
 
 import info.openrocket.core.document.Simulation;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver;
+import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
 import info.openrocket.core.montecarlo.MonteCarloBatchRunner;
 import info.openrocket.core.montecarlo.MonteCarloCsvExporter;
 import info.openrocket.core.montecarlo.MonteCarloExtension;
@@ -61,8 +64,8 @@ import java.util.function.DoubleConsumer;
 /**
  * Monte Carlo setup UI: every perturbation setting plus the batch run / export strip.
  *
- * Hosted by the native Monte Carlo tab of the simulation dialog
- * ({@link MonteCarloSimulationPanel}).
+ * Hosted by the dedicated Monte Carlo analysis window (the legacy panel can still
+ * embed it for compatibility tests).
  *
  * Layout:
  *   1) General settings strip (always visible at top)
@@ -95,6 +98,10 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 	private Runnable extensionAttachRequest = () -> { };
 
 	public MonteCarloSetupPanel(MonteCarloExtension extension, Simulation simulation) {
+		this(extension, simulation, true);
+	}
+
+	public MonteCarloSetupPanel(MonteCarloExtension extension, Simulation simulation, boolean includeBatchControls) {
 		this.extension = extension;
 		this.simulation = simulation;
 
@@ -107,6 +114,7 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		// ---- 2. Tabbed pane ----
 		JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
 		tabs.setFont(tabs.getFont().deriveFont(Font.BOLD, 12f));
+		tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 		tabs.addTab("Launch", buildLaunchTab(extension));
 		tabs.addTab("Atmosphere", buildAtmosphereTab(extension, simulation));
 		tabs.addTab("Disturbances", buildDisturbancesTab(extension));
@@ -114,7 +122,9 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		add(tabs, "growx, growy, push");
 
 		// ---- 3. Batch run / export ----
-		add(buildBatchPanel(extension, simulation), "growx");
+		if (includeBatchControls) {
+			add(buildBatchPanel(extension, simulation), "growx");
+		}
 	}
 
 	/** Wraps this panel in a scroll pane sized for narrow dialogs. */
@@ -184,12 +194,12 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		JCheckBox enabled = new JCheckBox("Enabled", ext.isEnabled());
 		enabled.setToolTipText("Master switch \u2014 uncheck to disable all Monte Carlo perturbations.");
 		enabled.addActionListener(e -> ext.setEnabled(enabled.isSelected()));
-		p.add(enabled, "span 2");
+		p.add(enabled, "span 4, wrap");
 
 		JCheckBox debug = new JCheckBox("Debug logging", ext.isDebugEnabled());
 		debug.setToolTipText("Log per-run perturbation values to the OpenRocket console.");
 		debug.addActionListener(e -> ext.setDebugEnabled(debug.isSelected()));
-		p.add(debug, "span 2, wrap");
+		p.add(debug, "span 4, wrap");
 
 		// Row 2: Number of simulations
 		p.add(new JLabel("Simulations"), "align label");
@@ -206,7 +216,28 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		nSpinner.addChangeListener(e -> ext.setNumberOfSimulations(((Number) nSpinner.getValue()).intValue()));
 		p.add(nSpinner, "span 3, growx, wrap");
 
-		// Row 3: Deterministic seed
+		// Parallelism is a run setting, not an export-only setting.  Keep it in the
+		// always-visible General section so hosts that provide their own Run button
+		// (notably MonteCarloDialog) do not accidentally hide it with the legacy
+		// batch/export controls.
+		p.add(new JLabel("Worker threads"), "align label");
+		int maxThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
+		int initialThreads = Math.min(Math.max(1, ext.getWorkerThreads()), maxThreads);
+		if (initialThreads != ext.getWorkerThreads()) ext.setWorkerThreads(initialThreads);
+		JSpinner threadsSpinner = new JSpinner(new SpinnerNumberModel(
+				(Number) Integer.valueOf(initialThreads),
+				(Comparable<Integer>) Integer.valueOf(1),
+				(Comparable<Integer>) Integer.valueOf(maxThreads),
+				(Number) Integer.valueOf(1)));
+		threadsSpinner.setName("MonteCarloWorkerThreads");
+		threadsSpinner.setEditor(new SpinnerEditor(threadsSpinner));
+		threadsSpinner.setToolTipText("Number of parallel JVM threads for the batch run (" +
+				Runtime.getRuntime().availableProcessors() + " cores detected).");
+		threadsSpinner.addChangeListener(e -> ext.setWorkerThreads(
+				((Number) threadsSpinner.getValue()).intValue()));
+		p.add(threadsSpinner, "span 3, growx, wrap");
+
+		// Row 4: Deterministic seed
 		p.add(new JLabel("Seed"), "align label");
 		JCheckBox deterministicSeed = new JCheckBox("Deterministic", ext.isUseDeterministicSeed());
 		deterministicSeed.setToolTipText("Use a fixed seed for reproducible results.");
@@ -460,22 +491,6 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		p.setLayout(new MigLayout("ins 8, wrap 4, gap 6 4",
 			"[grow 0][grow][grow][grow 0]"));
 
-		// Worker threads
-		p.add(new JLabel("Worker threads"), "align label");
-		int maxThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
-		int initialThreads = Math.min(Math.max(1, ext.getWorkerThreads()), maxThreads);
-		JSpinner threadsSpinner = new JSpinner(new SpinnerNumberModel(
-				(Number) Integer.valueOf(initialThreads),
-				(Comparable<Integer>) Integer.valueOf(1),
-				(Comparable<Integer>) Integer.valueOf(maxThreads),
-				(Number) Integer.valueOf(1)));
-		threadsSpinner.setEditor(new SpinnerEditor(threadsSpinner));
-		threadsSpinner.setToolTipText("Number of parallel JVM threads for the batch run (" +
-				Runtime.getRuntime().availableProcessors() + " cores detected).");
-		threadsSpinner.addChangeListener(e -> ext.setWorkerThreads(
-				((Number) threadsSpinner.getValue()).intValue()));
-		p.add(threadsSpinner, "span 3, growx, wrap");
-
 		// Auto-export controls
 		JCheckBox autoExportCheckBox = new JCheckBox("Auto-export after batch", ext.isAutoExportEnabled());
 		autoExportCheckBox.setToolTipText("Automatically export CSV/KML/PNG/PDF files when a batch run finishes.");
@@ -575,7 +590,10 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 					MonteCarloSettings settings = MonteCarloBatchRunner.buildSettings(ext, runs, threads);
 					MonteCarloResult analysis = LandingDispersionAnalysisCache.get(sim, settings);
 					if (analysis == null) {
-						analysis = MonteCarloBatchRunner.runAnalysis(sim, settings,
+						boolean useTable = ext.isUsePhysicsAeroTable();
+						AerodynamicTable table = useTable ? new PhysicsAeroTableResolver().resolve(
+								sim.getActiveConfiguration(), sim.getOptions().getPhysicsAeroSettings()) : null;
+						analysis = MonteCarloBatchRunner.runAnalysis(sim, settings, useTable, table,
 								(completed, total) -> SwingUtilities.invokeLater(() -> {
 									progress.setMaximum(total);
 									progress.setValue(completed);
@@ -681,10 +699,11 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		return p;
 	}
 
-	/** Shares completed results with the store and every registered listener. */
+	/** Attaches completed results to the simulation and notifies registered listeners. */
 	private void publishResults(List<MonteCarloRunRecord> results) {
 		if (simulation != null && results != null) {
-			MonteCarloResultsStore.put(simulation, results);
+			simulation.setMonteCarloAnalysis(MonteCarloAnalysis.completed(
+					simulation, extension, results, extension.isUsePhysicsAeroTable()));
 		}
 		for (Consumer<List<MonteCarloRunRecord>> listener : resultsListeners) {
 			listener.accept(results);
@@ -784,7 +803,7 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		return DECIMAL.format(value);
 	}
 
-	private static String[] exportBatchResults(Simulation sim,
+	public static String[] exportBatchResults(Simulation sim,
 											   List<MonteCarloRunRecord> results,
 											   Path outDir) throws Exception {
 		String orkStem = resolveCurrentOrkStem(sim);

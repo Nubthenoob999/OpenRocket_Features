@@ -17,10 +17,10 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * Persistent backing state for OpenRocket's native Monte Carlo simulation tab.
+ * Persistent backing state for OpenRocket's native Monte Carlo analysis window.
  *
  * The historical simulation-extension ID is retained so existing {@code .ork} files remain
- * readable.  It is managed by the simulation dialog and is not offered as an add-on extension.
+ * readable.  It is managed by the top-level workflow and is not offered as an add-on extension.
  *
  * <p><b>Persistence (run-to-run / .ork save-load):</b>
  * OpenRocket persists a simulation extension's settings into the <code>.ork</code> file via the
@@ -87,6 +87,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
     private static final String K_WORKER_THREADS = CFG_PREFIX + "workerThreads";
     private static final String K_AUTO_EXPORT_ENABLED = CFG_PREFIX + "autoExportEnabled";
     private static final String K_AUTO_EXPORT_DIRECTORY = CFG_PREFIX + "autoExportDirectory";
+    private static final String K_USE_PHYSICS_AERO_TABLE = CFG_PREFIX + "usePhysicsAeroTable";
 
     // ---------------------------------------------------------------------
     // Gust / Shear disturbance keys (per-step wind deltas)
@@ -147,6 +148,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
     private static final int D_WORKER_THREADS = 1;
     private static final boolean D_AUTO_EXPORT_ENABLED = true;
     private static final String D_AUTO_EXPORT_DIRECTORY = "";
+    private static final boolean D_USE_PHYSICS_AERO_TABLE = false;
 
     // Gust defaults
     private static final boolean D_GUST_ENABLED = false;
@@ -1290,6 +1292,16 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         fireChangeEvent();
     }
 
+    /** Whether Monte Carlo worker clones should use each simulation's stored aerodynamics table. */
+    public boolean isUsePhysicsAeroTable() {
+        return cfgBool(K_USE_PHYSICS_AERO_TABLE, D_USE_PHYSICS_AERO_TABLE);
+    }
+
+    public void setUsePhysicsAeroTable(boolean usePhysicsAeroTable) {
+        cfgPutBool(K_USE_PHYSICS_AERO_TABLE, usePhysicsAeroTable);
+        fireChangeEvent();
+    }
+
     /**
      * Copies all user-configurable, persisted settings from another extension instance
      * into this instance.
@@ -1360,6 +1372,7 @@ public class MonteCarloExtension extends AbstractSimulationExtension {
         cfgPutInt(K_WORKER_THREADS, other.getWorkerThreads());
         cfgPutBool(K_AUTO_EXPORT_ENABLED, other.isAutoExportEnabled());
         cfgPutString(K_AUTO_EXPORT_DIRECTORY, other.getAutoExportDirectory());
+        cfgPutBool(K_USE_PHYSICS_AERO_TABLE, other.isUsePhysicsAeroTable());
     }
 
     // -------------------------------------------------------------------------

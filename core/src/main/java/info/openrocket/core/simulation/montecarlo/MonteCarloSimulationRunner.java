@@ -12,6 +12,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 
 import info.openrocket.core.document.Simulation;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroQueryException;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel;
 import info.openrocket.core.models.wind.MultiLevelPinkNoiseWindModel.LevelWindModel;
 import info.openrocket.core.models.wind.WindModelType;
@@ -56,6 +59,22 @@ public final class MonteCarloSimulationRunner {
 	 */
 	public MonteCarloResult run(Simulation simulation, MonteCarloSettings settings,
 			MonteCarloProgressListener progressListener) {
+		return runInternal(simulation, settings, progressListener, null);
+	}
+
+	/** Run with an explicit Monte Carlo table policy and an already validated table. */
+	public MonteCarloResult run(Simulation simulation, MonteCarloSettings settings,
+			MonteCarloProgressListener progressListener, boolean usePhysicsTable,
+			AerodynamicTable resolvedPhysicsTable) {
+		if (usePhysicsTable && resolvedPhysicsTable == null) {
+			throw new IllegalArgumentException("A resolved physics table is required when table use is enabled");
+		}
+		return runInternal(simulation, settings, progressListener,
+				new RunContext(usePhysicsTable, resolvedPhysicsTable));
+	}
+
+	private MonteCarloResult runInternal(Simulation simulation, MonteCarloSettings settings,
+			MonteCarloProgressListener progressListener, RunContext context) {
 		Objects.requireNonNull(simulation, "simulation");
 		Objects.requireNonNull(settings, "settings");
 		Objects.requireNonNull(progressListener, "progressListener");
@@ -64,7 +83,8 @@ public final class MonteCarloSimulationRunner {
 		long start = System.currentTimeMillis();
 		int totalTrajectories = settings.getRunCount() + 1;
 
-		MonteCarloRunResult nominal = runTrajectory(simulation, MonteCarloSample.nominal(settings.getSeed()));
+		MonteCarloRunResult nominal = runTrajectory(simulation,
+				MonteCarloSample.nominal(settings.getSeed()), context);
 		progressListener.onProgress(1, totalTrajectories);
 
 		// Sampling before submission makes it independent of worker scheduling.
@@ -75,19 +95,20 @@ public final class MonteCarloSimulationRunner {
 		}
 
 		List<MonteCarloRunResult> results = simulateAll(simulation, samples, settings.getThreadCount(),
-				progressListener, totalTrajectories);
+				progressListener, totalTrajectories, context);
 		return new MonteCarloResult(settings, nominal, results, System.currentTimeMillis() - start);
 	}
 
 	private List<MonteCarloRunResult> simulateAll(Simulation source, List<MonteCarloSample> samples,
-			int threadCount, MonteCarloProgressListener progressListener, int totalTrajectories) {
+			int threadCount, MonteCarloProgressListener progressListener, int totalTrajectories,
+			RunContext context) {
 		ExecutorService executor = Executors.newFixedThreadPool(Math.min(threadCount, samples.size()),
 				workerThreadFactory());
 		ExecutorCompletionService<MonteCarloRunResult> completionService =
 				new ExecutorCompletionService<>(executor);
 		try {
 			for (MonteCarloSample sample : samples) {
-				completionService.submit(() -> runTrajectory(source, sample));
+				completionService.submit(() -> runTrajectory(source, sample, context));
 			}
 
 			// Collect in completion order for accurate progress, then restore run order.
@@ -153,17 +174,26 @@ public final class MonteCarloSimulationRunner {
 	 * @param sample sampled deviations to apply
 	 * @return the trajectory outcome
 	 */
-	private MonteCarloRunResult runTrajectory(Simulation source, MonteCarloSample sample) {
+	private MonteCarloRunResult runTrajectory(Simulation source, MonteCarloSample sample,
+			RunContext context) {
 		checkCancellation();
 
 		Simulation simulation = source.duplicateForIndependentSimulation();
 		SimulationOptions options = simulation.getOptions();
+		if (context != null && !context.usePhysicsTable()) {
+			options.setPhysicsAeroMode(PhysicsAeroMode.OFF);
+		}
 		applySampledOptions(options, sample);
 		configureAuxiliaryExtensions(simulation, sample);
 
 		String failure = null;
 		try {
-			simulation.simulate(new MonteCarloVariationListener(sample), InterruptListener.INSTANCE);
+			if (context != null && context.usePhysicsTable()) {
+				simulation.simulateWithResolvedPhysicsAeroTable(context.table(),
+						new MonteCarloVariationListener(sample), InterruptListener.INSTANCE);
+			} else {
+				simulation.simulate(new MonteCarloVariationListener(sample), InterruptListener.INSTANCE);
+			}
 		} catch (SimulationCancelledException exception) {
 			throw new CancellationException(exception.getMessage());
 		} catch (CancellationException exception) {
@@ -173,6 +203,8 @@ public final class MonteCarloSimulationRunner {
 			if (failure == null || failure.isBlank()) {
 				failure = exception.getClass().getSimpleName();
 			}
+		} catch (PhysicsAeroQueryException exception) {
+			failure = exception.getMessage();
 		}
 
 		FlightData data = simulation.getSimulatedData();
@@ -190,8 +222,11 @@ public final class MonteCarloSimulationRunner {
 		double maximumAltitude = data != null ? data.getMaxAltitude() : Double.NaN;
 		double flightTime = data != null ? data.getFlightTime() : Double.NaN;
 		return new MonteCarloRunResult(sample, landingPoints, bodyFailures, branchResults,
-				maximumAltitude, flightTime, failure, gustMetrics, windProfile);
+				maximumAltitude, flightTime, failure, gustMetrics, windProfile,
+				simulation.getPhysicsAeroRuntimeReport());
 	}
+
+	private record RunContext(boolean usePhysicsTable, AerodynamicTable table) { }
 
 	private static void configureAuxiliaryExtensions(Simulation simulation, MonteCarloSample sample) {
 		if (sample.getRunNumber() == 0) return;

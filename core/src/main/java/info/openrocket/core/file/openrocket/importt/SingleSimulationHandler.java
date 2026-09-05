@@ -23,6 +23,8 @@ import info.openrocket.core.simulation.extension.impl.JavaCode;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.Config;
 import info.openrocket.core.util.StringUtils;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
+import info.openrocket.core.montecarlo.MonteCarloAnalysisCodec;
 
 import com.google.inject.Key;
 
@@ -41,6 +43,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 	private ConfigHandler configHandler;
 	private FlightDataHandler dataHandler;
 	private boolean legacyAerodynamicsEncountered;
+	private MonteCarloAnalysis monteCarloAnalysis;
 
 	private final List<SimulationExtension> extensions = new ArrayList<>();
 
@@ -59,7 +62,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 
 		if (element.equals("name") || element.equals("simulator") ||
 				element.equals("calculator") || element.equals("listener") || element.equals("romdragsurface") ||
-				element.equals("romdragsurface4d")) {
+				element.equals("romdragsurface4d") || element.equals("montecarloanalysis")) {
 			return PlainTextHandler.INSTANCE;
 		} else if (element.equals("conditions")) {
 			conditionHandler = new SimulationConditionsHandler(doc.getRocket(), context);
@@ -99,6 +102,13 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		} else if (element.equals("romdragsurface") || element.equals("romdragsurface4d")) {
 			legacyAerodynamicsEncountered = true;
 			warnings.add(SimulationConditionsHandler.LEGACY_AERODYNAMICS_WARNING);
+		} else if (element.equals("montecarloanalysis")) {
+			try {
+				monteCarloAnalysis = MonteCarloAnalysisCodec.decode(content);
+			} catch (Exception exception) {
+				warnings.add("Saved Monte Carlo results could not be loaded and were ignored: "
+						+ exception.getMessage());
+			}
 		} else if (element.equals("extension") && !StringUtils.isEmpty(attributes.get("extensionid"))) {
 			String id = attributes.get("extensionid");
 			id = id.replace("net.sf.openrocket", "info.openrocket.core");
@@ -174,6 +184,7 @@ class SingleSimulationHandler extends AbstractElementHandler {
 		Simulation simulation = new Simulation(doc, doc.getRocket(), status, name,
 				options, extensions, data);
 		simulation.setFlightConfigurationId(idToSet);
+		simulation.setLoadedMonteCarloAnalysis(monteCarloAnalysis);
 
 		doc.addSimulation(simulation);
 	}

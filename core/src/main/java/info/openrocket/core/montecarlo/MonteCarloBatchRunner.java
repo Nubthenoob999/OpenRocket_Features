@@ -21,6 +21,7 @@ import info.openrocket.core.simulation.montecarlo.MonteCarloResult;
 import info.openrocket.core.simulation.montecarlo.MonteCarloRunResult;
 import info.openrocket.core.simulation.montecarlo.MonteCarloSettings;
 import info.openrocket.core.simulation.montecarlo.MonteCarloSimulationRunner;
+import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 
 /**
  * Compatibility facade used by the simulation-extension UI. Trajectories are
@@ -140,6 +141,13 @@ public final class MonteCarloBatchRunner {
 		return toLegacyRecords(source, result, source.getOptions().clone());
 	}
 
+	public static MonteCarloResult runAnalysis(Simulation simulation, MonteCarloSettings settings,
+			boolean usePhysicsTable, AerodynamicTable table, ProgressCallback callback) {
+		return new MonteCarloSimulationRunner().run(simulation, settings, (completed, total) -> {
+			if (callback != null) callback.onProgress(completed, total);
+		}, usePhysicsTable, table);
+	}
+
 	public static List<MonteCarloRunRecord> toLegacyRecords(Simulation source, MonteCarloResult result,
 			SimulationOptions batchOptions) {
 		Objects.requireNonNull(source, "source");
@@ -229,7 +237,8 @@ public final class MonteCarloBatchRunner {
 		record.windDisturbanceSample = windProfile == null ? "" : windProfile.toAuditString();
         record.sampledVariations = run.sample().getVariations();
 		record.uncertaintySettings = uncertaintySettings(extension);
-        record.bodyResults = buildBodyResults(run, data.launchLat_deg, data.launchLon_deg);
+		record.bodyResults = buildBodyResults(run, data.launchLat_deg, data.launchLon_deg);
+		record.physicsAeroRuntimeReport = run.physicsAeroRuntimeReport();
         record.setLandingEastM(data.landingEast_m);
         record.setLandingNorthM(data.landingNorth_m);
         record.setLandingLatDeg(data.landingLat_deg);

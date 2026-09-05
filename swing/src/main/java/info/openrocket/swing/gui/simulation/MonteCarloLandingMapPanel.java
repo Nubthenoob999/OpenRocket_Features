@@ -3,6 +3,7 @@ package info.openrocket.swing.gui.simulation;
 import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.Font;
+import java.awt.Dimension;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,7 +17,9 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTable;
+import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
 
 import info.openrocket.core.montecarlo.LandingDispersion6DOF;
@@ -69,12 +72,11 @@ final class MonteCarloLandingMapPanel extends JPanel {
 
 	MonteCarloLandingMapPanel(OpenStreetMapPanel mapPanel) {
 		this.mapPanel = mapPanel;
-		setLayout(new MigLayout("fill, ins 0, wrap 1, hidemode 3", "[grow,fill]", "[]4[grow,fill]4[]4[150!]4[]"));
+		setLayout(new MigLayout("fill, ins 0, wrap 1, hidemode 3", "[grow,fill]", "[]4[grow,fill]4[]"));
+		setMinimumSize(new Dimension(0, 0));
 		add(buildToolbar(), "growx");
-		add(mapPanel, "grow, push");
 
 		coordinateLabel.setFont(coordinateLabel.getFont().deriveFont(Font.PLAIN));
-		add(coordinateLabel, "growx");
 
 		coordinateModel = new DefaultTableModel(new Object[] {
 				"Run", "Body", "Latitude", "Longitude", "East (m)", "North (m)"
@@ -86,7 +88,23 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		};
 		coordinateTable = new JTable(coordinateModel);
 		coordinateTable.setAutoCreateRowSorter(true);
-		add(new JScrollPane(coordinateTable), "growx, hmin 130");
+		JScrollPane coordinateScroll = new JScrollPane(coordinateTable);
+		coordinateScroll.setMinimumSize(new Dimension(0, 70));
+
+		JPanel mapArea = new JPanel(new MigLayout("fill, ins 0, wrap 1", "[grow,fill]", "[grow,fill]2[]"));
+		mapArea.setMinimumSize(new Dimension(0, 100));
+		mapArea.add(mapPanel, "grow, push");
+		mapArea.add(coordinateLabel, "growx, wmin 0");
+
+		JSplitPane contentSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mapArea, coordinateScroll);
+		contentSplit.setResizeWeight(0.78);
+		contentSplit.setContinuousLayout(true);
+		contentSplit.setOneTouchExpandable(true);
+		contentSplit.setMinimumSize(new Dimension(0, 0));
+		add(contentSplit, "grow, push");
+		SwingUtilities.invokeLater(() -> {
+			if (contentSplit.isDisplayable()) contentSplit.setDividerLocation(0.78);
+		});
 
 		statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN));
 		add(statusLabel, "growx");
@@ -99,13 +117,14 @@ final class MonteCarloLandingMapPanel extends JPanel {
 	}
 
 	private JPanel buildToolbar() {
-		JPanel toolbar = new JPanel(new MigLayout("ins 0, gap 6",
-				"[][][][][][][]push[][][][][]"));
+		JPanel toolbar = new JPanel(new MigLayout("ins 0, fillx, gap 6 4",
+				"[][grow,fill][][]", "[][][]"));
+		toolbar.setMinimumSize(new Dimension(0, 0));
 		toolbar.add(new JLabel("Body"));
 		bodyCombo.addActionListener(event -> {
 			if (!updatingBodyChoices) rebuildOverlays(false);
 		});
-		toolbar.add(bodyCombo, "wmin 150");
+		toolbar.add(bodyCombo, "growx, wmin 100");
 
 		showLandings.addActionListener(event -> rebuildOverlays(false));
 		showMeans.addActionListener(event -> rebuildOverlays(false));
@@ -113,8 +132,8 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		showTwoSigma.addActionListener(event -> rebuildOverlays(false));
 		showThreeSigma.addActionListener(event -> rebuildOverlays(false));
 		toolbar.add(showLandings);
-		toolbar.add(showMeans);
-		toolbar.add(showOneSigma);
+		toolbar.add(showMeans, "wrap");
+		toolbar.add(showOneSigma, "span 4, split 6");
 		toolbar.add(showTwoSigma);
 		toolbar.add(showThreeSigma);
 
@@ -129,7 +148,7 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		JButton fit = new JButton("Fit");
 		fit.setToolTipText("Fit the launch site, landings, and visible dispersion rings.");
 		fit.addActionListener(event -> mapPanel.fitToOverlays());
-		toolbar.add(fit);
+		toolbar.add(fit, "wrap");
 
 		JButton reloadTiles = new JButton("Reload map");
 		reloadTiles.setToolTipText("Retry any OpenStreetMap tiles that failed to download.");
@@ -137,7 +156,7 @@ final class MonteCarloLandingMapPanel extends JPanel {
 			statusLabel.setText("Retrying OpenStreetMap tiles...");
 			mapPanel.retryFailedTiles();
 		});
-		toolbar.add(reloadTiles);
+		toolbar.add(reloadTiles, "span 2");
 
 		JLabel attribution = new JLabel("<html><a href=''>© OpenStreetMap contributors</a></html>");
 		attribution.setToolTipText("Open OpenStreetMap copyright and attribution information.");
@@ -147,7 +166,7 @@ final class MonteCarloLandingMapPanel extends JPanel {
 				openAttributionPage();
 			}
 		});
-		toolbar.add(attribution, "gapleft 8");
+		toolbar.add(attribution, "span 2, growx, wmin 0, gapleft 8");
 		return toolbar;
 	}
 

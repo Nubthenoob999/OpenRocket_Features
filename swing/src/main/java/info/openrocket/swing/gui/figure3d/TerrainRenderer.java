@@ -54,6 +54,15 @@ public final class TerrainRenderer {
      * @param textureId a 2D sand texture name to modulate over the surface, or 0 for none
      */
     public static void render(GL2 gl, TerrainData t, boolean desert, int textureId) {
+		render(gl, t, desert, textureId, false);
+	}
+
+	/**
+	 * Draws terrain with either a repeating material texture or a single georeferenced image.
+	 * Geographic imagery spans the complete grid: west-to-east in U and south-to-north in V.
+	 */
+	public static void render(GL2 gl, TerrainData t, boolean desert, int textureId,
+			boolean geographicTexture) {
         if (t == null || t.gridSize < 2) {
             return;
         }
@@ -164,13 +173,13 @@ public final class TerrainRenderer {
         gl.glBegin(GL2.GL_TRIANGLES);
         for (int r = 0; r < n - 1; r++) {
             for (int c = 0; c < n - 1; c++) {
-                emit(gl, r, c, n, vx, vy, vz, nx, ny, nz, col, textured);
-                emit(gl, r + 1, c, n, vx, vy, vz, nx, ny, nz, col, textured);
-                emit(gl, r + 1, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured);
+                emit(gl, r, c, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
+                emit(gl, r + 1, c, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
+                emit(gl, r + 1, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
 
-                emit(gl, r, c, n, vx, vy, vz, nx, ny, nz, col, textured);
-                emit(gl, r + 1, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured);
-                emit(gl, r, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured);
+                emit(gl, r, c, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
+                emit(gl, r + 1, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
+                emit(gl, r, c + 1, n, vx, vy, vz, nx, ny, nz, col, textured, geographicTexture);
             }
         }
         gl.glEnd();
@@ -178,19 +187,45 @@ public final class TerrainRenderer {
         if (textured) {
             gl.glDisable(GL.GL_TEXTURE_2D);
         }
+		renderEdgeSkirt(gl, t, vx, vy, vz, col);
         gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GL2.GL_SPECULAR, new float[]{ 0f, 0f, 0f, 1f }, 0);
         gl.glDisable(GL2.GL_COLOR_MATERIAL);
     }
 
+	/** Closes the four terrain edges so a raised DEM cannot reveal the horizon plane underneath. */
+	private static void renderEdgeSkirt(GL2 gl, TerrainData t, double[][] vx, double[][] vy,
+			double[][] vz, float[] colors) {
+		int n = t.gridSize;
+		double bottom = t.minElevation - t.centerElevation - Math.max(5.0, t.maxElevation - t.minElevation);
+		for (int edge = 0; edge < 4; edge++) {
+			gl.glBegin(GL2.GL_QUAD_STRIP);
+			for (int i = 0; i < n; i++) {
+				int r = edge == 0 ? 0 : edge == 1 ? n - 1 : i;
+				int c = edge == 2 ? 0 : edge == 3 ? n - 1 : i;
+				int ci = (r * n + c) * 3;
+				gl.glColor3f(colors[ci] * 0.72f, colors[ci + 1] * 0.72f, colors[ci + 2] * 0.72f);
+				gl.glNormal3d(edge == 2 ? -1 : edge == 3 ? 1 : 0, 0,
+						edge == 0 ? 1 : edge == 1 ? -1 : 0);
+				gl.glVertex3d(vx[r][c], vy[r][c], vz[r][c]);
+				gl.glVertex3d(vx[r][c], bottom, vz[r][c]);
+			}
+			gl.glEnd();
+		}
+	}
+
     private static void emit(GL2 gl, int r, int c, int n,
                              double[][] vx, double[][] vy, double[][] vz,
                              double[][] nx, double[][] ny, double[][] nz,
-                             float[] col, boolean textured) {
+                             float[] col, boolean textured, boolean geographicTexture) {
         int ci = (r * n + c) * 3;
         gl.glColor3f(col[ci], col[ci + 1], col[ci + 2]);
         gl.glNormal3d(nx[r][c], ny[r][c], nz[r][c]);
         if (textured) {
-            gl.glTexCoord2d(vx[r][c] / TEXTURE_TILE_METERS, vz[r][c] / TEXTURE_TILE_METERS);
+			if (geographicTexture) {
+				gl.glTexCoord2d(c / (double) (n - 1), r / (double) (n - 1));
+			} else {
+				gl.glTexCoord2d(vx[r][c] / TEXTURE_TILE_METERS, vz[r][c] / TEXTURE_TILE_METERS);
+			}
         }
         gl.glVertex3d(vx[r][c], vy[r][c], vz[r][c]);
     }

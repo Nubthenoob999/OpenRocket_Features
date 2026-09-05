@@ -7,7 +7,9 @@ import info.openrocket.core.montecarlo.LandingDispersion6DOF.Ellipse;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF.LandingPoint;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF.Summary;
 import info.openrocket.core.montecarlo.MonteCarloRunRecord;
+import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.simulation.SimulationOptions;
+import info.openrocket.core.startup.Application;
 import net.miginfocom.swing.MigLayout;
 
 import org.jfree.chart.ChartFactory;
@@ -21,6 +23,7 @@ import org.jfree.chart.plot.XYPlot;
 import org.jfree.chart.renderer.category.BarRenderer;
 import org.jfree.chart.renderer.category.BoxAndWhiskerRenderer;
 import org.jfree.chart.renderer.category.StandardBarPainter;
+import org.jfree.chart.renderer.xy.AbstractXYItemRenderer;
 import org.jfree.chart.renderer.xy.XYBarRenderer;
 import org.jfree.chart.renderer.xy.XYItemRenderer;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
@@ -42,11 +45,13 @@ import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 
 import java.awt.BasicStroke;
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -65,13 +70,14 @@ import java.util.function.ToDoubleFunction;
  *
  * Reads the records published by {@link MonteCarloSetupPanel} (directly through
  * {@link #setResults(List)} while the dialog is open, or from
- * {@link MonteCarloResultsStore} when the dialog is reopened) and renders them as
+ * the simulation-owned persisted analysis when the window is reopened) and renders them as
  * a landing-dispersion scatter with sigma ellipses, histograms, empirical CDFs,
  * metric-vs-metric scatters and per-run series, alongside a summary statistics table.
  *
  * Plot values are in SI units (m, m/s, s, degrees), matching the exported CSV columns.
  */
 public class MonteCarloVisualizationPanel extends JPanel {
+	private static final Translator trans = Application.getTranslator();
 
 	private static final DecimalFormat DECIMAL =
 			new DecimalFormat("0.###", DecimalFormatSymbols.getInstance(Locale.US));
@@ -87,13 +93,15 @@ public class MonteCarloVisualizationPanel extends JPanel {
 
 	/** Charts that can be rendered from a batch. */
 	private enum PlotType {
-		LANDING_DISPERSION("Landing dispersion (E/N)"),
 		HISTOGRAM("Histogram"),
 		BAR_CHART("Bar chart (summary)"),
 		BOX_AND_WHISKER("Box-and-whisker"),
 		CDF("Cumulative distribution"),
 		SCATTER("Scatter (X vs Y)"),
-		RUN_SERIES("Value per run");
+		RUN_SERIES("Value per run"),
+		LINE("Line (per run)"),
+		AREA("Area (per run)"),
+		RUN_BAR("Bar chart (per run)");
 
 		private final String label;
 
@@ -173,29 +181,52 @@ public class MonteCarloVisualizationPanel extends JPanel {
 	private final JLabel xMetricLabel = new JLabel("X");
 	private final JLabel yMetricLabel = new JLabel("Y");
 	private final JLabel binLabel = new JLabel("Bins");
-	private final JLabel statusLabel = new JLabel();
+	private final JTextArea statusLabel = SimulationTabLayoutUtils.createWrappingDisplayText("");
+	private final JTextArea landingStatusLabel = SimulationTabLayoutUtils.createWrappingDisplayText("");
 
+	private final ChartPanel landingChartPanel;
 	private final ChartPanel chartPanel;
 	private final DefaultTableModel statsModel;
 	private final MonteCarloLandingMapPanel landingMapPanel;
+	private final DefaultTableModel runDetailsModel = new DefaultTableModel(new Object[] {
+			trans.get("MonteCarloResults.run"), trans.get("MonteCarloResults.seed"),
+			trans.get("MonteCarloResults.status"), trans.get("MonteCarloResults.apogee"),
+			trans.get("MonteCarloResults.flightTime"), trans.get("MonteCarloResults.tableQueries"),
+			trans.get("MonteCarloResults.tableFallbacks"), trans.get("MonteCarloResults.tableDiagnostic") }, 0) {
+		@Override public boolean isCellEditable(int row, int column) { return false; }
+	};
 
 	private List<MonteCarloRunRecord> records = List.of();
 
 	public MonteCarloVisualizationPanel(Simulation simulation) {
 		this.simulation = simulation;
 
-		setLayout(new MigLayout("fill, ins 0", "[grow, fill]", "[grow, fill]"));
-		JPanel chartView = new JPanel(new MigLayout("fill, ins 6, wrap 1, hidemode 3",
-				"[grow, fill]", "[]6[grow, fill]6[]6[]"));
-		chartView.add(buildToolbar(), "growx");
+		setLayout(new BorderLayout());
+		JPanel landingView = new JPanel(new MigLayout("fill, ins 6, wrap 1, hidemode 3",
+				"[grow, fill]", "[]6[grow, fill]6[]"));
+		landingView.setMinimumSize(new Dimension(0, 0));
+		landingView.add(buildLandingToolbar(), "growx");
+		landingChartPanel = createChartPanel(ChartFactory.createXYLineChart(
+				"Monte Carlo landing dispersion", "", "", new XYSeriesCollection()));
+		landingView.add(landingChartPanel, "grow, push");
+		landingStatusLabel.setFont(landingStatusLabel.getFont().deriveFont(Font.PLAIN));
+		landingView.add(landingStatusLabel, "growx");
+
+		// Keep the controls at their preferred height; a growing chart and table must not
+		// squeeze the plot selector and Fit buttons out of the window.
+		JPanel chartView = new JPanel(new BorderLayout(0, 6));
+		chartView.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+		chartView.setMinimumSize(new Dimension(0, 0));
+		chartView.add(buildToolbar(), BorderLayout.NORTH);
+		JPanel chartContent = new JPanel(new MigLayout("fill, ins 0, wrap 1",
+				"[0::,grow,fill]", "[120::,grow,fill]6[90:110:140,fill]6[pref!,fill]"));
+		chartContent.setMinimumSize(new Dimension(0, 0));
+		chartView.add(chartContent, BorderLayout.CENTER);
 
 		JFreeChart placeholder = ChartFactory.createXYLineChart(
 				"Monte Carlo results", "", "", new XYSeriesCollection());
-		chartPanel = new ChartPanel(placeholder);
-		chartPanel.setPreferredSize(new Dimension(720, 420));
-		chartPanel.setMouseWheelEnabled(true);
-		chartPanel.setBorder(BorderFactory.createEtchedBorder());
-		chartView.add(chartPanel, "grow, push");
+		chartPanel = createChartPanel(placeholder);
+		chartContent.add(chartPanel, "grow, push, wmin 0");
 
 		statsModel = new DefaultTableModel(new Object[] {
 				"Metric", "n", "Mean", "Std dev", "Min", "P5", "Median", "P95", "Max"
@@ -206,38 +237,97 @@ public class MonteCarloVisualizationPanel extends JPanel {
 			}
 		};
 		JTable statsTable = new JTable(statsModel);
-		statsTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+		// Scroll the table itself on narrow panes instead of clipping every metric and value.
+		statsTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+		for (int column = 0; column < statsTable.getColumnCount(); column++) {
+			statsTable.getColumnModel().getColumn(column).setPreferredWidth(column == 0 ? 180 : column == 1 ? 45 : 95);
+		}
 		JScrollPane statsScroll = new JScrollPane(statsTable);
-		statsScroll.setPreferredSize(new Dimension(720, 170));
+		statsScroll.setColumnHeaderView(statsTable.getTableHeader());
+		statsScroll.setMinimumSize(new Dimension(0, 90));
 		statsScroll.setBorder(BorderFactory.createTitledBorder("Summary statistics"));
-		chartView.add(statsScroll, "growx, hmin 150");
+		chartContent.add(statsScroll, "growx, wmin 0");
 
 		statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN));
-		chartView.add(statusLabel, "growx");
+		chartContent.add(statusLabel, "growx, wmin 0");
 
 		landingMapPanel = new MonteCarloLandingMapPanel();
+		JTable runDetails = new JTable(runDetailsModel);
+		runDetails.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+		JScrollPane runDetailsScroll = new JScrollPane(runDetails);
 		JTabbedPane resultViews = new JTabbedPane();
-		resultViews.addTab("Charts & statistics", chartView);
+		resultViews.addTab("Landing dispersion", landingView);
 		resultViews.addTab("Landing map", landingMapPanel);
-		add(resultViews, "grow, push");
+		resultViews.addTab("Run details", runDetailsScroll);
+		resultViews.addTab("Statistical plots", chartView);
+		resultViews.setMinimumSize(new Dimension(0, 0));
+		add(resultViews, BorderLayout.CENTER);
 
 		xMetricCombo.setSelectedItem(Metric.APOGEE);
 		yMetricCombo.setSelectedItem(Metric.LANDING_RANGE);
 
-		setResults(MonteCarloResultsStore.get(simulation));
+		setResults(simulation.getMonteCarloAnalysis() == null
+				? List.of() : simulation.getMonteCarloAnalysis().getRecords());
+	}
+
+	private static ChartPanel createChartPanel(JFreeChart chart) {
+		ChartPanel panel = new ChartPanel(chart);
+		panel.setMinimumSize(new Dimension(0, 120));
+		panel.setMinimumDrawWidth(0);
+		panel.setMinimumDrawHeight(0);
+		panel.setMaximumDrawWidth(Integer.MAX_VALUE);
+		panel.setMaximumDrawHeight(Integer.MAX_VALUE);
+		panel.setMouseWheelEnabled(true);
+		panel.setBorder(BorderFactory.createEtchedBorder());
+		return panel;
+	}
+
+	private JPanel buildLandingToolbar() {
+		JPanel bar = new JPanel(new MigLayout("ins 0, fillx", "[][][][grow][][]"));
+		bar.setMinimumSize(new Dimension(0, 0));
+
+		showEllipses.setToolTipText("Draw the 1\u03c3, 2\u03c3 and 3\u03c3 dispersion ellipses.");
+		showEllipses.addActionListener(e -> refreshLandingChart());
+		bar.add(showEllipses);
+
+		showNominal.setToolTipText("Overlay the unperturbed nominal run.");
+		showNominal.addActionListener(e -> {
+			refreshLandingChart();
+			refreshChart();
+		});
+		bar.add(showNominal);
+
+		splitBodies.setToolTipText("Plot each independently simulated body (sustainer, booster, ...) as its own series.");
+		splitBodies.addActionListener(e -> refreshLandingChart());
+		bar.add(splitBodies);
+
+		JButton fit = new JButton("Fit");
+		fit.setToolTipText("Reset the view to the landing cloud and visible dispersion ellipses.");
+		fit.addActionListener(e -> refreshLandingChart());
+		bar.add(fit, "cell 4 0");
+
+		JButton saveImage = new JButton("Save image...");
+		saveImage.setToolTipText("Save the landing-dispersion chart as a PNG file.");
+		saveImage.addActionListener(e -> saveChartImage(landingChartPanel));
+		bar.add(saveImage, "cell 5 0");
+		return bar;
 	}
 
 	private JPanel buildToolbar() {
-		JPanel bar = new JPanel(new MigLayout("ins 0, gap 6 4", "[][][][][][][][][][]push[][]"));
+		JPanel bar = new JPanel(new MigLayout("ins 0, fillx, wrap 2, gap 6 4, hidemode 3, novisualpadding",
+				"[][0::,grow,fill]"));
+		bar.setMinimumSize(new Dimension(0, 0));
 
-		bar.add(new JLabel("Plot"));
+		bar.add(new JLabel("Plot type"));
+		plotTypeCombo.setMaximumRowCount(PlotType.values().length);
+		plotTypeCombo.setToolTipText("Choose how to visualize the batch results.");
 		plotTypeCombo.addActionListener(e -> {
 			updateControlVisibility();
 			refreshChart();
 		});
 		bar.add(plotTypeCombo);
 
-		bar.add(xMetricLabel, "gapleft 8");
+		bar.add(xMetricLabel);
 		xMetricCombo.addActionListener(e -> refreshChart());
 		bar.add(xMetricCombo);
 
@@ -245,31 +335,26 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		yMetricCombo.addActionListener(e -> refreshChart());
 		bar.add(yMetricCombo);
 
-		bar.add(binLabel, "gapleft 8");
+		bar.add(binLabel);
 		binSpinner.addChangeListener(e -> refreshChart());
-		bar.add(binSpinner, "w 60!");
-
-		showEllipses.setToolTipText("Draw the 1\u03c3, 2\u03c3 and 3\u03c3 dispersion ellipses.");
-		showEllipses.addActionListener(e -> refreshChart());
-		bar.add(showEllipses, "gapleft 8");
-
-		showNominal.setToolTipText("Overlay the unperturbed nominal run.");
-		showNominal.addActionListener(e -> refreshChart());
-		bar.add(showNominal);
-
-		splitBodies.setToolTipText("Plot each independently simulated body (sustainer, booster, ...) as its own series.");
-		splitBodies.addActionListener(e -> refreshChart());
-		bar.add(splitBodies);
+		bar.add(binSpinner, "growx, wmin 0");
 
 		JButton reload = new JButton("Reload");
 		reload.setToolTipText("Reload the most recent batch results for this simulation.");
-		reload.addActionListener(e -> setResults(MonteCarloResultsStore.get(simulation)));
-		bar.add(reload);
+		reload.addActionListener(e -> setResults(simulation.getMonteCarloAnalysis() == null
+				? List.of() : simulation.getMonteCarloAnalysis().getRecords()));
+		JPanel actions = new JPanel(new MigLayout("ins 0, fillx, gap 6 4, novisualpadding", "[][grow][][]"));
+		JButton fit = new JButton("Fit");
+		fit.setToolTipText("Reset both axes to show the complete statistical plot.");
+		fit.addActionListener(e -> chartPanel.restoreAutoBounds());
+		actions.add(fit);
+		actions.add(reload, "cell 2 0");
 
 		JButton saveImage = new JButton("Save image...");
-		saveImage.setToolTipText("Save the current chart as a PNG file.");
-		saveImage.addActionListener(e -> saveChartImage());
-		bar.add(saveImage);
+		saveImage.setToolTipText("Save the current statistical chart as a PNG file.");
+		saveImage.addActionListener(e -> saveChartImage(chartPanel));
+		actions.add(saveImage, "cell 3 0");
+		bar.add(actions, "span 2, growx");
 
 		return bar;
 	}
@@ -278,10 +363,38 @@ public class MonteCarloVisualizationPanel extends JPanel {
 	public void setResults(List<MonteCarloRunRecord> results) {
 		this.records = (results == null) ? List.of() : List.copyOf(results);
 		updateControlVisibility();
+		refreshLandingChart();
 		refreshChart();
 		refreshStatistics();
+		refreshRunDetails();
 		LaunchSite launchSite = resultLaunchSite();
 		landingMapPanel.setResults(this.records, launchSite.latitudeDeg(), launchSite.longitudeDeg());
+	}
+
+	private void refreshRunDetails() {
+		runDetailsModel.setRowCount(0);
+		for (MonteCarloRunRecord record : records) {
+			var report = record.physicsAeroRuntimeReport;
+			runDetailsModel.addRow(new Object[] {
+					record.nominal ? trans.get("MonteCarloResults.nominal") : record.runIndex,
+					record.seedUsed,
+					record.failureMessage == null ? trans.get("MonteCarloResults.success") : record.failureMessage,
+					format(record.apogee_m), format(record.flightTime_s),
+					report == null ? 0 : report.totalQueries(),
+					report == null ? 0 : report.fallbackCount(),
+					firstTableDiagnostic(report)
+			});
+		}
+	}
+
+	private static String firstTableDiagnostic(
+			info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport report) {
+		if (report == null || report.firstOccurrences().isEmpty()) return "";
+		var entry = report.firstOccurrences().entrySet().iterator().next();
+		var occurrence = entry.getValue();
+		var coordinate = occurrence.coordinates();
+		return entry.getKey().name() + " @ Mach " + format(coordinate.mach()) +
+				", Re " + format(coordinate.reynoldsNumber()) + ": " + occurrence.detail();
 	}
 
 	private List<MonteCarloRunRecord> dispersedRuns() {
@@ -305,26 +418,22 @@ public class MonteCarloVisualizationPanel extends JPanel {
 
 	private void updateControlVisibility() {
 		PlotType type = selectedPlotType();
-		boolean needsX = type != PlotType.LANDING_DISPERSION;
 		boolean needsY = type == PlotType.SCATTER;
 		boolean needsBins = type == PlotType.HISTOGRAM;
-		boolean dispersion = type == PlotType.LANDING_DISPERSION;
 
-		xMetricLabel.setVisible(needsX);
-		xMetricCombo.setVisible(needsX);
+		xMetricLabel.setVisible(true);
+		xMetricCombo.setVisible(true);
 		xMetricLabel.setText(needsY ? "X" : "Metric");
 		yMetricLabel.setVisible(needsY);
 		yMetricCombo.setVisible(needsY);
 		binLabel.setVisible(needsBins);
 		binSpinner.setVisible(needsBins);
-		showEllipses.setVisible(dispersion);
-		splitBodies.setVisible(dispersion);
-		showNominal.setVisible(dispersion || type == PlotType.SCATTER || type == PlotType.RUN_SERIES);
+		revalidate();
 	}
 
 	private PlotType selectedPlotType() {
 		PlotType type = (PlotType) plotTypeCombo.getSelectedItem();
-		return (type == null) ? PlotType.LANDING_DISPERSION : type;
+		return (type == null) ? PlotType.HISTOGRAM : type;
 	}
 
 	private Metric selectedX() {
@@ -340,6 +449,18 @@ public class MonteCarloVisualizationPanel extends JPanel {
 	// =====================================================================
 	// Chart construction
 	// =====================================================================
+	private void refreshLandingChart() {
+		List<MonteCarloRunRecord> runs = dispersedRuns();
+		if (runs.isEmpty()) {
+			landingChartPanel.setChart(ChartFactory.createXYLineChart(
+					"No Monte Carlo results — run a batch from the Setup tab",
+					"", "", new XYSeriesCollection()));
+			SimulationTabLayoutUtils.setWrappingDisplayText(landingStatusLabel, "No results loaded. Run a batch, then return here.");
+			return;
+		}
+		landingChartPanel.setChart(buildDispersionChart(runs));
+		configurePlotInteraction(landingChartPanel.getChart());
+	}
 
 	private void refreshChart() {
 		List<MonteCarloRunRecord> runs = dispersedRuns();
@@ -347,20 +468,34 @@ public class MonteCarloVisualizationPanel extends JPanel {
 			chartPanel.setChart(ChartFactory.createXYLineChart(
 					"No Monte Carlo results \u2014 run a batch from the Setup tab",
 					"", "", new XYSeriesCollection()));
-			statusLabel.setText("No results loaded. Run a batch in the Setup tab, then return here.");
+			SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, "No results loaded. Run a batch in the Setup tab, then return here.");
 			return;
 		}
 
 		JFreeChart chart = switch (selectedPlotType()) {
-			case LANDING_DISPERSION -> buildDispersionChart(runs);
 			case HISTOGRAM -> buildHistogramChart(runs, selectedX());
 			case BAR_CHART -> buildBarChart(runs, selectedX());
 			case BOX_AND_WHISKER -> buildBoxAndWhiskerChart(runs, selectedX());
 			case CDF -> buildCdfChart(runs, selectedX());
 			case SCATTER -> buildScatterChart(runs, selectedX(), selectedY());
 			case RUN_SERIES -> buildRunSeriesChart(runs, selectedX());
+			case LINE, AREA, RUN_BAR -> buildRunComparisonChart(runs, selectedX(), selectedPlotType());
 		};
+		configurePlotInteraction(chart);
 		chartPanel.setChart(chart);
+	}
+
+	private static void configurePlotInteraction(JFreeChart chart) {
+		if (chart.getPlot() instanceof XYPlot plot) {
+			plot.setDomainPannable(true);
+			plot.setRangePannable(true);
+			if (plot.getRenderer() instanceof AbstractXYItemRenderer renderer) {
+				// Auto-ranging must include the full dataset even after X is panned away from the data.
+				renderer.setDataBoundsIncludesVisibleSeriesOnly(false);
+			}
+		} else if (chart.getPlot() instanceof CategoryPlot plot) {
+			plot.setRangePannable(true);
+		}
 	}
 
 	private JFreeChart buildDispersionChart(List<MonteCarloRunRecord> runs) {
@@ -440,7 +575,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		styleSeries(plot, seriesColors, seriesAsLine);
 		fitAxesToPlottedCoordinates(plot, dataset, fittedSeriesCount);
 
-		statusLabel.setText(String.format(Locale.US,
+		SimulationTabLayoutUtils.setWrappingDisplayText(landingStatusLabel, String.format(Locale.US,
 				"Landings: %d | mean impact E=%s m, N=%s m | R50=%s m, R90=%s m, R95=%s m | " +
 						"1\u03c3 ellipse %s \u00d7 %s m @ %s\u00b0",
 				summary.n,
@@ -475,7 +610,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 			renderer.setShadowVisible(false);
 			renderer.setSeriesPaint(0, POINT_COLOR);
 		}
-		statusLabel.setText(describeSample(metric, values));
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, values));
 		return chart;
 	}
 
@@ -493,10 +628,14 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		if (plot.getRenderer() instanceof BoxAndWhiskerRenderer renderer) {
 			renderer.setSeriesPaint(0, POINT_COLOR);
 			renderer.setFillBox(true);
-			renderer.setMeanVisible(true);
+			// A single category otherwise fills the plot and scales its mean marker into a giant disk.
+			renderer.setMaximumBarWidth(0.08);
+			renderer.setMeanVisible(false);
 			renderer.setMedianVisible(true);
 		}
-		statusLabel.setText(describeSample(metric, values));
+		plot.setBackgroundPaint(Color.WHITE);
+		plot.setRangeGridlinePaint(new Color(0xDD, 0xDD, 0xDD));
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, values));
 		return chart;
 	}
 
@@ -504,7 +643,15 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		double[] values = valuesOf(runs, metric);
 		HistogramDataset dataset = new HistogramDataset();
 		if (values.length > 0) {
-			dataset.addSeries(metric.label, values, ((Number) binSpinner.getValue()).intValue());
+			double minimum = Arrays.stream(values).min().orElseThrow();
+			double maximum = Arrays.stream(values).max().orElseThrow();
+			if (minimum == maximum) {
+				double padding = Math.max(1.0e-6, Math.abs(minimum) * 0.05);
+				minimum -= padding;
+				maximum += padding;
+			}
+			dataset.addSeries(metric.label, values, ((Number) binSpinner.getValue()).intValue(),
+					minimum, maximum);
 		}
 
 		JFreeChart chart = ChartFactory.createHistogram(
@@ -519,7 +666,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		}
 		renderer.setSeriesPaint(0, POINT_COLOR);
 
-		statusLabel.setText(describeSample(metric, values));
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, values));
 		return chart;
 	}
 
@@ -538,7 +685,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 				dataset, PlotOrientation.VERTICAL, true, true, false);
 		chart.getXYPlot().getRenderer().setSeriesPaint(0, POINT_COLOR);
 
-		statusLabel.setText(describeSample(metric, values));
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, values));
 		return chart;
 	}
 
@@ -574,7 +721,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 				dataset, PlotOrientation.VERTICAL, true, true, false);
 		styleSeries(chart.getXYPlot(), colors, asLine);
 
-		statusLabel.setText(String.format(Locale.US, "%d runs plotted | correlation r = %s",
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, String.format(Locale.US, "%d runs plotted | correlation r = %s",
 				series.getItemCount(), format(correlation(runs, xMetric, yMetric))));
 		return chart;
 	}
@@ -603,7 +750,8 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		}
 
 		MonteCarloRunRecord nominal = nominalRun();
-		if (showNominal.isSelected() && nominal != null && Double.isFinite(metric.valueOf(nominal))) {
+		if (!series.isEmpty() && showNominal.isSelected() && nominal != null
+				&& Double.isFinite(metric.valueOf(nominal))) {
 			XYSeries nominalSeries = new XYSeries("Nominal", false, true);
 			nominalSeries.add(series.getMinX(), metric.valueOf(nominal));
 			nominalSeries.add(series.getMaxX(), metric.valueOf(nominal));
@@ -617,7 +765,45 @@ public class MonteCarloVisualizationPanel extends JPanel {
 				dataset, PlotOrientation.VERTICAL, true, true, false);
 		styleSeries(chart.getXYPlot(), colors, asLine);
 
-		statusLabel.setText(describeSample(metric, values));
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, values));
+		return chart;
+	}
+
+	private JFreeChart buildRunComparisonChart(List<MonteCarloRunRecord> runs, Metric metric, PlotType type) {
+		// Parallel batches need not arrive in run order; connected plots must use the run index.
+		XYSeries series = new XYSeries(metric.label, true, true);
+		for (MonteCarloRunRecord record : runs) {
+			double value = metric.valueOf(record);
+			if (Double.isFinite(value)) {
+				series.add(record.runIndex, value);
+			}
+		}
+		XYSeriesCollection dataset = new XYSeriesCollection(series);
+		String title = metric.label + " per run";
+		JFreeChart chart;
+		if (type == PlotType.RUN_BAR) {
+			DefaultCategoryDataset bars = new DefaultCategoryDataset();
+			for (int i = 0; i < series.getItemCount(); i++) {
+				bars.addValue(series.getY(i), metric.label, series.getX(i).intValue());
+			}
+			chart = ChartFactory.createBarChart(title, "Run index", metric.axisLabel(), bars,
+					PlotOrientation.VERTICAL, false, true, false);
+			BarRenderer renderer = (BarRenderer) chart.getCategoryPlot().getRenderer();
+			renderer.setBarPainter(new StandardBarPainter());
+			renderer.setShadowVisible(false);
+			renderer.setSeriesPaint(0, POINT_COLOR);
+		} else if (type == PlotType.AREA) {
+			chart = ChartFactory.createXYAreaChart(title, "Run index", metric.axisLabel(), dataset,
+					PlotOrientation.VERTICAL, false, true, false);
+			chart.getXYPlot().getRenderer().setSeriesPaint(0, POINT_COLOR);
+		} else {
+			chart = ChartFactory.createXYLineChart(title, "Run index", metric.axisLabel(), dataset,
+					PlotOrientation.VERTICAL, false, true, false);
+			XYLineAndShapeRenderer renderer = (XYLineAndShapeRenderer) chart.getXYPlot().getRenderer();
+			renderer.setDefaultShapesVisible(true);
+			renderer.setSeriesPaint(0, POINT_COLOR);
+		}
+		SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, describeSample(metric, valuesOf(runs, metric)));
 		return chart;
 	}
 
@@ -820,7 +1006,7 @@ public class MonteCarloVisualizationPanel extends JPanel {
 	// Helpers
 	// =====================================================================
 
-	private void saveChartImage() {
+	private void saveChartImage(ChartPanel source) {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save Monte Carlo chart");
 		chooser.setFileFilter(new FileNameExtensionFilter("PNG image", "png"));
@@ -833,9 +1019,9 @@ public class MonteCarloVisualizationPanel extends JPanel {
 			file = new File(file.getParentFile(), file.getName() + ".png");
 		}
 		try {
-			ChartUtils.saveChartAsPNG(file, chartPanel.getChart(),
-					Math.max(640, chartPanel.getWidth()), Math.max(480, chartPanel.getHeight()));
-			statusLabel.setText("Chart saved to " + file.getAbsolutePath());
+			ChartUtils.saveChartAsPNG(file, source.getChart(),
+					Math.max(640, source.getWidth()), Math.max(480, source.getHeight()));
+			SimulationTabLayoutUtils.setWrappingDisplayText(statusLabel, "Chart saved to " + file.getAbsolutePath());
 		} catch (Exception ex) {
 			JOptionPane.showMessageDialog(this, "Could not save the chart:\n" + ex.getMessage(),
 					"Save Failed", JOptionPane.ERROR_MESSAGE);

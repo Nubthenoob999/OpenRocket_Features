@@ -3,6 +3,7 @@ package info.openrocket.core.simulation.montecarlo;
 import java.util.List;
 import info.openrocket.core.montecarlo.GustShearMetrics;
 import info.openrocket.core.montecarlo.RunWindDisturbanceProfile;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
 
 /**
  * Inputs and terminal outputs for one dispersed trajectory.
@@ -10,25 +11,28 @@ import info.openrocket.core.montecarlo.RunWindDisturbanceProfile;
 public record MonteCarloRunResult(MonteCarloSample sample, List<LandingPoint> landingPoints,
 		List<LandingBodyFailure> bodyFailures, List<MonteCarloBranchResult> branchResults,
 		double maximumAltitude, double flightTime, String failureMessage,
-		GustShearMetrics gustShearMetrics, RunWindDisturbanceProfile windDisturbanceProfile) {
+		GustShearMetrics gustShearMetrics, RunWindDisturbanceProfile windDisturbanceProfile,
+		PhysicsAeroRuntimeReport physicsAeroRuntimeReport) {
 	public MonteCarloRunResult {
 		landingPoints = List.copyOf(landingPoints);
 		bodyFailures = List.copyOf(bodyFailures);
 		branchResults = List.copyOf(branchResults);
+		physicsAeroRuntimeReport = physicsAeroRuntimeReport == null
+				? PhysicsAeroRuntimeReport.disabled() : physicsAeroRuntimeReport;
 	}
 
 	public MonteCarloRunResult(MonteCarloSample sample, List<LandingPoint> landingPoints,
 			List<LandingBodyFailure> bodyFailures, List<MonteCarloBranchResult> branchResults,
 			double maximumAltitude, double flightTime, String failureMessage) {
 		this(sample, landingPoints, bodyFailures, branchResults, maximumAltitude, flightTime,
-				failureMessage, null, null);
+				failureMessage, null, null, PhysicsAeroRuntimeReport.disabled());
 	}
 
 	public MonteCarloRunResult(MonteCarloSample sample, List<LandingPoint> landingPoints,
 			List<LandingBodyFailure> bodyFailures, double maximumAltitude, double flightTime,
 			String failureMessage) {
 		this(sample, landingPoints, bodyFailures, List.of(), maximumAltitude, flightTime,
-				failureMessage, null, null);
+				failureMessage, null, null, PhysicsAeroRuntimeReport.disabled());
 	}
 
 	public MonteCarloRunResult(MonteCarloSample sample, List<LandingPoint> landingPoints,

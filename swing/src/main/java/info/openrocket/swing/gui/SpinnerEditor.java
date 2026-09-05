@@ -24,9 +24,11 @@ import java.awt.event.MouseEvent;
 
 //public class SpinnerEditor extends JSpinner.NumberEditor {
 public class SpinnerEditor extends JSpinner.DefaultEditor {
+	private final JSpinner spinner;
 
 	public SpinnerEditor(JSpinner spinner) {
 		super(spinner);
+		this.spinner = spinner;
 		//super(spinner,"0.0##");
 		getTextField().setEditable(true);
 		
@@ -57,6 +59,14 @@ public class SpinnerEditor extends JSpinner.DefaultEditor {
 
 			@Override
 			public void focusLost(FocusEvent e) {
+				try {
+					spinner.commitEdit();
+				} catch (java.text.ParseException exception) {
+					SwingUtilities.invokeLater(() -> {
+						getTextField().requestFocusInWindow();
+						getTextField().selectAll();
+					});
+				}
 			}
 		});
 

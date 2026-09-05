@@ -904,4 +904,33 @@ public class GUIUtil {
 		timer.start();
 	}
 
+	/**
+	 * Commits every pending spinner editor below {@code root}.  This is intended for
+	 * action boundaries (Apply/OK/Run), where focus has not necessarily left the
+	 * field yet.  The first invalid editor retains focus and the action must stop.
+	 */
+	public static boolean commitSpinnerEdits(Component root) {
+		if (root instanceof JSpinner spinner) {
+			try {
+				spinner.commitEdit();
+			} catch (java.text.ParseException exception) {
+				spinner.requestFocusInWindow();
+				if (spinner.getEditor() instanceof JSpinner.DefaultEditor editor) {
+					editor.getTextField().requestFocusInWindow();
+					editor.getTextField().selectAll();
+				}
+				Toolkit.getDefaultToolkit().beep();
+				return false;
+			}
+		}
+		if (root instanceof Container container) {
+			for (Component child : container.getComponents()) {
+				if (!commitSpinnerEdits(child)) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 }

@@ -131,7 +131,9 @@ final class OpenStreetMapPanel extends JPanel {
 		setOpaque(true);
 		setBackground(new Color(0xE8, 0xE8, 0xE8));
 		setPreferredSize(new Dimension(720, 470));
-		setMinimumSize(new Dimension(320, 240));
+		// The containing landing view manages the useful minimum.  A large component
+		// minimum made Swing push the map outside the viewport in a short window.
+		setMinimumSize(new Dimension(120, 100));
 		setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		setToolTipText("<html>Drag or two-finger scroll to pan &middot; "
 				+ "mouse wheel, pinch, or ⌘/Ctrl + scroll to zoom<br>"

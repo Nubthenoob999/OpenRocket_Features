@@ -67,7 +67,7 @@ public final class TerrainFetcher {
         /** Maximum elevation in the grid (m MSL). */
         public final double maxElevation;
 
-        TerrainData(int gridSize, double spacingMeters, double[][] elevation,
+        public TerrainData(int gridSize, double spacingMeters, double[][] elevation,
                     double centerElevation, double minElevation, double maxElevation) {
             this.gridSize = gridSize;
             this.spacingMeters = spacingMeters;
@@ -95,6 +95,24 @@ public final class TerrainFetcher {
         public double relativeElevation(int row, int col) {
             return elevation[row][col] - centerElevation;
         }
+
+		/** Bilinearly samples relative elevation at a local east/north position. */
+		public double relativeElevationAt(double eastMeters, double northMeters) {
+			double mid = (gridSize - 1) / 2.0;
+			double x = eastMeters / spacingMeters + mid;
+			double y = northMeters / spacingMeters + mid;
+			x = Math.max(0.0, Math.min(gridSize - 1.0, x));
+			y = Math.max(0.0, Math.min(gridSize - 1.0, y));
+			int x0 = (int) Math.floor(x);
+			int y0 = (int) Math.floor(y);
+			int x1 = Math.min(gridSize - 1, x0 + 1);
+			int y1 = Math.min(gridSize - 1, y0 + 1);
+			double fx = x - x0;
+			double fy = y - y0;
+			double a = elevation[y0][x0] * (1.0 - fx) + elevation[y0][x1] * fx;
+			double b = elevation[y1][x0] * (1.0 - fx) + elevation[y1][x1] * fx;
+			return a * (1.0 - fy) + b * fy - centerElevation;
+		}
     }
 
     // -------------------------------------------------------------------------

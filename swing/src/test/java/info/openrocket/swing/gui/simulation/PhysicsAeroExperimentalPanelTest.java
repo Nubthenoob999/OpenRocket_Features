@@ -3,6 +3,7 @@ package info.openrocket.swing.gui.simulation;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -19,7 +20,6 @@ import javax.swing.ListCellRenderer;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.border.Border;
 import javax.swing.border.TitledBorder;
@@ -73,34 +73,26 @@ public class PhysicsAeroExperimentalPanelTest {
 	}
 
 	@Test
-	public void testTabExplainsTheBuildPipelineInOrderedSteps() throws Exception {
+	public void testTabShowsCompactSettingsAndResults() throws Exception {
 		PhysicsAeroExperimentalPanel panel = createPanel(new Simulation(rocketDocument().getRocket()));
-
-		for (String section : new String[] {"How the simulation uses the table", "What gets solved",
-				"Build", "Stored table", "Inspect the stored table", "Activity log"}) {
-			assertNotNull(findTitledPanel(panel, section), "Missing section: " + section);
+		for (String section : new String[] {"Aerodynamic model", "Table resolution", "Computed coefficients"}) {
+			assertNotNull(findTitledPanel(panel, section));
 		}
-
+		assertNotNull(find(panel, javax.swing.JTable.class));
+		assertNull(findTitledPanel(panel, "Activity log"));
+		assertNull(find(panel, javax.swing.JTabbedPane.class));
+		assertNull(findLabelContaining(panel, "hash:"));
+		assertNull(findLabelContaining(panel, "Pre-solve supersonic"));
 		JProgressBar progress = find(panel, JProgressBar.class);
 		assertNotNull(progress);
-		assertTrue(progress.isStringPainted(), "Progress should name the stage it is in, not just a percentage");
 		assertEquals("Idle", progress.getString());
-
-		assertNotNull(findLabelContaining(panel, "Read the airframe geometry"),
-				"The build pipeline should list its geometry stage");
-		assertNotNull(findLabelContaining(panel, "Pre-solve supersonic"),
-				"The build pipeline should list its supersonic pre-solve stage");
-		assertNotNull(findLabelContaining(panel, "Solve every Mach"),
-				"The build pipeline should list its cell sweep stage");
-		assertNotNull(findLabelContaining(panel, "write it to the cache"),
-				"The build pipeline should list its validate-and-cache stage");
 	}
 
 	@Test
 	public void testDomainSummaryReportsTheSolverWorkForTheSelectedGrid() throws Exception {
 		PhysicsAeroExperimentalPanel panel = createPanel(new Simulation(rocketDocument().getRocket()));
 
-		JTextArea solveWork = findTextContaining(panel, "cells across explicit coast and powered states");
+		JLabel solveWork = findLabelContaining(panel, "3,450 cells");
 		assertNotNull(solveWork, "The tab should say how many cells the selected grid solves");
 		assertTrue(solveWork.getText().startsWith("3,450 cells"),
 				"Standard should describe the 23x25x3x2 flight-domain grid, but said: " + solveWork.getText());
@@ -145,9 +137,9 @@ public class PhysicsAeroExperimentalPanelTest {
 		assertEquals(PhysicsAeroMode.OFF, mode.getItemAt(0));
 		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, mode.getItemAt(1));
 		assertEquals(PhysicsAeroMode.STRICT, mode.getItemAt(2));
-		assertEquals("No table", renderedLabel(mode, 0));
-		assertEquals("Table with Barrowman fallback (diagnostic)", renderedLabel(mode, 1));
-		assertEquals("Table only", renderedLabel(mode, 2));
+		assertEquals("Barrowman", renderedLabel(mode, 0));
+		assertEquals("Physics-based with fallback (experimental)", renderedLabel(mode, 1));
+		assertEquals("Physics-based (experimental)", renderedLabel(mode, 2));
 	}
 
 	@Test
@@ -159,16 +151,14 @@ public class PhysicsAeroExperimentalPanelTest {
 		JComboBox<?> mode = findComboBoxOf(panel, PhysicsAeroMode.class);
 		assertNotNull(mode);
 		assertEquals(PhysicsAeroMode.OFF, simulation.getOptions().getPhysicsAeroMode());
-		assertNotNull(findTextContaining(panel, "built-in Barrowman method"),
-				"The Off mode should be explained in plain language");
+		assertTrue(mode.getToolTipText().contains("Barrowman"));
 
 		SwingUtilities.invokeAndWait(() -> mode.setSelectedItem(PhysicsAeroMode.DIAGNOSTIC_HYBRID));
 		assertEquals(PhysicsAeroMode.DIAGNOSTIC_HYBRID, simulation.getOptions().getPhysicsAeroMode());
 
 		SwingUtilities.invokeAndWait(() -> mode.setSelectedItem(PhysicsAeroMode.STRICT));
 		assertEquals(PhysicsAeroMode.STRICT, simulation.getOptions().getPhysicsAeroMode());
-		assertNotNull(findTextContaining(panel, "the simulation stops instead"),
-				"Strict mode should explain that a missing lookup aborts the run");
+		assertTrue(mode.getToolTipText().contains("stop the simulation"));
 	}
 
 	@Test
@@ -252,10 +242,6 @@ public class PhysicsAeroExperimentalPanelTest {
 			}
 		}
 		return null;
-	}
-
-	private static JTextArea findTextContaining(Container root, String fragment) {
-		return find(root, JTextArea.class, area -> area.getText() != null && area.getText().contains(fragment));
 	}
 
 	private static javax.swing.JLabel findLabelContaining(Container root, String fragment) {

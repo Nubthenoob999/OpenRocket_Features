@@ -68,11 +68,10 @@ public class SimulationConfigDialog extends JDialog {
 
 	private static final int LAUNCH_CONDITIONS_IDX = 0;
 	private static final int SIMULATION_OPTIONS_IDX = 1;
-	private static final int MONTE_CARLO_IDX = 2;
-	private static final int AERODYNAMICS_IDX = 3;
-	private static final int WARNINGS_IDX = 4;
-	private static final int PLOT_IDX = 5;
-	private static final int EXPORT_IDX = 6;
+	private static final int AERODYNAMICS_IDX = 2;
+	private static final int WARNINGS_IDX = 3;
+	private static final int PLOT_IDX = 4;
+	private static final int EXPORT_IDX = 5;
 
 	private final SimulationPlotPanel plotTab;
 	private final SimulationExportPanel exportTab;
@@ -126,23 +125,11 @@ public class SimulationConfigDialog extends JDialog {
 		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"),
 				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
 
-		//// Monte Carlo dispersion setup and results
-		tabbedPane.addTab("Monte Carlo", isMultiCompEdit() ? new JPanel()
-				: new MonteCarloSimulationPanel(simulationList[0]));
-		if (isMultiCompEdit()) {
-			tabbedPane.setEnabledAt(MONTE_CARLO_IDX, false);
-			tabbedPane.setToolTipTextAt(MONTE_CARLO_IDX,
-					trans.get("SimulationConfigDialog.tab.warnDis.ttip"));
-		} else {
-			tabbedPane.setToolTipTextAt(MONTE_CARLO_IDX,
-					"Monte Carlo dispersion settings, batch runs, and result plots.");
-		}
-
 		//// Physics-Based Aerodynamics experimental integration
 		tabbedPane.addTab("Aerodynamics",
 				SimulationTabLayoutUtils.wrapFormScrollable(new PhysicsAeroExperimentalPanel(simulationList[0])));
 		tabbedPane.setToolTipTextAt(AERODYNAMICS_IDX,
-				"Build and validate deterministic Mach 0–7 Physics-Based Aerodynamics tables (Experimental).");
+				"Configure the aerodynamic model and view computed coefficients.");
 
 		//// Simulation Warnings
 		final SimulationWarningsPanel warningsTab = new SimulationWarningsPanel(simulationList[0]);
@@ -199,7 +186,6 @@ public class SimulationConfigDialog extends JDialog {
 				switch (selectedIndex) {
 					case LAUNCH_CONDITIONS_IDX:
 					case SIMULATION_OPTIONS_IDX:
-					case MONTE_CARLO_IDX:
 					case AERODYNAMICS_IDX:
 						okButton.setText(trans.get("dlg.but.ok"));
 						cancelButton.setText(trans.get("dlg.but.cancel"));
@@ -261,6 +247,10 @@ public class SimulationConfigDialog extends JDialog {
 
 	public void switchToSettingsTab() {
 		tabbedPane.setSelectedIndex(LAUNCH_CONDITIONS_IDX);
+	}
+
+	boolean editsDocument(OpenRocketDocument candidate) {
+		return document == candidate;
 	}
 
 	public void switchToWarningsTab() {
@@ -404,6 +394,13 @@ public class SimulationConfigDialog extends JDialog {
 		this.okButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
+				if (!GUIUtil.commitSpinnerEdits(SimulationConfigDialog.this)) {
+					JOptionPane.showMessageDialog(SimulationConfigDialog.this,
+							trans.get("SimulationConfigDialog.invalidSpinner"),
+							trans.get("SimulationConfigDialog.invalidSpinner.title"),
+							JOptionPane.ERROR_MESSAGE);
+					return;
+				}
 				copyChangesToAllSims();
 
 				// Run outdated simulations
@@ -442,8 +439,7 @@ public class SimulationConfigDialog extends JDialog {
 
 	private void cancelClose() {
 		if (tabbedPane.getSelectedIndex() == LAUNCH_CONDITIONS_IDX ||
-				tabbedPane.getSelectedIndex() == SIMULATION_OPTIONS_IDX ||
-				tabbedPane.getSelectedIndex() == MONTE_CARLO_IDX) {
+				tabbedPane.getSelectedIndex() == SIMULATION_OPTIONS_IDX) {
 			cancelSimEdit();
 		} else {
 			// Normal close action

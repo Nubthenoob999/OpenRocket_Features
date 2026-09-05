@@ -80,6 +80,7 @@ import info.openrocket.core.simulation.SimulationStepperMethod;
 import info.openrocket.core.util.StringUtils;
 import info.openrocket.swing.gui.components.CsvOptionPanel;
 import info.openrocket.swing.gui.simulation.SimulationConfigDialog;
+import info.openrocket.swing.gui.simulation.MonteCarloDialog;
 import info.openrocket.swing.gui.dialogs.flightanimation.FlightAnimationDialog;
 import info.openrocket.swing.gui.util.ColorConversion;
 import info.openrocket.swing.gui.util.FileHelper;
@@ -118,6 +119,7 @@ public class SimulationPanel extends JPanel {
 
 	private final JButton editButton;
 	private final JButton runButton;
+	private final JButton monteCarloButton;
 	private final JButton deleteButton;
 	private final JButton plotButton;
 	private final JButton simTableExportButton;
@@ -130,6 +132,7 @@ public class SimulationPanel extends JPanel {
 	private final SimulationAction copySimulationAction;
 	private final SimulationAction pasteSimulationAction;
 	private final SimulationAction runSimulationAction;
+	private final SimulationAction monteCarloAction;
 	private final SimulationAction plotSimulationAction;
 	private final SimulationAction duplicateSimulationAction;
 	private final SimulationAction deleteSimulationAction;
@@ -191,7 +194,7 @@ public class SimulationPanel extends JPanel {
 	}
 
 	public SimulationPanel(Window parent, OpenRocketDocument doc) {
-		super(new MigLayout("fill", "[grow][][][][][][grow]"));
+		super(new MigLayout("fill", "[grow][][][][][][][grow]"));
 
 		this.document = doc;
 
@@ -203,6 +206,7 @@ public class SimulationPanel extends JPanel {
 		copySimulationAction = new CopySimulationAction();
 		pasteSimulationAction = new PasteSimulationAction();
 		runSimulationAction = new RunSimulationAction();
+		monteCarloAction = new MonteCarloAction();
 		plotSimulationAction = new PlotSimulationAction();
 		duplicateSimulationAction = new DuplicateSimulationAction();
 		deleteSimulationAction = new DeleteSimulationAction();
@@ -229,6 +233,12 @@ public class SimulationPanel extends JPanel {
 		RocketActions.tieActionToButton(runButton, runSimulationAction, trans.get("simpanel.but.runsimulations"));
 		runButton.setToolTipText(trans.get("simpanel.but.ttip.runsimu"));
 		this.add(runButton, "gapright para");
+
+		//// Monte Carlo analysis
+		monteCarloButton = new IconButton();
+		RocketActions.tieActionToButton(monteCarloButton, monteCarloAction, trans.get("simpanel.but.montecarlo"));
+		monteCarloButton.setToolTipText(trans.get("simpanel.but.ttip.montecarlo"));
+		this.add(monteCarloButton, "gapright para");
 
 		//// Delete simulations button
 		deleteButton = new IconButton();
@@ -280,6 +290,7 @@ public class SimulationPanel extends JPanel {
 		pm.add(deleteSimulationAction);
 		pm.addSeparator();
 		pm.add(runSimulationAction);
+		pm.add(monteCarloAction);
 		pm.add(plotSimulationAction);
 		pm.add(visualizeFlightAction);
 		pm.add(selectedSimsExportAction);
@@ -848,6 +859,7 @@ public class SimulationPanel extends JPanel {
 		duplicateSimulationAction.updateEnabledState();
 		deleteSimulationAction.updateEnabledState();
 		runSimulationAction.updateEnabledState();
+		monteCarloAction.updateEnabledState();
 		plotSimulationAction.updateEnabledState();
 		simTableExportAction.updateEnabledState();
 		selectedSimsExportAction.updateEnabledState();
@@ -1183,6 +1195,26 @@ public class SimulationPanel extends JPanel {
 		@Override
 		public void updateEnabledState() {
 			this.setEnabled(simulationTable.getSelectedRowCount() > 0 && hasValidConfig);
+		}
+	}
+
+	class MonteCarloAction extends SimulationAction {
+		MonteCarloAction() {
+			putValue(NAME, trans.get("simpanel.but.montecarlo"));
+			putValue(SHORT_DESCRIPTION, trans.get("simpanel.but.ttip.montecarlo"));
+			putValue(SMALL_ICON, Icons.SIM_MONTE_CARLO);
+		}
+
+		@Override public void actionPerformed(ActionEvent event) {
+			Simulation[] simulations = getSelectedSimulations();
+			if (!document.getSimulations().isEmpty()) {
+				new MonteCarloDialog(SwingUtilities.getWindowAncestor(SimulationPanel.this),
+						document, simulations == null ? new Simulation[0] : simulations).setVisible(true);
+			}
+		}
+
+		@Override public void updateEnabledState() {
+			setEnabled(!document.getSimulations().isEmpty());
 		}
 	}
 

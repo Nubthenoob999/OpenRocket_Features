@@ -2,7 +2,7 @@ package info.openrocket.swing.gui.simulation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.awt.Component;
 import java.awt.Container;
@@ -28,7 +28,7 @@ import info.openrocket.swing.util.BaseTestCase;
 public class SimulationConfigDialogTabsTest extends BaseTestCase {
 
 	@Test
-	public void testMonteCarloTabSitsBetweenSimulationOptionsAndAerodynamics() {
+	public void testMonteCarloTabIsRemovedAndAerodynamicsFollowsSimulationOptions() {
 		if (GraphicsEnvironment.isHeadless()) {
 			return;
 		}
@@ -46,14 +46,9 @@ public class SimulationConfigDialogTabsTest extends BaseTestCase {
 			assertNotNull(tabs);
 
 			List<String> titles = tabTitles(tabs);
-			int monteCarlo = titles.indexOf("Monte Carlo");
 			int aerodynamics = titles.indexOf("Aerodynamics");
-			assertTrue(monteCarlo > 0, "Monte Carlo must follow the simulation settings tabs");
-			assertEquals(monteCarlo + 1, aerodynamics,
-					"Monte Carlo must sit directly before Aerodynamics");
-
-			Component tab = tabs.getComponentAt(monteCarlo);
-			assertTrue(tab instanceof MonteCarloSimulationPanel);
+			assertFalse(titles.contains("Monte Carlo"));
+			assertEquals(2, aerodynamics, "Aerodynamics must follow the two simulation settings tabs");
 
 			writeSnapshotWhenRequested(dialog);
 		} finally {

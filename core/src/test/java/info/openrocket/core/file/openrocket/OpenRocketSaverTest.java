@@ -2,6 +2,7 @@ package info.openrocket.core.file.openrocket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -44,6 +45,9 @@ import info.openrocket.core.motor.Manufacturer;
 import info.openrocket.core.motor.Motor;
 import info.openrocket.core.motor.MotorConfiguration;
 import info.openrocket.core.motor.ThrustCurveMotor;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
+import info.openrocket.core.montecarlo.MonteCarloBatchRunner;
+import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.rocketcomponent.AxialStage;
 import info.openrocket.core.rocketcomponent.BodyTube;
@@ -589,13 +593,54 @@ public class OpenRocketSaverTest {
 	}
 	
 	////////////////////////////////
-	// Tests for File Version 1.11 //
+	// Tests for File Version 1.12 //
 	////////////////////////////////
 	
 	@Test
-	public void testFileVersion111_withSimulationExtension() {
+	public void testFileVersion112_withSimulationExtension() {
 		OpenRocketDocument rocketDoc = TestRockets.makeTestRocket_v110_withSimulationExtension(SIMULATION_EXTENSION_SCRIPT);
-		assertEquals(111, getCalculatedFileVersion(rocketDoc));
+		assertEquals(112, getCalculatedFileVersion(rocketDoc));
+	}
+
+	@Test
+	public void testMonteCarloAnalysisRoundTripsWithoutRegularFlightData() throws Exception {
+		OpenRocketDocument document = TestRockets.makeTestRocket_v104_withSimulationData();
+		Simulation simulation = document.getSimulations().get(0);
+		MonteCarloExtension extension = new MonteCarloExtension();
+		extension.setNumberOfSimulations(2);
+		simulation.getSimulationExtensions().add(extension);
+		var records = MonteCarloBatchRunner.runBatchParallel(simulation, 2, 1, null);
+		simulation.setMonteCarloAnalysis(MonteCarloAnalysis.completed(simulation, extension, records, false));
+
+		StorageOptions options = new StorageOptions();
+		options.setSaveSimulationData(false);
+		File file = saveRocket(document, options);
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+		assertTrue(xml.contains("<montecarloanalysis version=\"1\">"));
+
+		Simulation loaded = loadRocket(file.getPath()).getSimulations().get(0);
+		assertNotNull(loaded.getMonteCarloAnalysis());
+		assertEquals(records.size(), loaded.getMonteCarloAnalysis().getRecords().size());
+		assertEquals(records.get(1).seedUsed,
+				loaded.getMonteCarloAnalysis().getRecords().get(1).seedUsed);
+	}
+
+	@Test
+	public void testMalformedMonteCarloAnalysisIsDiscardedWithoutRejectingDocument() throws Exception {
+		OpenRocketDocument document = TestRockets.makeTestRocket_v104_withSimulationData();
+		File file = saveRocket(document, new StorageOptions());
+		String xml = Files.readString(file.toPath(), StandardCharsets.UTF_8)
+				.replaceFirst("</simulation>",
+						"<montecarloanalysis version=\"1\">not-valid</montecarloanalysis></simulation>");
+		Files.writeString(file.toPath(), xml, StandardCharsets.UTF_8);
+
+		GeneralRocketLoader loader = new GeneralRocketLoader(file);
+		OpenRocketDocument loaded = loader.load();
+
+		assertNotNull(loaded);
+		assertNull(loaded.getSimulations().get(0).getMonteCarloAnalysis());
+		assertTrue(loader.getWarnings().stream().anyMatch(warning ->
+				warning.toString().contains("Saved Monte Carlo results could not be loaded")));
 	}
 
 	@Test

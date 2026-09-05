@@ -65,6 +65,25 @@ public class MonteCarloSimulationRunnerTest extends BaseTestCase {
 				"editing the trajectory copy must not change the selected simulation");
 	}
 
+	@Test
+	public void testExplicitTableToggleOffUsesBarrowmanWithoutChangingSourceChoice() {
+		Simulation source = source(0.0);
+		PhysicsAeroSettings identity = new PhysicsAeroSettings();
+		identity.setMode(PhysicsAeroMode.STRICT);
+		identity.setGeometryHash("missing-geometry");
+		identity.setSettingsHash("missing-settings");
+		identity.setTableContentHash("missing-content");
+		source.getOptions().setPhysicsAeroSettings(identity);
+		MonteCarloSettings settings = MonteCarloSettings.builder().runCount(2).threadCount(1).seed(42).build();
+
+		MonteCarloResult result = new MonteCarloSimulationRunner().run(source, settings,
+				(completed, total) -> { }, false, null);
+
+		assertNull(result.getNominalResult().failureMessage());
+		assertTrue(result.getRunResults().stream().allMatch(run -> run.failureMessage() == null));
+		assertEquals(PhysicsAeroMode.STRICT, source.getOptions().getPhysicsAeroMode());
+	}
+
 	/** Flight metrics remain useful even when there is no eligible landing body. */
 	@Test
 	public void testBallisticFlightStillProvidesMetrics() {

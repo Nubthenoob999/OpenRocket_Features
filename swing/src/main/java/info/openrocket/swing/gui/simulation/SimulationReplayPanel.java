@@ -18,6 +18,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
+import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -28,8 +29,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -40,6 +43,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JOptionPane;
 import javax.swing.JSlider;
 import javax.swing.JSplitPane;
 import javax.swing.KeyStroke;
@@ -71,9 +75,16 @@ import info.openrocket.core.simulation.FlightEvent;
 import info.openrocket.core.preferences.ApplicationPreferences;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.TerrainFetcher;
+import info.openrocket.core.util.geospatial.LaunchSiteScene;
+import info.openrocket.core.util.geospatial.LaunchSiteScene.LayerStatus;
+import info.openrocket.core.util.geospatial.LaunchSiteSceneRequest;
+import info.openrocket.core.util.geospatial.OpenDataLaunchSiteSceneProvider;
+import info.openrocket.core.util.geospatial.SceneAttribution;
+import info.openrocket.core.util.geospatial.Wgs84;
 import info.openrocket.swing.gui.figure3d.FigureRenderer;
 import info.openrocket.swing.gui.figure3d.RealisticRenderer;
 import info.openrocket.swing.gui.figure3d.RocketRenderer;
+import info.openrocket.swing.gui.figure3d.SceneGeometryRenderer;
 import info.openrocket.swing.gui.figure3d.TerrainRenderer;
 
 /**
@@ -193,13 +204,33 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
     /** Cached ignore-set ({@link #noseConeComp}) passed to the renderer each deployed frame. */
     private Set<RocketComponent> noseIgnoreSet = Collections.emptySet();
 
-    // Locally-generated desert ground (never null after loadFlightData).
-    private TerrainFetcher.TerrainData terrain;
+    // Ground scene starts procedural and is progressively replaced with online open data.
+    private volatile TerrainFetcher.TerrainData terrain;
+    private TerrainFetcher.TerrainData proceduralTerrain;
     private double terrainHalfExtent = 2000.0;
     /** Compiled GL display list for the static terrain mesh (0 = not yet built). */
     private int terrainListId = 0;
     /** Procedural sand texture name modulated over the terrain (0 = not yet built). */
     private int sandTextureId = 0;
+    /** Aerial-photo texture for the current scene (0 until uploaded on the GL thread). */
+    private int sceneTextureId = 0;
+    /** Compiled roads/buildings display list. */
+    private int contextListId = 0;
+    private volatile LaunchSiteScene launchSiteScene;
+    private final OpenDataLaunchSiteSceneProvider sceneProvider = new OpenDataLaunchSiteSceneProvider();
+    private volatile LaunchSiteSceneRequest sceneRequest;
+    private final AtomicLong sceneGeneration = new AtomicLong();
+    private volatile boolean sceneResourcesDirty = true;
+    private volatile boolean showImagery = true;
+    private volatile boolean showBuildings = true;
+    private volatile boolean showRoads = false;
+    private boolean roadsSelectionTouched = false;
+    private boolean realWorldScene = true;
+    private volatile boolean cleanedUp = false;
+    private JLabel sceneStatusLabel;
+    private JButton sourcesButton;
+    private JComboBox<String> sceneryCombo;
+    private JCheckBoxMenuItem roadLayerItem;
 
     // Stats side-panel references (updated each frame)
     private MiniRocketView miniRocketView;
@@ -246,6 +277,7 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         loadFlightData();
         initGLCanvas();
         initControls();
+        startRealWorldSceneLoad();
         replayArea.add(buildStatsPanel(), BorderLayout.EAST);
 
         if (frameCount > 0) {
@@ -440,9 +472,12 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         defaultCamDist = Math.max(minCamDist, Math.min(maxCamDist, rocketLength * 7.0));
         camDist = defaultCamDist;
 
-        // Generate the local high-res desert ground sized to the flight.
-        terrainHalfExtent = Math.max(800.0, Math.max(maxAltitude * 1.3, maxHoriz * 1.6));
-        terrain = TerrainFetcher.generateDesert(terrainHalfExtent, 512, 1337L);
+        // Generate the immediate fallback, sized independently from the camera/trajectory.
+        terrainHalfExtent = Math.max(2_000.0,
+                Math.min(25_000.0, Math.max(maxHoriz * 1.5, maxAltitude * 0.5)));
+        proceduralTerrain = TerrainFetcher.generateDesert(terrainHalfExtent, 513, 1337L);
+        terrain = proceduralTerrain;
+        launchSiteScene = proceduralScene("Loading real-world launch scenery…");
         terrainListId = 0; // force the GL display list to rebuild for the new mesh
 
         prepareStageRendering();
@@ -611,9 +646,58 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         left.add(resetViewButton);
         left.add(hint);
 
+        JPanel sceneryControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        sceneryControls.setBackground(Color.BLACK);
+
+        JLabel sceneryLabel = new JLabel("Scenery:");
+        sceneryLabel.setForeground(Color.WHITE);
+        sceneryControls.add(sceneryLabel);
+        sceneryCombo = new JComboBox<>(new String[]{ "Real-world (online)", "Procedural terrain" });
+        sceneryCombo.setSelectedIndex(0);
+        sceneryCombo.setMaximumSize(new Dimension(170, 24));
+        sceneryCombo.addActionListener(e -> {
+            boolean online = sceneryCombo.getSelectedIndex() == 0;
+            if (online == realWorldScene) return;
+            realWorldScene = online;
+            if (online) startRealWorldSceneLoad();
+            else useProceduralScene();
+        });
+        sceneryControls.add(sceneryCombo);
+
+        JButton layersButton = new JButton("Layers");
+        styleButton(layersButton);
+        JPopupMenu layerMenu = new JPopupMenu();
+        JCheckBoxMenuItem imageryItem = new JCheckBoxMenuItem("Aerial imagery", showImagery);
+        JCheckBoxMenuItem buildingsItem = new JCheckBoxMenuItem("3D buildings", showBuildings);
+        roadLayerItem = new JCheckBoxMenuItem("Roads", showRoads);
+        imageryItem.addActionListener(e -> { showImagery = imageryItem.isSelected(); markSceneResourcesDirty(); });
+        buildingsItem.addActionListener(e -> { showBuildings = buildingsItem.isSelected(); markSceneResourcesDirty(); });
+        roadLayerItem.addActionListener(e -> {
+            showRoads = roadLayerItem.isSelected(); roadsSelectionTouched = true; markSceneResourcesDirty();
+        });
+        layerMenu.add(imageryItem); layerMenu.add(buildingsItem); layerMenu.add(roadLayerItem);
+        layersButton.addActionListener(e -> layerMenu.show(layersButton, 0, layersButton.getHeight()));
+        sceneryControls.add(layersButton);
+
+        JButton reloadSceneButton = new JButton("Reload map");
+        styleButton(reloadSceneButton);
+        reloadSceneButton.addActionListener(e -> { if (realWorldScene) startRealWorldSceneLoad(); });
+        sceneryControls.add(reloadSceneButton);
+
+        sceneStatusLabel = new JLabel("Loading scenery…");
+        sceneStatusLabel.setForeground(new Color(185, 205, 225));
+        sceneStatusLabel.setFont(sceneStatusLabel.getFont().deriveFont(Font.PLAIN, 10f));
+        sceneryControls.add(sceneStatusLabel);
+
         // Right-hand view buttons: fullscreen the 3D viewer and expand/collapse telemetry.
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         right.setBackground(Color.BLACK);
+
+        sourcesButton = new JButton("Sources");
+        styleButton(sourcesButton);
+        sourcesButton.setEnabled(false);
+        sourcesButton.addActionListener(e -> showSceneSources());
+        sceneryControls.add(sourcesButton);
 
         fullscreenButton = new JButton("Fullscreen");
         styleButton(fullscreenButton);
@@ -633,9 +717,184 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         bar.add(timeSlider, BorderLayout.CENTER);
         bar.add(right, BorderLayout.EAST);
 
-        replayArea.add(bar, BorderLayout.SOUTH);
+        JPanel controlRows = new JPanel(new BorderLayout());
+        controlRows.add(bar, BorderLayout.CENTER);
+        controlRows.add(sceneryControls, BorderLayout.SOUTH);
+        replayArea.add(controlRows, BorderLayout.SOUTH);
 
         playbackTimer = new Timer(16, e -> tickPlayback());
+    }
+
+    private LaunchSiteScene proceduralScene(String message) {
+        return new LaunchSiteScene(proceduralTerrain, null, List.of(), List.of(), List.of(),
+                Double.NaN, LayerStatus.LOADING, LayerStatus.LOADING, LayerStatus.LOADING,
+                message, true);
+    }
+
+    private void useProceduralScene() {
+        LaunchSiteSceneRequest request = sceneRequest;
+        if (request != null) request.cancel();
+        sceneGeneration.incrementAndGet();
+        launchSiteScene = new LaunchSiteScene(proceduralTerrain, null, List.of(), List.of(), List.of(),
+                Double.NaN, LayerStatus.AVAILABLE, LayerStatus.UNAVAILABLE, LayerStatus.UNAVAILABLE,
+                "Procedural terrain (offline)", true);
+        terrain = proceduralTerrain;
+        if (sceneStatusLabel != null) sceneStatusLabel.setText("Procedural terrain (offline)");
+        if (sourcesButton != null) {
+            sourcesButton.setText("Sources");
+            sourcesButton.setEnabled(false);
+        }
+        markSceneResourcesDirty();
+    }
+
+    private void startRealWorldSceneLoad() {
+        if (cleanedUp || frameCount == 0 || proceduralTerrain == null) return;
+        LaunchSiteSceneRequest previous = sceneRequest;
+        if (previous != null) previous.cancel();
+        long generation = sceneGeneration.incrementAndGet();
+        double latitude = simulation.getOptions().getLaunchLatitude();
+        double longitude = simulation.getOptions().getLaunchLongitude();
+        if (!Double.isFinite(latitude) || !Double.isFinite(longitude)
+                || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+            useProceduralScene();
+            if (sceneStatusLabel != null) sceneStatusLabel.setText("Invalid launch coordinates; using procedural terrain");
+            return;
+        }
+
+        LaunchSiteScene initial = proceduralScene(String.format(Locale.ROOT,
+                "Loading %.4f°, %.4f°…", latitude, longitude));
+        launchSiteScene = initial;
+        terrain = proceduralTerrain;
+        sceneRequest = new LaunchSiteSceneRequest(new Wgs84.GeoPoint(latitude, longitude, 0),
+                terrainHalfExtent, 513, 2048, Math.min(5_000.0, terrainHalfExtent));
+        if (sceneStatusLabel != null) sceneStatusLabel.setText(initial.statusMessage());
+        if (sourcesButton != null) {
+            sourcesButton.setText("Sources");
+            sourcesButton.setEnabled(false);
+        }
+        markSceneResourcesDirty();
+
+        sceneProvider.load(sceneRequest, initial, update -> SwingUtilities.invokeLater(() -> {
+            if (cleanedUp || generation != sceneGeneration.get() || sceneRequest.isCancelled() || !realWorldScene) return;
+            launchSiteScene = update;
+            terrain = update.terrain();
+            if (!roadsSelectionTouched && update.imageryStatus() == LayerStatus.FAILED
+                    && update.contextStatus() == LayerStatus.AVAILABLE) {
+                showRoads = true;
+                if (roadLayerItem != null) roadLayerItem.setSelected(true);
+            }
+            updateSceneLabels(update);
+            markSceneResourcesDirty();
+        })).exceptionally(exception -> {
+            log.debug("Launch scenery load ended exceptionally", exception);
+            return null;
+        });
+    }
+
+    private void updateSceneLabels(LaunchSiteScene scene) {
+        if (sceneStatusLabel != null) {
+            sceneStatusLabel.setText(scene.statusMessage() == null ? "Scenery ready" : scene.statusMessage());
+            sceneStatusLabel.setToolTipText(String.format(Locale.ROOT,
+                    "Terrain: %s · imagery: %s · context: %s", scene.terrainStatus(),
+                    scene.imageryStatus(), scene.contextStatus()));
+        }
+        if (sourcesButton != null) {
+            String names = scene.attributions().stream().map(SceneAttribution::provider).distinct()
+                    .collect(java.util.stream.Collectors.joining(" + "));
+            String compact = names.replace("USGS 3DEP", "USGS").replace("USGS ImageryOnly", "USGS")
+                    .replace("OpenStreetMap", "© OSM").replace("OpenAerialMap", "OAM")
+                    .replace("Mapzen Terrain Tiles", "Mapzen");
+            compact = java.util.Arrays.stream(compact.split(" \\+ ")).distinct()
+                    .collect(java.util.stream.Collectors.joining(" · "));
+            sourcesButton.setText(compact.isBlank() ? "Sources" : compact);
+            sourcesButton.setToolTipText(names.isBlank() ? null : "Map sources: " + names);
+            sourcesButton.setEnabled(!scene.attributions().isEmpty());
+        }
+    }
+
+    private void showSceneSources() {
+        LaunchSiteScene scene = launchSiteScene;
+        if (scene == null || scene.attributions().isEmpty()) return;
+        StringBuilder details = new StringBuilder("Active map sources:\n\n");
+        for (SceneAttribution attribution : scene.attributions()) {
+            details.append(attribution.provider()).append("\n")
+                    .append(attribution.license()).append("\n")
+                    .append(attribution.source()).append("\nRetrieved ")
+                    .append(attribution.retrievedAt()).append("\n\n");
+        }
+        if (Double.isFinite(scene.sourceGroundElevationMeters())) {
+            details.append(String.format(Locale.ROOT, "Source ground elevation: %.1f m MSL\n", scene.sourceGroundElevationMeters()));
+        }
+        int result = JOptionPane.showOptionDialog(this, details.toString(), "Launch scenery sources",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null,
+                new String[]{ "Close", "Clear map cache" }, "Close");
+        if (result == 1) {
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    sceneProvider.clearCache();
+                    SwingUtilities.invokeLater(() -> sceneStatusLabel.setText("Map cache cleared"));
+                } catch (Exception exception) {
+                    log.warn("Could not clear map cache", exception);
+                    SwingUtilities.invokeLater(() -> sceneStatusLabel.setText("Could not clear map cache"));
+                }
+            });
+        }
+    }
+
+    private void markSceneResourcesDirty() {
+        sceneResourcesDirty = true;
+        requestRepaint();
+    }
+
+    /** Deletes/rebuilds scene-owned GL resources only while the drawable context is current. */
+    private void applyPendingSceneResources(GL2 gl) {
+        if (!sceneResourcesDirty) return;
+        sceneResourcesDirty = false;
+        LaunchSiteScene scene = launchSiteScene;
+        if (terrainListId != 0) {
+            gl.glDeleteLists(terrainListId, 1);
+            terrainListId = 0;
+        }
+        if (contextListId != 0) {
+            gl.glDeleteLists(contextListId, 1);
+            contextListId = 0;
+        }
+        if (sceneTextureId != 0) {
+            gl.glDeleteTextures(1, new int[]{ sceneTextureId }, 0);
+            sceneTextureId = 0;
+        }
+        if (scene != null && !scene.procedural() && showImagery && scene.groundImage() != null) {
+            sceneTextureId = createSceneTexture(gl, scene.groundImage());
+        }
+    }
+
+    private int createSceneTexture(GL2 gl, BufferedImage image) {
+        int[] texture = new int[1];
+        gl.glGenTextures(1, texture, 0);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, texture[0]);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE);
+        ByteBuffer pixels = ByteBuffer.allocateDirect(image.getWidth() * image.getHeight() * 4)
+                .order(ByteOrder.nativeOrder());
+        // BufferedImage row 0 is north/top. OpenGL's first texture row is south/bottom.
+        for (int y = image.getHeight() - 1; y >= 0; y--) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int argb = image.getRGB(x, y);
+                pixels.put((byte) ((argb >> 16) & 0xff));
+                pixels.put((byte) ((argb >> 8) & 0xff));
+                pixels.put((byte) (argb & 0xff));
+                pixels.put((byte) ((argb >>> 24) & 0xff));
+            }
+        }
+        pixels.flip();
+        gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
+        gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, image.getWidth(), image.getHeight(), 0,
+                GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels);
+        gl.glGenerateMipmap(GL.GL_TEXTURE_2D);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+        return texture[0];
     }
 
     // ---- View toggles ------------------------------------------------------
@@ -983,6 +1242,7 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         if (frameCount == 0) return;
 
         GL2 gl = drawable.getGL().getGL2();
+        applyPendingSceneResources(gl);
 
         int w = drawable.getSurfaceWidth();
         int h = drawable.getSurfaceHeight();
@@ -1063,6 +1323,14 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         if (sandTextureId != 0) {
             gl.glDeleteTextures(1, new int[]{ sandTextureId }, 0);
             sandTextureId = 0;
+        }
+        if (sceneTextureId != 0) {
+            gl.glDeleteTextures(1, new int[]{ sceneTextureId }, 0);
+            sceneTextureId = 0;
+        }
+        if (contextListId != 0) {
+            gl.glDeleteLists(contextListId, 1);
+            contextListId = 0;
         }
         if (quadric != null) {
             glu.gluDeleteQuadric(quadric);
@@ -1687,7 +1955,10 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         double baseline = (terrain != null) ? (terrain.minElevation - terrain.centerElevation) - 0.5 : 0.0;
         double half = terrainHalfExtent * 3.0;
         gl.glDisable(GL2.GL_LIGHTING);
-        gl.glColor3f(0.72f, 0.66f, 0.50f);
+        LaunchSiteScene scene = launchSiteScene;
+        boolean procedural = scene == null || scene.procedural();
+        if (procedural) gl.glColor3f(0.72f, 0.66f, 0.50f);
+        else gl.glColor3f(0.28f, 0.36f, 0.24f);
         gl.glBegin(GL2.GL_QUADS);
         gl.glVertex3d(-half, baseline, -half);
         gl.glVertex3d( half, baseline, -half);
@@ -1703,10 +1974,22 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
             if (terrainListId == 0) {
                 terrainListId = gl.glGenLists(1);
                 gl.glNewList(terrainListId, GL2.GL_COMPILE);
-                TerrainRenderer.render(gl, terrain, true, sandTextureId);
+                int texture = procedural ? sandTextureId : (showImagery ? sceneTextureId : 0);
+                TerrainRenderer.render(gl, terrain, procedural, texture, !procedural && texture != 0);
                 gl.glEndList();
             }
             gl.glCallList(terrainListId);
+        }
+
+        if (!procedural && scene != null && (showRoads || showBuildings)) {
+            if (contextListId == 0) {
+                contextListId = gl.glGenLists(1);
+                gl.glNewList(contextListId, GL2.GL_COMPILE);
+                if (showRoads) SceneGeometryRenderer.renderRoads(gl, terrain, scene.roads());
+                if (showBuildings) SceneGeometryRenderer.renderBuildings(gl, terrain, scene.buildings());
+                gl.glEndList();
+            }
+            gl.glCallList(contextListId);
         }
 
         // The launch site (concrete pad + rail) at the origin.
@@ -2042,8 +2325,14 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
 
     /** Called by SimulationReplayDialog when the dialog is closed. */
     public void cleanup() {
+        if (cleanedUp) return;
+        cleanedUp = true;
         if (playbackTimer != null) {
             playbackTimer.stop();
         }
+        LaunchSiteSceneRequest request = sceneRequest;
+        if (request != null) request.cancel();
+        sceneGeneration.incrementAndGet();
+        sceneProvider.close();
     }
 }

@@ -27,6 +27,7 @@ import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.formatting.RocketDescriptor;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.masscalc.MassCalculator;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
 import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
@@ -178,6 +179,8 @@ public class Simulation implements ChangeSource, Cloneable {
 	private FlightData simulatedData = null;
 	private ModID simulatedConfigurationModID = ModID.INVALID;
 	private PhysicsAeroRuntimeReport physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
+	private MonteCarloAnalysis monteCarloAnalysis;
+	private MonteCarloInputState monteCarloInputState;
 
 	/**
 	 * Create a new simulation for the rocket. Parent document should also be provided.
@@ -492,6 +495,21 @@ public class Simulation implements ChangeSource, Cloneable {
 	 */
 	public void simulate(SimulationListener... additionalListeners)
 			throws SimulationException {
+		simulateInternal(null, false, additionalListeners);
+	}
+
+	/**
+	 * Run with a table that was already resolved and validated by a batch coordinator.
+	 * Each simulation still constructs its own aerodynamic calculator and runtime report.
+	 */
+	public void simulateWithResolvedPhysicsAeroTable(AerodynamicTable table,
+			SimulationListener... additionalListeners) throws SimulationException {
+		if (table == null) throw new IllegalArgumentException("resolved physics-aero table is required");
+		simulateInternal(table, true, additionalListeners);
+	}
+
+	private void simulateInternal(AerodynamicTable preparedTable, boolean tableAlreadyResolved,
+			SimulationListener... additionalListeners) throws SimulationException {
 		mutex.lock("simulate");
 		SimulationEngine simulator = null;
 		SimulationConditions simulationConditions = null;
@@ -513,13 +531,15 @@ public class Simulation implements ChangeSource, Cloneable {
 				throw new RuntimeException(e);
 			}
 
-			AerodynamicTable resolvedPhysicsAeroTable = null;
+			AerodynamicTable resolvedPhysicsAeroTable = preparedTable;
 			if (options.getPhysicsAeroSettings().isEnabled()) {
-				try {
-					resolvedPhysicsAeroTable = new PhysicsAeroTableResolver().resolve(
-							getActiveConfiguration(), options.getPhysicsAeroSettings());
-				} catch (ResolutionException exception) {
-					throw physicsAeroResolutionException(exception);
+				if (!tableAlreadyResolved) {
+					try {
+						resolvedPhysicsAeroTable = new PhysicsAeroTableResolver().resolve(
+								getActiveConfiguration(), options.getPhysicsAeroSettings());
+					} catch (ResolutionException exception) {
+						throw physicsAeroResolutionException(exception);
+					}
 				}
 			}
 			simulationConditions = options.toSimulationConditions(resolvedPhysicsAeroTable);
@@ -695,6 +715,52 @@ public class Simulation implements ChangeSource, Cloneable {
 		FlightData data = getSimulatedData();
 		return data != null;
 	}
+
+	/**
+	 * Return the latest persisted Monte Carlo analysis.  If relevant simulation inputs
+	 * have changed since it was attached, the returned immutable value is marked stale
+	 * while retaining all prior results for inspection and export.
+	 */
+	public MonteCarloAnalysis getMonteCarloAnalysis() {
+		mutex.verify();
+		if (monteCarloAnalysis == null) return null;
+		if (monteCarloAnalysis.isStale()) return monteCarloAnalysis;
+		if (monteCarloInputState != null && !monteCarloInputState.matches(this)) {
+			return monteCarloAnalysis.withStaleReason("Rocket or simulation inputs changed after this batch");
+		}
+		return monteCarloAnalysis;
+	}
+
+	public boolean hasMonteCarloAnalysis() {
+		return getMonteCarloAnalysis() != null;
+	}
+
+	public boolean isMonteCarloAnalysisCurrent() {
+		MonteCarloAnalysis analysis = getMonteCarloAnalysis();
+		return analysis != null && !analysis.isStale();
+	}
+
+	/** Attach a newly completed analysis and notify the owning document. */
+	public void setMonteCarloAnalysis(MonteCarloAnalysis analysis) {
+		mutex.verify();
+		this.monteCarloAnalysis = analysis;
+		this.monteCarloInputState = analysis == null ? null : MonteCarloInputState.capture(this);
+		fireChangeEvent();
+	}
+
+	/** Attach data while loading a document without manufacturing a user edit. */
+	public void setLoadedMonteCarloAnalysis(MonteCarloAnalysis analysis) {
+		mutex.verify();
+		this.monteCarloAnalysis = analysis;
+		this.monteCarloInputState = analysis == null ? null : MonteCarloInputState.capture(this);
+	}
+
+	public void markMonteCarloAnalysisStale(String reason) {
+		mutex.verify();
+		if (monteCarloAnalysis == null) return;
+		monteCarloAnalysis = monteCarloAnalysis.withStaleReason(reason);
+		fireChangeEvent();
+	}
 	
 	/**
 	 * Returns a copy of this simulation suitable for cut/copy/paste operations.
@@ -721,6 +787,8 @@ public class Simulation implements ChangeSource, Cloneable {
 			copy.simulatedConfigurationDescription = null;
 			copy.simulatedData = null;
 			copy.physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
+			copy.monteCarloAnalysis = null;
+			copy.monteCarloInputState = null;
 			copy.simulatedConfigurationModID = ModID.INVALID;
 			
 			return copy;
@@ -758,6 +826,8 @@ public class Simulation implements ChangeSource, Cloneable {
 			copy.simulationStepperClass = this.simulationStepperClass;
 			copy.aerodynamicCalculatorClass = this.aerodynamicCalculatorClass;
 			copy.physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
+			copy.monteCarloAnalysis = null;
+			copy.monteCarloInputState = null;
 			return copy;
 		} finally {
 			mutex.unlock("duplicateForIndependentSimulation");
@@ -789,9 +859,13 @@ public class Simulation implements ChangeSource, Cloneable {
 			clone.status = this.status;
 			if (includeSimulatedDate) {
 				clone.simulatedData = this.simulatedData != null ? this.simulatedData.clone() : this.simulatedData;
+				clone.monteCarloAnalysis = this.getMonteCarloAnalysis();
 			} else {
 				clone.simulatedData = null;
+				clone.monteCarloAnalysis = null;
 			}
+			clone.monteCarloInputState = clone.monteCarloAnalysis == null
+					? null : MonteCarloInputState.capture(clone);
 			clone.simulationStepperClass = this.simulationStepperClass;
 			clone.aerodynamicCalculatorClass = this.aerodynamicCalculatorClass;
 
@@ -832,6 +906,9 @@ public class Simulation implements ChangeSource, Cloneable {
 			}
 			clone.status = this.status;
 			clone.simulatedData = this.simulatedData;
+			clone.monteCarloAnalysis = this.getMonteCarloAnalysis();
+			clone.monteCarloInputState = clone.monteCarloAnalysis == null
+					? null : MonteCarloInputState.capture(clone);
 			clone.simulationStepperClass = this.simulationStepperClass;
 			clone.aerodynamicCalculatorClass = this.aerodynamicCalculatorClass;
 
@@ -865,6 +942,9 @@ public class Simulation implements ChangeSource, Cloneable {
 			copyExtensionsFrom(simulation.getSimulationExtensions());
 			this.status = simulation.status;
 			this.simulatedData = simulation.simulatedData;
+			this.monteCarloAnalysis = simulation.getMonteCarloAnalysis();
+			this.monteCarloInputState = this.monteCarloAnalysis == null
+					? null : MonteCarloInputState.capture(this);
 			if (isStatusUpToDate(this.status) && !this.configId.hasError()) {
 				this.simulatedConfigurationModID = getActiveConfiguration().getModID();
 			}
@@ -1005,6 +1085,58 @@ public class Simulation implements ChangeSource, Cloneable {
 			}
 		}
 		return true;
+	}
+
+	/** In-memory baseline used to keep saved analyses without presenting them as current. */
+	private static final class MonteCarloInputState {
+		private final ModID rocketModId;
+		private final FlightConfigurationId configurationId;
+		private final ModID configurationModId;
+		private final SimulationOptions options;
+		private final java.util.List<ExtensionState> extensions;
+
+		private MonteCarloInputState(Simulation simulation) {
+			this.rocketModId = simulation.rocket.getModID();
+			this.configurationId = simulation.configId;
+			this.configurationModId = simulation.getActiveConfiguration().getModID();
+			this.options = simulation.options.clone();
+			this.extensions = simulation.simulationExtensions.stream()
+					.map(ExtensionState::new).toList();
+		}
+
+		static MonteCarloInputState capture(Simulation simulation) {
+			return new MonteCarloInputState(simulation);
+		}
+
+		boolean matches(Simulation simulation) {
+			return rocketModId == simulation.rocket.getModID()
+					&& Objects.equals(configurationId, simulation.configId)
+					&& configurationModId == simulation.getActiveConfiguration().getModID()
+					&& options.equals(simulation.options)
+					&& extensionsMatch(simulation.simulationExtensions);
+		}
+
+		private boolean extensionsMatch(List<SimulationExtension> current) {
+			if (extensions.size() != current.size()) return false;
+			for (int i = 0; i < extensions.size(); i++) {
+				if (!extensions.get(i).matches(current.get(i))) return false;
+			}
+			return true;
+		}
+	}
+
+	private static final class ExtensionState {
+		private final String id;
+		private final Config config;
+
+		private ExtensionState(SimulationExtension extension) {
+			this.id = extension.getId();
+			this.config = extension.getConfig().clone();
+		}
+
+		private boolean matches(SimulationExtension extension) {
+			return Objects.equals(id, extension.getId()) && configEqual(config, extension.getConfig());
+		}
 	}
 	
 	

@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import info.openrocket.core.document.Simulation;
 import info.openrocket.core.montecarlo.LandingDispersion6DOF;
 import info.openrocket.core.montecarlo.MonteCarloBatchRunner;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
 import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.montecarlo.MonteCarloRunRecord;
 import info.openrocket.core.util.TestRockets;
@@ -62,6 +63,29 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 				.map(JCheckBox::getText)
 				.toList();
 		assertEquals(List.of("Enable gust events", "Enable shear layer"), checkBoxLabels);
+	}
+
+	@Test
+	public void testWorkerThreadCountRemainsVisibleWithoutLegacyBatchControls() {
+		MonteCarloExtension extension = new MonteCarloExtension();
+		MonteCarloSetupPanel setup = new MonteCarloSetupPanel(extension, newSimulation(), false);
+		JSpinner threads = findAll(setup, JSpinner.class).stream()
+				.filter(spinner -> "MonteCarloWorkerThreads".equals(spinner.getName()))
+				.findFirst().orElseThrow();
+
+		threads.setValue(3);
+
+		assertEquals(3, extension.getWorkerThreads());
+	}
+
+	@Test
+	public void testRunButtonTracksProgressInItsOwnFillModel() {
+		MonteCarloDialog.ProgressButton button = new MonteCarloDialog.ProgressButton("Run All");
+
+		button.setProgress(7, 20);
+
+		assertEquals(0.35, button.getProgressFraction(), 1.0e-9);
+		assertTrue(button.getText().contains("35%"));
 	}
 
 	@Test
@@ -185,7 +209,8 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 				.filter(tabs -> tabs.indexOfTab("Landing map") >= 0)
 				.findFirst()
 				.orElseThrow();
-		assertEquals(List.of("Charts & statistics", "Landing map"), tabTitles(resultViews));
+		assertEquals(List.of("Landing dispersion", "Landing map", "Run details", "Statistical plots"),
+				tabTitles(resultViews));
 
 		MonteCarloLandingMapPanel landingMap = findFirst(panel, MonteCarloLandingMapPanel.class);
 		assertNotNull(landingMap);
@@ -309,7 +334,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 	}
 
 	@Test
-	public void testHistogramBarAndBoxPlotOptionsRender() throws Exception {
+	public void testAllStatisticalPlotsRenderAndFitAfterZooming() throws Exception {
 		Simulation simulation = newSimulation();
 		MonteCarloExtension extension = new MonteCarloExtension();
 		extension.setUseDeterministicSeed(true);
@@ -319,11 +344,25 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 
 		MonteCarloVisualizationPanel panel = new MonteCarloVisualizationPanel(simulation);
 		panel.setResults(records);
-		ChartPanel chart = findFirst(panel, ChartPanel.class);
-		JComboBox<?> plotSelector = findAll(panel, JComboBox.class).stream()
+		JTabbedPane resultViews = findAll(panel, JTabbedPane.class).stream()
+				.filter(tabs -> tabs.indexOfTab("Statistical plots") >= 0)
+				.findFirst().orElseThrow();
+		Component statisticalPlots = resultViews.getComponentAt(
+				resultViews.indexOfTab("Statistical plots"));
+		ChartPanel chart = findFirst(statisticalPlots, ChartPanel.class);
+		JComboBox<?> plotSelector = findAll(statisticalPlots, JComboBox.class).stream()
 				.filter(combo -> comboContains(combo, "Histogram"))
 				.findFirst()
 				.orElseThrow();
+		assertTrue(comboContains(plotSelector, "Histogram"));
+		assertTrue(comboContains(plotSelector, "Bar chart (summary)"));
+		assertTrue(comboContains(plotSelector, "Box-and-whisker"));
+		assertTrue(comboContains(plotSelector, "Cumulative distribution"));
+		assertTrue(comboContains(plotSelector, "Scatter (X vs Y)"));
+		assertTrue(comboContains(plotSelector, "Value per run"));
+		assertTrue(comboContains(plotSelector, "Line (per run)"));
+		assertTrue(comboContains(plotSelector, "Area (per run)"));
+		assertTrue(comboContains(plotSelector, "Bar chart (per run)"));
 
 		selectComboItem(plotSelector, "Histogram");
 		assertTrue(chart.getChart().getPlot() instanceof XYPlot);
@@ -336,6 +375,169 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		selectComboItem(plotSelector, "Box-and-whisker");
 		assertTrue(chart.getChart().getPlot() instanceof CategoryPlot);
 		assertTrue(chart.getChart().getTitle().getText().endsWith("box-and-whisker plot"));
+
+		SwingUtilities.invokeAndWait(() -> {
+			JButton fit = findButton(statisticalPlots, "Fit");
+			for (int i = 0; i < plotSelector.getItemCount(); i++) {
+				plotSelector.setSelectedIndex(i);
+				// Exercise the renderers too: dataset construction alone misses drawing failures.
+				assertNotNull(chart.getChart().createBufferedImage(640, 400));
+				if (chart.getChart().getPlot() instanceof XYPlot plot) {
+					assertTrue(plot.isDomainPannable());
+					assertTrue(plot.isRangePannable());
+					var originalX = plot.getDomainAxis().getRange();
+					var originalY = plot.getRangeAxis().getRange();
+					plot.getDomainAxis().setRange(-9000, -8000);
+					plot.getRangeAxis().setRange(-7000, -6000);
+					fit.doClick();
+					assertEquals(originalX, plot.getDomainAxis().getRange());
+					assertEquals(originalY, plot.getRangeAxis().getRange());
+				} else {
+					CategoryPlot plot = chart.getChart().getCategoryPlot();
+					assertTrue(plot.isRangePannable());
+					var originalY = plot.getRangeAxis().getRange();
+					plot.getRangeAxis().setRange(-7000, -6000);
+					fit.doClick();
+					assertEquals(originalY, plot.getRangeAxis().getRange());
+				}
+			}
+
+			// Connected plots must remain ordered even when worker results arrive out of order.
+			List<MonteCarloRunRecord> reversed = new ArrayList<>(records);
+			java.util.Collections.reverse(reversed);
+			panel.setResults(reversed);
+			for (String label : List.of("Line (per run)", "Area (per run)", "Bar chart (per run)")) {
+				selectComboItem(plotSelector, label);
+				List<MonteCarloRunRecord> expected = records.stream()
+						.filter(record -> !record.nominal && record.failureMessage == null)
+						.sorted(java.util.Comparator.comparingInt(record -> record.runIndex)).toList();
+				if (chart.getChart().getPlot() instanceof XYPlot plot) {
+					assertEquals(expected.size(), plot.getDataset().getItemCount(0));
+					for (int index = 0; index < expected.size(); index++) {
+						assertEquals(expected.get(index).runIndex, plot.getDataset().getXValue(0, index));
+						assertEquals(expected.get(index).apogee_m, plot.getDataset().getYValue(0, index));
+					}
+				} else {
+					var dataset = chart.getChart().getCategoryPlot().getDataset();
+					assertEquals(expected.size(), dataset.getColumnCount());
+					for (int index = 0; index < expected.size(); index++) {
+						assertEquals(expected.get(index).runIndex, dataset.getColumnKey(index));
+						assertEquals(expected.get(index).apogee_m, dataset.getValue(0, index).doubleValue());
+					}
+				}
+			}
+
+			Component landingView = resultViews.getComponentAt(resultViews.indexOfTab("Landing dispersion"));
+			ChartPanel landingChart = findFirst(landingView, ChartPanel.class);
+			var originalX = landingChart.getChart().getXYPlot().getDomainAxis().getRange();
+			var originalY = landingChart.getChart().getXYPlot().getRangeAxis().getRange();
+			landingChart.getChart().getXYPlot().getDomainAxis().setRange(-9000, -8000);
+			landingChart.getChart().getXYPlot().getRangeAxis().setRange(-7000, -6000);
+			findButton(landingView, "Fit").doClick();
+			assertEquals(originalX, landingChart.getChart().getXYPlot().getDomainAxis().getRange());
+			assertEquals(originalY, landingChart.getChart().getXYPlot().getRangeAxis().getRange());
+
+			MonteCarloRunRecord singleRun = records.stream()
+					.filter(record -> !record.nominal && record.failureMessage == null).findFirst().orElseThrow();
+			panel.setResults(List.of(singleRun));
+			selectComboItem(plotSelector, "Histogram");
+			var histogram = (org.jfree.data.statistics.HistogramDataset) chart.getChart().getXYPlot().getDataset();
+			double totalCount = 0;
+			for (int bin = 0; bin < histogram.getItemCount(0); bin++) {
+				assertTrue(histogram.getEndXValue(0, bin) > histogram.getStartXValue(0, bin),
+						"constant samples must still produce visible, nonzero-width bins");
+				totalCount += histogram.getYValue(0, bin);
+			}
+			assertEquals(1.0, totalCount);
+			assertNotNull(chart.getChart().createBufferedImage(640, 400));
+
+			panel.setResults(List.of());
+			for (int i = 0; i < plotSelector.getItemCount(); i++) {
+				plotSelector.setSelectedIndex(i);
+				fit.doClick();
+				assertNotNull(chart.getChart().createBufferedImage(640, 400));
+			}
+		});
+	}
+
+	private static JButton findButton(Component component, String label) {
+		return findAll(component, JButton.class).stream()
+				.filter(button -> label.equals(button.getText())).findFirst().orElseThrow();
+	}
+
+	@Test
+	public void testStatisticalControlsRemainVisibleWithinResizedResultsPane() throws Exception {
+		Simulation simulation = newSimulation();
+		List<MonteCarloRunRecord> records = MonteCarloBatchRunner.runBatchParallel(simulation, 2, 1, null);
+		SwingUtilities.invokeAndWait(() -> {
+			MonteCarloVisualizationPanel panel = new MonteCarloVisualizationPanel(simulation);
+			panel.setResults(records);
+			JTabbedPane tabs = findFirst(panel, JTabbedPane.class);
+			Container statistics = (Container) tabs.getComponentAt(tabs.indexOfTab("Statistical plots"));
+			JComboBox<?> selector = findAll(statistics, JComboBox.class).stream()
+					.filter(combo -> comboContains(combo, "Histogram")).findFirst().orElseThrow();
+			ChartPanel chart = findFirst(statistics, ChartPanel.class);
+			for (Dimension size : List.of(new Dimension(430, 520), new Dimension(640, 600),
+					new Dimension(1000, 720))) {
+				panel.setSize(size);
+				for (int plotIndex = 0; plotIndex < selector.getItemCount(); plotIndex++) {
+					tabs.setSelectedIndex(tabs.indexOfTab("Landing dispersion"));
+					layoutTree(panel);
+					tabs.setSelectedComponent(statistics);
+					selector.setSelectedIndex(plotIndex);
+					layoutTree(panel);
+					assertFullyContained(selector, panel);
+					assertEquals(9, selector.getItemCount());
+					for (String label : List.of("Fit", "Reload", "Save image...")) {
+						assertFullyContained(findButton(statistics, label), panel);
+					}
+					for (JComboBox<?> combo : findAll(statistics, JComboBox.class)) {
+						if (combo.isVisible()) assertFullyContained(combo, panel);
+					}
+					assertFullyContained(chart, panel);
+					assertTrue(chart.getHeight() >= 120, "chart must remain usable at " + size);
+					for (JTextArea status : findAll(statistics, JTextArea.class)) {
+						assertTrue(status.getLineWrap());
+						assertFullyContained(status, panel);
+					}
+					for (JScrollPane scroll : findAll(statistics, JScrollPane.class)) {
+						assertFullyContained(scroll, panel);
+					}
+					if (plotIndex == 0) {
+						writeStatisticalLayoutSnapshot(panel, size.width);
+					}
+				}
+			}
+		});
+	}
+
+	private static void writeStatisticalLayoutSnapshot(JPanel panel, int width) {
+		var image = new java.awt.image.BufferedImage(panel.getWidth(), panel.getHeight(),
+				java.awt.image.BufferedImage.TYPE_INT_RGB);
+		var graphics = image.createGraphics();
+		panel.printAll(graphics);
+		graphics.dispose();
+		try {
+			var directory = java.nio.file.Path.of("build", "test-snapshots");
+			java.nio.file.Files.createDirectories(directory);
+			javax.imageio.ImageIO.write(image, "png", directory.resolve("statistical-plots-" + width + ".png").toFile());
+		} catch (java.io.IOException exception) {
+			throw new java.io.UncheckedIOException(exception);
+		}
+	}
+
+	private static void assertFullyContained(Component component, Container root) {
+		assertTrue(component.isVisible());
+		assertTrue(component.getWidth() > 0 && component.getHeight() > 0,
+				component.getClass().getSimpleName() + " has collapsed: " + component.getBounds());
+		for (Container parent = component.getParent(); parent != null; parent = parent.getParent()) {
+			var bounds = SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), parent);
+			assertTrue(new java.awt.Rectangle(0, 0, parent.getWidth(), parent.getHeight()).contains(bounds),
+					component.getClass().getSimpleName() + " clipped by " + parent.getClass().getSimpleName()
+							+ ": " + bounds + " in " + parent.getSize());
+			if (parent == root) return;
+		}
+		throw new AssertionError("Component is outside the results pane");
 	}
 
 	@Test
@@ -355,6 +557,21 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		assertTrue(threeSigma.getX() - twoSigma.getX() < 100,
 				"3\u03c3 must remain grouped with 1\u03c3 and 2\u03c3 before the flexible toolbar gap");
 		assertTrue(threeSigma.getX() < zoomOut.getX());
+	}
+
+	@Test
+	public void testLandingMapRemainsVisibleWhenViewIsCompressed() throws Exception {
+		OpenStreetMapPanel mapPanel = new OpenStreetMapPanel((zoom, x, y) ->
+				new java.awt.image.BufferedImage(256, 256, java.awt.image.BufferedImage.TYPE_INT_ARGB));
+		MonteCarloLandingMapPanel landingMap = new MonteCarloLandingMapPanel(mapPanel);
+
+		SwingUtilities.invokeAndWait(() -> {
+			landingMap.setSize(520, 360);
+			layoutTree(landingMap);
+		});
+
+		assertTrue(mapPanel.getWidth() >= 120, "the map must retain usable horizontal space");
+		assertTrue(mapPanel.getHeight() >= 100, "the map must remain visible above the coordinate table");
 	}
 
 	@Test
@@ -378,20 +595,18 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 	}
 
 	@Test
-	public void testResultsStoreKeepsResultsPerSimulation() throws Exception {
+	public void testSimulationOwnsResultsWithoutCrossSimulationLeakage() throws Exception {
 		Simulation first = newSimulation();
 		Simulation second = newSimulation();
 		List<MonteCarloRunRecord> records =
 				MonteCarloBatchRunner.runBatchParallel(first, 2, 1, null);
 
-		MonteCarloResultsStore.put(first, records);
+		MonteCarloExtension extension = new MonteCarloExtension();
+		first.setMonteCarloAnalysis(MonteCarloAnalysis.completed(first, extension, records, false));
 
-		assertEquals(records.size(), MonteCarloResultsStore.get(first).size());
-		assertTrue(MonteCarloResultsStore.get(second).isEmpty(),
+		assertEquals(records.size(), first.getMonteCarloAnalysis().getRecords().size());
+		assertTrue(second.getMonteCarloAnalysis() == null,
 				"results must not leak between simulations");
-
-		MonteCarloResultsStore.clear(first);
-		assertTrue(MonteCarloResultsStore.get(first).isEmpty());
 	}
 
 	private static Simulation newSimulation() {

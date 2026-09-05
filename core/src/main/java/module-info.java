@@ -108,6 +108,7 @@ open module info.openrocket.core {
 	exports info.openrocket.core.thrustcurve;
 	exports info.openrocket.core.unit;
 	exports info.openrocket.core.util;
+	exports info.openrocket.core.util.geospatial;
 	exports info.openrocket.core.util.ejection;
 	exports info.openrocket.core.util.enums;
 	exports info.openrocket.core.utils;

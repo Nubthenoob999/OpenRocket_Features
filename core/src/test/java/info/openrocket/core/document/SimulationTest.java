@@ -6,6 +6,7 @@ import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
+import info.openrocket.core.montecarlo.MonteCarloAnalysis;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver.ResolutionException;
 import info.openrocket.core.simulation.FlightData;
 import info.openrocket.core.simulation.FlightDataBranch;
@@ -16,6 +17,7 @@ import info.openrocket.core.simulation.exception.SimulationException;
 import info.openrocket.core.util.BaseTestCase;
 import info.openrocket.core.simulation.SimulationStepperMethod;
 import info.openrocket.core.util.TestRockets;
+import info.openrocket.core.util.Config;
 import info.openrocket.core.logging.SimulationAbort;
 
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,26 @@ public class SimulationTest extends BaseTestCase {
 
 		simulation.setName(null);
 		assertEquals("", simulation.getName());
+	}
+
+	@Test
+	public void testMonteCarloAnalysisStalenessAndCopySemantics() {
+		MonteCarloAnalysis analysis = new MonteCarloAnalysis(1234, "source",
+				simulation.getFlightConfigurationId().toString(), 1, 2, 3, false,
+				PhysicsAeroMode.OFF, "", "", "", new Config(), List.of(), false, "");
+		simulation.setMonteCarloAnalysis(analysis);
+
+		assertTrue(simulation.isMonteCarloAnalysisCurrent());
+		assertNotNull(simulation.clone().getMonteCarloAnalysis(), "full clones retain analysis");
+		assertNull(simulation.clone(false).getMonteCarloAnalysis(), "data-free clones exclude analysis");
+		assertNull(simulation.copy().getMonteCarloAnalysis(), "clipboard copies exclude analysis");
+		assertNull(simulation.duplicateForIndependentSimulation().getMonteCarloAnalysis(),
+				"worker clones exclude analysis");
+
+		simulation.getOptions().setLaunchAltitude(simulation.getOptions().getLaunchAltitude() + 10);
+		assertFalse(simulation.isMonteCarloAnalysisCurrent());
+		assertTrue(simulation.getMonteCarloAnalysis().isStale());
+		assertFalse(simulation.getMonteCarloAnalysis().getStaleReason().isBlank());
 	}
 
 	@Test

@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.Map;
 import info.openrocket.core.simulation.montecarlo.MonteCarloMetric;
 import info.openrocket.core.simulation.montecarlo.MonteCarloParameter;
+import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroRuntimeReport;
 
 /**
  * A single Monte Carlo run record. Stored to CSV by MonteCarloCsvExporter.
@@ -31,6 +32,8 @@ public class MonteCarloRunRecord {
 	public Map<MonteCarloParameter, Double> sampledVariations = Collections.emptyMap();
 	public Map<MonteCarloParameter, String> uncertaintySettings = Collections.emptyMap();
 	public List<BodyResult> bodyResults = Collections.emptyList();
+	/** Table-runtime diagnostics captured from this trajectory, if table physics was used. */
+	public PhysicsAeroRuntimeReport physicsAeroRuntimeReport = PhysicsAeroRuntimeReport.disabled();
 
 	public static final class BodyResult {
 		public final String bodyId;
@@ -118,7 +121,7 @@ public class MonteCarloRunRecord {
     /** Actual mass multiplier used for this run (1.0 if disabled) */
     public final double massMultiplierUsed;
 
-    public final String windModelType;
+    public String windModelType;
     public final List<WindLevel> windLevels = new ArrayList<>();
 
     public final double apogee_m;

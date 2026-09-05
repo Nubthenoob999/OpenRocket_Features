@@ -21,6 +21,16 @@ repositories {
     maven { url = "https://jogamp.org/deployment/maven/" }
 }
 
+// These local GeoTools experiments are not part of the application yet and deliberately
+// have no production dependency declaration.  Keep them out of normal builds until that
+// work is promoted into a supported map implementation.
+sourceSets {
+    main.java.exclude 'info/openrocket/swing/gui/simulation/GeoToolsMapPanel.java'
+    main.java.exclude 'info/openrocket/swing/gui/simulation/OpenRocketGisView.java'
+    test.java.exclude 'info/openrocket/swing/gui/simulation/GeoToolsMapLiveDiagnostic.java'
+    test.java.exclude 'info/openrocket/swing/gui/simulation/GeoToolsMapPanelTest.java'
+}
+
 checkstyle {
     ignoreFailures = false
     maxWarnings = 0
