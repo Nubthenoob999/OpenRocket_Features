@@ -78,6 +78,9 @@ def isMac = currentOs.contains('mac')
 def defaultInstallerType = isWindows ? 'exe' : (isMac ? 'pkg' : 'deb')
 def jpackageType = providers.gradleProperty('jpackageType').orElse(defaultInstallerType)
 def jpackageExtraModules = providers.gradleProperty('jpackageExtraModules').orElse('')
+// jdeps cannot discover security providers selected by algorithm name at runtime.
+// Ed25519 signing-key verification is implemented by SunEC in this JDK module.
+def jpackageRequiredModules = ['jdk.crypto.ec']
 def toolExecutable = { String toolName ->
     def executableName = isWindows ? "${toolName}.exe" : toolName
     return new File(System.getProperty('java.home'), "bin/${executableName}").absolutePath
@@ -204,7 +207,7 @@ def collectJpackageModules = { File jarFile ->
             .split(',')
             .collect { it.trim() }
             .findAll { !it.isEmpty() }
-    def allModules = (detectedModules + extraModules).unique()
+    def allModules = (detectedModules + jpackageRequiredModules + extraModules).unique()
     return allModules.isEmpty() ? 'java.base' : allModules.join(',')
 }
 
