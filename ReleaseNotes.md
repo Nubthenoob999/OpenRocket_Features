@@ -13,6 +13,27 @@ Release Notes
 
 </div>
 
+<div id="1.14">
+
+Project Imperia 1.14 (2026-09-07)
+---------------------------------
+
+### Simulation and Aerodynamics
+* Improved fin center-of-pressure and normal-force calculations, including low-aspect-ratio and transonic behavior.
+* Applied the corrected fin/body interference model to the Physics aerodynamics table.
+* Improved weathercocking, powered base drag, sustained tumbling, recovery-event handling, and deterministic wind simulation.
+
+### User Interface and Analysis
+* Finalized the Physics aerodynamics, Monte Carlo, Structures, simulation replay, and ejection-charge interfaces.
+* Improved simulation plot appearance persistence and compact layouts for narrower displays.
+* Expanded structural material data and analysis coverage.
+
+### Packaging
+* Added the Ed25519 security provider required to verify motor-database updates in packaged runtimes.
+* Updated the 3D rendering stack while retaining ROM replay and terrain compatibility.
+
+</div>
+
 <div id="24.12">
 
 OpenRocket 24.12 (2025-07-27)
