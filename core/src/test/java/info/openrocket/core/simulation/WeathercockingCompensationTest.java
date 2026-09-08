@@ -91,6 +91,11 @@ public class WeathercockingCompensationTest extends BaseTestCase {
 		}
 
 		@Override
+		public void setSeed(int seed) {
+			// The fixed test wind is intentionally independent of random seeds.
+		}
+
+		@Override
 		public WindModel clone() {
 			return new FixedWindModel(velocity.length());
 		}

@@ -73,8 +73,10 @@ public class SimulationConfigDialog extends JDialog {
 	private static final int PLOT_IDX = 4;
 	private static final int EXPORT_IDX = 5;
 
+	private final SimulationOptionsPanel simulationOptionsTab;
 	private final SimulationPlotPanel plotTab;
 	private final SimulationExportPanel exportTab;
+	private static final int DIALOG_SCREEN_MARGIN = 80;
 
 	private static Color multiCompEditColor;
 
@@ -122,8 +124,9 @@ public class SimulationConfigDialog extends JDialog {
 				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationConditionsPanel(simulationList[0])));
 
 		//// Simulation options
+		this.simulationOptionsTab = new SimulationOptionsPanel(document, simulationList[0]);
 		tabbedPane.addTab(trans.get("SimulationConfigDialog.tab.Simopt"),
-				SimulationTabLayoutUtils.wrapFormScrollable(new SimulationOptionsPanel(document, simulationList[0])));
+				SimulationTabLayoutUtils.wrapFormScrollable(simulationOptionsTab));
 
 		//// Physics-Based Aerodynamics experimental integration
 		tabbedPane.addTab("Aerodynamics",

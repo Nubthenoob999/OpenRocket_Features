@@ -54,6 +54,7 @@ import info.openrocket.core.simulation.montecarlo.MonteCarloSettings;
 import info.openrocket.core.startup.Application;
 import info.openrocket.core.util.Config;
 import info.openrocket.swing.gui.util.GUIUtil;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 /** Modeless, multi-target Monte Carlo workflow launched from the simulation toolbar. */
@@ -162,6 +163,10 @@ public final class MonteCarloDialog extends JDialog {
 		add(split, BorderLayout.CENTER);
 		add(buildActions(), BorderLayout.SOUTH);
 
+		applyButton.setIcon(Icons.CONFIGURE);
+		runButton.setIcon(Icons.SIM_RUN);
+		cancelButton.setIcon(Icons.FILE_CLOSE);
+		exportButton.setIcon(Icons.FILE_EXPORT);
 		applyButton.addActionListener(event -> applySettings());
 		runButton.addActionListener(event -> runAll());
 		cancelButton.addActionListener(event -> cancelOrClose(false));

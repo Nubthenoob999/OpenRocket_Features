@@ -13,8 +13,8 @@ import info.openrocket.core.models.wind.WindModelType;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.simulation.SimulationOptions;
-import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.simulation.SimulationStepperMethod;
+import info.openrocket.core.util.GeodeticComputationStrategy;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroMode;
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroSettings;
 import java.util.List;
@@ -291,6 +291,26 @@ class SimulationConditionsHandler extends AbstractElementHandler {
 					warnings.add("Illegal max simulation time defined, ignoring.");
 				} else {
 					options.setMaxSimulationTime(d);
+				}
+			}
+			case "recoveryspeedwarning" -> {
+				if (!Double.isNaN(d) && d > 0) {
+					options.setRecoverySpeedWarning(d);
+				}
+			}
+			case "drogueLowspeedwarning" -> {
+				if (!Double.isNaN(d) && d > 0) {
+					options.setDrogueLowSpeedWarning(d);
+				}
+			}
+			case "recoverydroguemainhighspeedwarning" -> {
+				if (!Double.isNaN(d) && d > 0) {
+					options.setRecoveryDrogueMainHighSpeedWarning(d);
+				}
+			}
+			case "recoverydroguemainlowspeedwarning" -> {
+				if (!Double.isNaN(d) && d > 0) {
+					options.setRecoveryDrogueMainLowSpeedWarning(d);
 				}
 			}
 			// draglookupcsv and stabilitylookupcsv are now handled by CsvLookupHandler

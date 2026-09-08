@@ -181,10 +181,7 @@ public class MaterialDTO {
 					compressiveStrength == null ? Double.NaN : compressiveStrength,
 					poissonRatio == null ? Double.NaN : poissonRatio, group.getORMaterialGroup());
 		}
-		if (inPlaneShearModulus == null) {
-			return Databases.findMaterial(type.getORMaterialType(), name, density, group.getORMaterialGroup());
-		}
-		return Databases.findMaterial(type.getORMaterialType(), name, density, inPlaneShearModulus,
+		return Databases.findLegacyMaterial(type.getORMaterialType(), name, density, inPlaneShearModulus,
 				group.getORMaterialGroup());
 	}
 

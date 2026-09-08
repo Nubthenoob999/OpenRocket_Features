@@ -79,9 +79,9 @@ public final class FrictionCoefficientLookupTable {
 				"High variance. CA-hardened holes reduce COF 10–20%. Moisture raises COF.");
 
 		put(t, AirframeMaterial.BLUE_TUBE, AirframeMaterial.BLUE_TUBE,
-				0.32, 0.40, 0.50, 0.22, 0.32, 0.42,
-				"Medium", "Rocketry Forum empirical; engineering estimate",
-				"Smoother than raw cardboard but rougher than phenolic.");
+				0.12, 0.16, 0.25, 0.10, 0.14, 0.22,
+				"Medium", "Vulcanex vulcanized-fibre engineering data",
+				"Supplier reports 0.16 fibre-on-fibre; range covers finish and moisture variation.");
 
 		put(t, AirframeMaterial.HARDWOOD, AirframeMaterial.HARDWOOD,
 				0.30, 0.40, 0.50, 0.20, 0.30, 0.40,

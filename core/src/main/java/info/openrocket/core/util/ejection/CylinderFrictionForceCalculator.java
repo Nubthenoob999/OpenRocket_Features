@@ -137,7 +137,20 @@ public final class CylinderFrictionForceCalculator {
 				RocketryMaterialProperties.getYoungsModulus_psi(innerMaterial),
 				RocketryMaterialProperties.getPoissonsRatio(innerMaterial));
 
-		double d_nom = outerTubeID_in;
+		return calculate(outerTube, innerTube, overlapLength_in, delta_diametral_in, mu_s);
+	}
+
+	/**
+	 * Calculate an interference fit from fully resolved tube properties.  This
+	 * is the database-backed entry point used when rocket components are
+	 * selected; the enum overload remains for manual and legacy callers.
+	 */
+	public static FrictionResult calculate(TubeGeometry outerTube,
+										   TubeGeometry innerTube,
+										   double overlapLength_in,
+										   double delta_diametral_in,
+										   double mu_s) {
+		double d_nom = outerTube.getInnerDiameter_in();
 		double R = d_nom / 2.0;
 
 		double C_outer = lameGeometryFactor(R,

@@ -102,10 +102,8 @@ class MaterialSetter implements Setter {
 					tensileStrength == null ? Double.NaN : tensileStrength,
 					compressiveStrength == null ? Double.NaN : compressiveStrength,
 					poissonRatio == null ? Double.NaN : poissonRatio, group);
-		} else if (shearModulus == null) {
-			mat = Databases.findMaterial(type, name, density, group);
 		} else {
-			mat = Databases.findMaterial(type, name, density, shearModulus, group);
+			mat = Databases.findLegacyMaterial(type, name, density, shearModulus, group);
 		}
 
 		setMethod.invoke(c, mat);

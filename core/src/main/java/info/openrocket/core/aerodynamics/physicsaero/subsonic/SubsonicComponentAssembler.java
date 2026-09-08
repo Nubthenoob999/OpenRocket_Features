@@ -9,6 +9,7 @@ import info.openrocket.core.aerodynamics.physicsaero.body.AxisymmetricEdgeStateH
 import info.openrocket.core.aerodynamics.physicsaero.body.SeparatedBoattailPressureDragModel;
 import info.openrocket.core.aerodynamics.physicsaero.boundarylayer.EngineeringSkinFrictionCorrelation;
 import info.openrocket.core.aerodynamics.physicsaero.fin.FinLeadingEdgePressureDragModel;
+import info.openrocket.core.aerodynamics.physicsaero.fin.RegularizedFinAerodynamics;
 import info.openrocket.core.aerodynamics.physicsaero.fin.FinTrailingEdgeBaseDragModel;
 import info.openrocket.core.aerodynamics.physicsaero.flow.FlowCondition;
 import info.openrocket.core.aerodynamics.physicsaero.force.AerodynamicCoefficients;
@@ -55,9 +56,12 @@ public final class SubsonicComponentAssembler {
 			double oneFinSlope=new SubsonicDatcomFinModel().liftSlopePerRad(
 					flow.mach(),ar,metrics.halfChordSweepRad(),1)*f.planformAreaM2()/ref;
 			// For evenly spaced fins, sum(sin^2(theta_i)) = N/2.  The classical
-			// Barrowman body-fin interference multiplier is 1+r/(r+s).
+			// Include both fin-in-body and body-in-fin normal force.  The latter
+			// blends out above the subsonic validity range in the shared correction.
 			double orientationFactor=f.count()/2.0;
-			double bodyInterference=1+c.rootRadiusM()/(c.rootRadiusM()+f.spanM());
+			double tau=c.rootRadiusM()/(c.rootRadiusM()+f.spanM());
+			double bodyInterference=RegularizedFinAerodynamics
+					.bodyFinInterferenceFactor(tau,flow.mach());
 			double installedSlope=oneFinSlope*orientationFactor*bodyInterference;
 			finSlope+=installedSlope;
 			momentMagnitude+=installedSlope*finIncidence*metrics.quarterMacXM();
@@ -94,7 +98,7 @@ public final class SubsonicComponentAssembler {
 		}
 		if(bodyIncidence>Math.toRadians(12))diagnostics.add("NONLINEAR_CROSSFLOW_NEAR_LIMIT");
 		if(requestedAlphaT>FIN_STALL_INCIDENCE_RAD)diagnostics.add("FIN_NORMAL_FORCE_HELD_AT_20DEG_STALL");
-		List<String> methods=new ArrayList<>(List.of("SUBSONIC_SOURCE_DISTRIBUTION_V1","JORGENSEN_GALEJS_VERY_HIGH_INCIDENCE_BODY_FORCE_V1","SUBSONIC_DATCOM_FIN_V1",CENTER_OF_PRESSURE_METHOD_ID,FIN_INSTALLATION_METHOD_ID,SubsonicBaseDragModel.METHOD_ID,EngineeringSkinFrictionCorrelation.METHOD_ID));
+		List<String> methods=new ArrayList<>(List.of("SUBSONIC_SOURCE_DISTRIBUTION_V1","JORGENSEN_GALEJS_VERY_HIGH_INCIDENCE_BODY_FORCE_V1","SUBSONIC_DATCOM_FIN_V1",CENTER_OF_PRESSURE_METHOD_ID,FIN_INSTALLATION_METHOD_ID,RegularizedFinAerodynamics.INTERFERENCE_METHOD_ID,SubsonicBaseDragModel.METHOD_ID,EngineeringSkinFrictionCorrelation.METHOD_ID));
 		if(friction.finInterferenceCd()>0)methods.add(EngineeringSkinFrictionCorrelation.FIN_INTERFERENCE_METHOD_ID);
 		if(finBaseCd>0)methods.add(FinTrailingEdgeBaseDragModel.METHOD_ID);
 		if(finLeadingEdgeCd>0)methods.add(FinLeadingEdgePressureDragModel.METHOD_ID);

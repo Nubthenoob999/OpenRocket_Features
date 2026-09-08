@@ -79,6 +79,12 @@ public class PinkNoiseWindModel implements WindModel {
 		this(new Random().nextInt());
 	}
 
+	@Override
+	public void setSeed(int seed) {
+		this.seed = seed ^ SEED_RANDOMIZATION;
+		reset();
+	}
+
 	/**
 	 * Return the average wind speed.
 	 * 

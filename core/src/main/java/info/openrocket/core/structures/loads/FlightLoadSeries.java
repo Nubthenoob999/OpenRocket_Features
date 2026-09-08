@@ -36,6 +36,21 @@ public final class FlightLoadSeries {
 		return maxBy(AxialLoadModel::conservativeAxialLoad);
 	}
 
+	/**
+	 * Return the governing powered-ascent axial case used by the workbook-style
+	 * structural checks.  Recovery deployment can contain short drag samples that
+	 * are not a motor/airframe compression load.  Fall back to the full series for
+	 * a simulation that contains no positive-thrust samples.
+	 */
+	public FlightLoadCase getMaxPoweredAxialLoadCase() {
+		FlightLoadCase powered = cases.stream()
+				.filter(loadCase -> Double.isFinite(loadCase.getThrust()) && loadCase.getThrust() > 0.0)
+				.filter(loadCase -> Double.isFinite(AxialLoadModel.conservativeAxialLoad(loadCase)))
+				.max(Comparator.comparingDouble(AxialLoadModel::conservativeAxialLoad))
+				.orElse(null);
+		return powered == null ? getMaxAxialLoadCase() : powered;
+	}
+
 	public FlightLoadCase getWorstTubeStressCase() {
 		return maxBy(loadCase -> Math.max(loadCase.getDynamicPressure(), 0.0) +
 				AxialLoadModel.conservativeAxialLoad(loadCase));

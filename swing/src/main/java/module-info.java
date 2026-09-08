@@ -26,6 +26,14 @@ open module info.openrocket.swing {
 	requires java.scripting;
 	requires org.fife.RSyntaxTextArea;
 	requires jakarta.xml.bind;
+	requires lwjgl3.awt;
+	requires org.lwjgl;
+	requires org.lwjgl.stb;
+	requires org.lwjgl.opengl;
+	requires org.lwjgl.jawt;
+	requires org.joml;
+	requires org.locationtech.jts;
+	requires java.net.http;
 	requires jcommon;
 	requires java.prefs;
 	requires com.jthemedetector;

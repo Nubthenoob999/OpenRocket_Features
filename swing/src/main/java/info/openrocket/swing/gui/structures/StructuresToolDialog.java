@@ -28,6 +28,7 @@ import info.openrocket.core.structures.geometry.TubeGeometry;
 import info.openrocket.core.structures.loads.FlightLoadSeries;
 import info.openrocket.core.structures.loads.SimulationLoadExtractor;
 import info.openrocket.core.structures.loads.StructuralLoadDiagram;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 public final class StructuresToolDialog extends JDialog {
@@ -57,7 +58,7 @@ public final class StructuresToolDialog extends JDialog {
 		JPanel top = new JPanel(new MigLayout("fillx, ins 8", "[][grow][]", ""));
 		top.add(new JLabel("Simulation"), "right");
 		top.add(simulationComboBox, "growx");
-		JButton refreshButton = new JButton("Refresh");
+		JButton refreshButton = new JButton("Refresh", Icons.REFRESH);
 		refreshButton.addActionListener(this::refreshAction);
 		top.add(refreshButton, "wrap");
 		top.add(simulationStatusLabel, "skip 1, span 2, growx");
@@ -77,7 +78,7 @@ public final class StructuresToolDialog extends JDialog {
 		JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right);
 		splitPane.setResizeWeight(0.45);
 
-		JButton runButton = new JButton("Run Analysis");
+		JButton runButton = new JButton("Run Analysis", Icons.SIM_RUN);
 		runButton.addActionListener(this::runAnalysis);
 		JPanel bottom = new JPanel(new MigLayout("ins 8", "[grow][]", ""));
 		bottom.add(new JLabel("Results use SI internally and OpenRocket simulation data directly."), "growx");

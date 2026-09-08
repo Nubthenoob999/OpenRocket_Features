@@ -130,8 +130,17 @@ public final class SupersonicFinSolver {
 						"ISOLATED_DATCOM_LOAD_LOCAL_INTERACTION_OUTSIDE_INCIDENCE_DOMAIN");
 				if (datcomIncidenceHeld) diagnostics.put(fin.id() + ":incidenceBoundary",
 						"DATCOM_FIN_LOAD_HELD_AT_15DEG_SOURCE_BOUNDARY");
-				weightedX = totalN * new DatcomFinCenterOfPressureModel().halfMeanAerodynamicChordFallback(component.axialStartM(), area / fin.geometry().spanM()).xM();
-				diagnostics.put(fin.id() + ":cp", "HALF_MAC_LOW_CONFIDENCE");
+				double macArea = strips.stream().mapToDouble(FinStrip::areaM2).sum();
+				double macLeading = strips.stream()
+						.mapToDouble(strip -> strip.leadingEdgeXM() * strip.areaM2()).sum() / macArea;
+				double macLength = strips.stream()
+						.mapToDouble(strip -> strip.chordM() * strip.areaM2()).sum() / macArea;
+				double fullWingAspectRatio = 2 * ar;
+				double regularizedCp = RegularizedFinAerodynamics.centerOfPressureM(
+						component.axialStartM() + macLeading, macLength,
+						flow.mach(), fullWingAspectRatio);
+				weightedX = totalN * regularizedCp;
+				diagnostics.put(fin.id() + ":cp", RegularizedFinAerodynamics.CP_METHOD_ID);
 			} else if (selection.authoritative() == FinMethodSelector.Method.ACKERET) method = new MethodId(AckeretThinFinModel.METHOD_ID);
 			else if (selection.authoritative() == FinMethodSelector.Method.SHOCK_EXPANSION) method = new MethodId(WedgeDiamondShockExpansionModel.METHOD_ID);
 			else throw new IllegalArgumentException("NO_VALID_FIN_METHOD:" + fin.id()

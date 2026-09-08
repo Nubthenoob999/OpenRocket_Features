@@ -71,7 +71,13 @@ public class SimulationStatus implements Cloneable, Monitorable {
 
 	private double maxZVelocity = Double.NEGATIVE_INFINITY;
 	private double startWarningsTime = RK4SimulationStepper.RECOMMENDED_MAX_TIME;
-	
+
+	/** Kinematic tumble detector, carrying its filter state across steps. */
+	private TumbleDetector tumbleDetector = new TumbleDetector();
+
+	/** Whether this branch simulates a stage that has been separated and left behind. */
+	private boolean separatedStage = false;
+
 	private double effectiveLaunchRodLength;
 	private WeathercockingCompensation.Prediction weathercockingPrediction;
 	private double weathercockingLaunchRodClearTime = Double.NaN;
@@ -217,6 +223,8 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		this.landed = orig.landed;
 		this.maxZVelocity = orig.maxZVelocity;
 		this.startWarningsTime = orig.startWarningsTime;
+		this.tumbleDetector = new TumbleDetector(orig.tumbleDetector);
+		this.separatedStage = orig.separatedStage;
 		this.weathercockingPrediction = orig.weathercockingPrediction;
 		this.weathercockingLaunchRodClearTime = orig.weathercockingLaunchRodClearTime;
 		this.weathercockingTumbleWarningAdded = orig.weathercockingTumbleWarningAdded;
@@ -770,6 +778,32 @@ public class SimulationStatus implements Cloneable, Monitorable {
 		}
 	}
 	
+	/**
+	 * Get the tumble detector for this simulation branch.
+	 *
+	 * @return the tumble detector
+	 */
+	public TumbleDetector getTumbleDetector() {
+		return tumbleDetector;
+	}
+
+	/**
+	 * Whether this branch simulates a stage that has been separated and left behind,
+	 * rather than the rocket that flew on.
+	 *
+	 * @return true for a separated stage's own branch
+	 */
+	public boolean isSeparatedStage() {
+		return separatedStage;
+	}
+
+	/**
+	 * Mark this branch as simulating a separated stage.
+	 */
+	public void setSeparatedStage(boolean separatedStage) {
+		this.separatedStage = separatedStage;
+	}
+
 	/**
 	 * Determine whether (most) flight event warnings are currently being saved.
 	 * Warnings are not saved until 0.25 seconds after leaving the rail, and again

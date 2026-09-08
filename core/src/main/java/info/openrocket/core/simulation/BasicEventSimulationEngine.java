@@ -25,6 +25,7 @@ import info.openrocket.core.rocketcomponent.FlightConfiguration;
 import info.openrocket.core.rocketcomponent.FlightConfigurationId;
 import info.openrocket.core.rocketcomponent.MotorMount;
 import info.openrocket.core.rocketcomponent.RecoveryDevice;
+import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.StageSeparationConfiguration;
 import info.openrocket.core.simulation.exception.SimulationException;
@@ -78,7 +79,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			// Set up rocket configuration
 			this.fcid = simulationConditions.getFlightConfigurationID();
 			FlightConfiguration origConfig = simulationConditions.getRocket().getFlightConfiguration(this.fcid);
-			FlightConfiguration simulationConfig = origConfig.clone(simulationConditions.getRocket().copyWithOriginalID());
+			Rocket simulationRocket = simulationConditions.getRocket().copyWithOriginalID();
+			// Resolve configuration-dependent component positions on the private simulation copy.
+			simulationRocket.setSelectedConfiguration(this.fcid);
+			FlightConfiguration simulationConfig = origConfig.clone(simulationRocket);
 			simulationConfig.copyStages(origConfig); // Clone the stage activation configuration
 			
 			currentStatus = new SimulationStatus(simulationConfig, simulationConditions);
@@ -113,8 +117,27 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			// No recovery device
 			if (!simulationConfig.hasRecoveryDevice()) {
 				currentStatus.addWarning(Warning.NO_RECOVERY_DEVICE);
+			} else {
+				// Check for drogue without main
+				boolean configHasDrogue = false;
+				boolean configHasMain = false;
+				for (RocketComponent comp : simulationConfig.getActiveComponents()) {
+					if (comp instanceof RecoveryDevice rd) {
+						DeploymentConfiguration dc = rd.getDeploymentConfigurations().get(this.fcid);
+						if (dc.getDeployEvent() != DeploymentConfiguration.DeployEvent.NEVER) {
+							if (rd.isDrogue()) {
+								configHasDrogue = true;
+							} else {
+								configHasMain = true;
+							}
+						}
+					}
+				}
+				if (configHasDrogue && !configHasMain) {
+					currentStatus.addWarning(new Warning.RecoveryDrogueWithoutMain());
+				}
 			}
-			
+
 			currentStatus.addEvent(new FlightEvent(FlightEvent.Type.LAUNCH, 0, simulationConditions.getRocket()));
 			toSimulate.push(currentStatus);
 		
@@ -291,31 +314,53 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 //					}
 //				}
 				
-				// Check for fin stall and either set tumbling or LargeAOA warning depending on
-				// rocket stability margin
+				// Check for tumbling, and otherwise for fin stall.
+				//
+				// Tumbling is decided from how long a high angle of attack has persisted,
+				// measured against the rocket's own pitch period, rather than from its value at
+				// a single step.  A gust cannot sustain it and a tumble cannot avoid it, so no
+				// flight-phase gating is needed in either direction: the launch guide departure
+				// transient does not survive the filter, and descent tumbling does.  Notably the
+				// CP/CG comparison is gone: the CP it consumed was produced by an aerodynamic
+				// model already outside its validity envelope at the angles where the test fired.
+				//
+				// A large instantaneous angle of attack still means the aerodynamic model is out
+				// of its envelope.  It is reported at low priority, since it says the crosswind
+				// is worth knowing about rather than that the flight has failed -- including
+				// while the rocket is departing, where it is the first sign of what follows.
+				//
+				// Not for a separated stage, though.  A spent booster left to fall reaches a
+				// large angle of attack every time, by design, so reporting it says only that
+				// the stage did what stages do.  A warning raised on every flight of every
+				// multi-stage rocket is one nobody reads.
+				//
 				// Inhibited if already tumbling, parachutes deployed, or on the ground
 				if (!currentStatus.isTumbling() &&
 					(currentStatus.getDeployedRecoveryDevices().size() == 0) &&
 					!currentStatus.isLanded()) {
-					final double cp = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CP_LOCATION);
-					final double cg = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_CG_LOCATION);
-					final double aoa = currentStatus.getFlightDataBranch().getLast(FlightDataType.TYPE_AOA);
-					final double margin =
-						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle() - aoa;
+					final FlightDataBranch branch = currentStatus.getFlightDataBranch();
+					final double aoa = branch.getLast(FlightDataType.TYPE_AOA);
+					final double stallAngle =
+						currentStatus.getSimulationConditions().getAerodynamicCalculator().getStallAngle();
+					// FlightConditions does not reach here, but its velocity is recoverable:
+					// the recorded Mach number is the air-relative speed over the speed of sound.
+					final double airSpeed = branch.getLast(FlightDataType.TYPE_MACH_NUMBER)
+							* branch.getLast(FlightDataType.TYPE_SPEED_OF_SOUND);
 
-					// large AOA -- stalling.					
-					if (margin < 0) {
-						// If we're stable, put a warning about large AOA
-						// note -- if cp is NaN (which it is while on the rod) cg > cp is false
-						if (cg > cp) {
-							// Not stable, so transition to tumbling
-							currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
-						} else {
-							// Stable, so warning about AOA
-							if (currentStatus.recordWarnings()) {
-								currentStatus.addWarning(new Warning.LargeAOA(aoa));
-							}
-						}
+					final boolean tumbling = currentStatus.getTumbleDetector().update(
+							currentStatus.getSimulationTime(),
+							currentStatus.isLaunchRodCleared(),
+							aoa,
+							airSpeed,
+							branch.getLast(FlightDataType.TYPE_AIR_DENSITY),
+							branch.getLast(FlightDataType.TYPE_NATURAL_FREQUENCY));
+
+					if (tumbling) {
+						currentStatus.addEvent(new FlightEvent(FlightEvent.Type.TUMBLE, currentStatus.getSimulationTime()));
+					} else if (aoa > stallAngle
+						&& !currentStatus.isSeparatedStage()
+						&& currentStatus.recordWarnings()) {
+						currentStatus.addWarning(new Warning.LargeAOA(aoa));
 					}
 				}
 
@@ -400,6 +445,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			// TODO: LOW: check if deprecated function getActiveComponents needs to be replaced
 			for (RocketComponent c : currentStatus.getConfiguration().getActiveComponents()) {
 				if (!(c instanceof RecoveryDevice))
+					continue;
+				// A recovery device can only deploy once, so ignore any further triggers (for example the
+				// ejection charge of a second motor in the same airframe).
+				if (currentStatus.getDeployedRecoveryDevices().contains(c))
 					continue;
 				DeploymentConfiguration deployConfig = ((RecoveryDevice) c).getDeploymentConfigurations().get(this.fcid);
 				if (deployConfig.isActivationEvent(event, c)) {
@@ -517,6 +566,7 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 
 					// Create a new simulation branch for the booster
 					SimulationStatus boosterStatus = new SimulationStatus(currentStatus);
+					boosterStatus.setSeparatedStage(true);
 
 					// Prepare the new simulation branch
 					boosterStatus.setFlightDataBranch(new FlightDataBranch(boosterStage.getName(), boosterStage, currentStatus.getFlightDataBranch()));
@@ -667,8 +717,10 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 		RocketComponent c = event.getSource();
 		int n = c.getStageNumber();
 
-		// Ignore event if stage not active
-		if (!currentStatus.getConfiguration().isStageActive(n)) {
+		// Ignore an inactive stage or a second event for an already-deployed device.
+		// Simultaneous ejection charges can otherwise deploy the same device twice.
+		if (!currentStatus.getConfiguration().isStageActive(n) ||
+				currentStatus.getDeployedRecoveryDevices().contains(c)) {
 			return;
 		}
 
@@ -686,9 +738,37 @@ public class BasicEventSimulationEngine implements SimulationEngine {
 			currentStatus.addWarning(Warning.RECOVERY_LAUNCH_ROD);
 		}
 
-		// Check current velocity
-		if (currentStatus.getRocketVelocity().length() > 20) {
-			currentStatus.addWarning(new Warning.HighSpeedDeployment(currentStatus.getRocketVelocity().length(), c));
+		// Check current velocity against the configured single- or dual-deployment
+		// warning thresholds.
+		final double deploySpeed = currentStatus.getRocketVelocity().length();
+		final SimulationConditions conds = currentStatus.getSimulationConditions();
+		final AxialStage deployingStage = c.getStage();
+		final RecoveryDevice deployingDevice = (RecoveryDevice) c;
+
+		boolean stageHasDrogue = false;
+		for (RocketComponent component : currentStatus.getConfiguration().getActiveComponents()) {
+			if (component instanceof RecoveryDevice recoveryDevice &&
+					recoveryDevice.getStage() == deployingStage) {
+				DeploymentConfiguration deployment = recoveryDevice.getDeploymentConfigurations().get(this.fcid);
+				if (deployment.getDeployEvent() != DeploymentConfiguration.DeployEvent.NEVER &&
+						recoveryDevice.isDrogue()) {
+					stageHasDrogue = true;
+					break;
+				}
+			}
+		}
+
+		if (stageHasDrogue) {
+			if (!deployingDevice.isDrogue()) {
+				if (deploySpeed > conds.getRecoveryDrogueMainHighSpeedWarning()) {
+					currentStatus.addWarning(new Warning.HighSpeedMainDeployment(deploySpeed, c));
+				}
+				if (deploySpeed < conds.getRecoveryDrogueMainLowSpeedWarning()) {
+					currentStatus.addWarning(new Warning.LowSpeedMainDeployment(deploySpeed, c));
+				}
+			}
+		} else if (deploySpeed > conds.getRecoverySpeedWarning()) {
+			currentStatus.addWarning(new Warning.RecoveryHighSpeedDeployment(deploySpeed, c));
 		}
 
 		currentStatus.setLiftoff(true);

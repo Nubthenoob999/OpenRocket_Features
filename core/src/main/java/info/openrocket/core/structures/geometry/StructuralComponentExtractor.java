@@ -28,11 +28,12 @@ public final class StructuralComponentExtractor {
 		for (RocketComponent component : rocket) {
 			if (component instanceof BodyTube) {
 				BodyTube tube = (BodyTube) component;
+				StructuralMaterial material = structuralMaterial(component);
 				double thickness = tube.getOuterRadius() - tube.getInnerRadius();
 				TubeGeometry geometry = new TubeGeometry(tube.getOuterRadius(), tube.getInnerRadius(), thickness,
 						tube.getLength(), tube.getLength(), absoluteX(tube), tube.getName());
 				components.add(new ExtractedStructuralComponent(component, "Body tube", geometry, geometry.isComplete(),
-						true, structuralMaterial(component)));
+						geometry.isComplete() && material.hasRequiredStrengthAndStiffness(), material));
 			} else if (component instanceof NoseCone) {
 				NoseCone nose = (NoseCone) component;
 				NoseConeGeometryStructural geometry = new NoseConeGeometryStructural(nose.getLength(), nose.getAftRadius(),
@@ -41,29 +42,33 @@ public final class StructuralComponentExtractor {
 						nose.getLength() > 0 && nose.getAftRadius() > 0, true, structuralMaterial(component)));
 			} else if (component instanceof FinSet) {
 				FinSet finSet = (FinSet) component;
+				StructuralMaterial material = structuralMaterial(component);
 				FinGeometryStructural geometry = extractFinGeometry(finSet);
 				components.add(new ExtractedStructuralComponent(component, "Fin set", geometry, geometry.isComplete(),
-						true, structuralMaterial(component)));
+						geometry.isComplete() && hasStrength(material) && hasShearModulus(material), material));
 			} else if (component instanceof Bulkhead) {
 				Bulkhead bulkhead = (Bulkhead) component;
+				StructuralMaterial material = structuralMaterial(component);
 				BulkheadGeometry geometry = new BulkheadGeometry(bulkhead.getOuterRadius(), bulkhead.getLength(),
 						absoluteX(bulkhead), bulkhead.getName());
 				components.add(new ExtractedStructuralComponent(component, "Bulkhead", geometry,
-						bulkhead.getOuterRadius() > 0 && bulkhead.getLength() > 0, true, structuralMaterial(component)));
+						bulkhead.getOuterRadius() > 0 && bulkhead.getLength() > 0,
+						hasStrength(material), material));
 			} else if (component instanceof CenteringRing) {
 				CenteringRing ring = (CenteringRing) component;
+				StructuralMaterial material = structuralMaterial(component);
 				CenteringRingGeometry geometry = new CenteringRingGeometry(ring.getOuterRadius(), ring.getInnerRadius(),
 						ring.getLength(), ring.getInstanceCount(), absoluteX(ring), ring.getName());
-				components.add(new ExtractedStructuralComponent(component, "Centering ring", geometry,
-						ring.getOuterRadius() > 0 && ring.getInnerRadius() >= 0 && ring.getLength() > 0, true,
-						structuralMaterial(component)));
+				boolean geometryComplete = ring.getOuterRadius() > 0 && ring.getInnerRadius() >= 0 && ring.getLength() > 0;
+				components.add(new ExtractedStructuralComponent(component, "Centering ring", geometry, geometryComplete,
+						geometryComplete && hasStrength(material), material));
 			} else if (component instanceof TubeCoupler) {
 				TubeCoupler coupler = (TubeCoupler) component;
 				CouplerGeometry geometry = new CouplerGeometry(coupler.getOuterRadius(), coupler.getInnerRadius(),
 						coupler.getLength(), absoluteX(coupler), coupler.getName());
 				components.add(new ExtractedStructuralComponent(component, "Coupler", geometry,
 						coupler.getOuterRadius() > 0 && coupler.getInnerRadius() >= 0 && coupler.getLength() > 0,
-						true, structuralMaterial(component)));
+						false, structuralMaterial(component)));
 			}
 		}
 		return components;
@@ -95,6 +100,16 @@ public final class StructuralComponentExtractor {
 			return MaterialLibrary.fromOpenRocketMaterial(((ExternalComponent) component).getMaterial());
 		}
 		return MaterialLibrary.USER_DEFINED;
+	}
+
+	private static boolean hasStrength(StructuralMaterial material) {
+		return material != null && Double.isFinite(material.getBestAllowableStress())
+				&& material.getBestAllowableStress() > 0;
+	}
+
+	private static boolean hasShearModulus(StructuralMaterial material) {
+		return material != null && Double.isFinite(material.getShearModulus())
+				&& material.getShearModulus() > 0;
 	}
 
 	public static final class ExtractedStructuralComponent {

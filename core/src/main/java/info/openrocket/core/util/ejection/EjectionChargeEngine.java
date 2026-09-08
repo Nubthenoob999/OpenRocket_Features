@@ -2,6 +2,7 @@ package info.openrocket.core.util.ejection;
 
 import java.util.Locale;
 
+import info.openrocket.core.material.Material;
 import info.openrocket.core.util.ejection.CylinderFrictionForceCalculator.FrictionResult;
 import info.openrocket.core.util.ejection.EjectionChargeResult.WarningLevel;
 
@@ -156,20 +157,44 @@ public final class EjectionChargeEngine {
 				: deratingPreset.getFactor();
 
 		if (haveCouplerGeometry) {
+			Material bayComponentMaterial = inputs.getBayComponentMaterial();
+			Material couplerComponentMaterial = inputs.getCouplerComponentMaterial();
 			double mu_s = FrictionCoefficientLookupTable.getCOF(
 					inputs.getBayMaterial(), inputs.getCouplerMaterial())
 					.getStaticNominal();
+			if (!FrictionCoefficientLookupTable.hasEntry(
+					inputs.getBayMaterial(), inputs.getCouplerMaterial())) {
+				result.addWarning(WarningLevel.CAUTION,
+						"No measured friction entry exists for this material pair; "
+								+ "using the generic coefficient. Verify the assembled joint with a pull test.");
+			}
+
+			TubeGeometry outerTube = new TubeGeometry(
+					"Outer (Airframe)", inputs.getBayMaterial(),
+					bayOD_m / M_PER_IN, bayInnerD_m / M_PER_IN,
+					RocketryMaterialProperties.getYoungsModulus_psi(
+							bayComponentMaterial, inputs.getBayMaterial()),
+					RocketryMaterialProperties.getPoissonsRatio(
+							bayComponentMaterial, inputs.getBayMaterial()));
+			TubeGeometry innerTube = new TubeGeometry(
+					"Inner (Coupler)", inputs.getCouplerMaterial(),
+					couplerOD_m / M_PER_IN, couplerID_m / M_PER_IN,
+					RocketryMaterialProperties.getYoungsModulus_psi(
+							couplerComponentMaterial, inputs.getCouplerMaterial()),
+					RocketryMaterialProperties.getPoissonsRatio(
+							couplerComponentMaterial, inputs.getCouplerMaterial()));
 
 			FrictionResult fr = CylinderFrictionForceCalculator.calculate(
-					inputs.getBayMaterial(),
-					inputs.getCouplerMaterial(),
-					bayInnerD_m / M_PER_IN,
-					bayOD_m / M_PER_IN,
-					couplerID_m / M_PER_IN,
-					couplerOD_m / M_PER_IN,
+					outerTube,
+					innerTube,
 					couplerL_m / M_PER_IN,
 					delta_m / M_PER_IN,
 					mu_s);
+
+			addMaterialPropertyWarning(result, "airframe", bayComponentMaterial,
+					inputs.getBayMaterial());
+			addMaterialPropertyWarning(result, "coupler", couplerComponentMaterial,
+					inputs.getCouplerMaterial());
 
 			fricForce_N = fr.getFrictionForce_lbs() * N_PER_LBF * deratingFactor;
 			P_contact_psi = fr.getContactPressure_psi();
@@ -250,9 +275,17 @@ public final class EjectionChargeEngine {
 		if (wallThk_m > 0.0) {
 			double r_m = bayInnerD_m * 0.5;
 			double hoopStress_pa = P_working_pa * r_m / wallThk_m;
-			double uts_pa = RocketryMaterialProperties.getHoopUts_psi(
-					inputs.getBayMaterial()) * PA_PER_PSI;
+			Material bayComponentMaterial = inputs.getBayComponentMaterial();
+			boolean databaseStrength = RocketryMaterialProperties.hasTensileLimit(bayComponentMaterial);
+			double uts_pa = RocketryMaterialProperties.getTensileLimit_psi(
+					bayComponentMaterial, inputs.getBayMaterial()) * PA_PER_PSI;
 			double margin = uts_pa > 0.0 ? hoopStress_pa / uts_pa : 0.0;
+			String materialName = databaseStrength
+					? bayComponentMaterial.getName()
+					: inputs.getBayMaterial().getDisplayName();
+			String strengthDescription = databaseStrength
+					? "stored tensile limit"
+					: "estimated ultimate hoop strength";
 			result.setHoopStress_pa(hoopStress_pa);
 			result.setHoopUts_pa(uts_pa);
 			result.setHoopStressRatio(margin);
@@ -260,26 +293,60 @@ public final class EjectionChargeEngine {
 				result.addWarning(WarningLevel.WARNING, String.format(Locale.ROOT,
 						"BURST RISK: at the working pressure (%.1f psi) the bay "
 								+ "hoop stress (%.0f psi) meets or exceeds the %s "
-								+ "airframe's ultimate tensile strength (%.0f psi). "
+								+ "airframe's %s (%.0f psi). "
 								+ "This charge has a real chance of bursting the bay. "
 								+ "Reduce the BP mass, add vent holes, or use a stronger tube.",
 						P_working_pa * PSI_PER_PA(),
 						hoopStress_pa * PSI_PER_PA(),
-						inputs.getBayMaterial().getDisplayName(),
+						materialName,
+						strengthDescription,
 						uts_pa * PSI_PER_PA()));
 			} else if (margin >= 0.5) {
 				result.addWarning(WarningLevel.CAUTION, String.format(Locale.ROOT,
-						"Bay hoop stress (%.0f psi) is %.0f%% of the %s ultimate "
-								+ "tensile strength (%.0f psi). Margin is below 2\u00d7; "
+						"Bay hoop stress (%.0f psi) is %.0f%% of the %s %s "
+								+ "(%.0f psi). Margin is below 2\u00d7; "
 								+ "verify wall thickness or reduce the charge.",
 						hoopStress_pa * PSI_PER_PA(),
 						margin * 100.0,
-						inputs.getBayMaterial().getDisplayName(),
+						materialName,
+						strengthDescription,
 						uts_pa * PSI_PER_PA()));
 			}
 		}
 
 		return result;
+	}
+
+	private static void addMaterialPropertyWarning(EjectionChargeResult result, String role,
+			Material material, AirframeMaterial fallback) {
+		if (material == null) {
+			return;
+		}
+		if (!RocketryMaterialProperties.hasElasticProperties(material)) {
+			result.addWarning(WarningLevel.CAUTION,
+					"The selected " + role + " material \"" + material.getName()
+							+ "\" lacks a complete E/Poisson property pair; using "
+							+ fallback.getDisplayName() + " category values for each missing property.");
+		}
+		if (isDirectionDependent(material, fallback)) {
+			result.addWarning(WarningLevel.CAUTION,
+					"The " + role + " material \"" + material.getName()
+							+ "\" is direction-dependent. The stored scalar properties are assumed "
+							+ "to apply in the tube hoop direction; verify laminate, grain, or print orientation.");
+		}
+	}
+
+	private static boolean isDirectionDependent(Material componentMaterial, AirframeMaterial category) {
+		String name = componentMaterial.getName().toLowerCase(Locale.ROOT);
+		return category == AirframeMaterial.FIBERGLASS
+				|| category == AirframeMaterial.CARBON_FIBER
+				|| category == AirframeMaterial.PHENOLIC
+				|| category == AirframeMaterial.CARDBOARD
+				|| category == AirframeMaterial.BALSA_WOOD
+				|| category == AirframeMaterial.HARDWOOD
+				|| category == AirframeMaterial.BLUE_TUBE
+				|| name.contains("infill")
+				|| name.contains("printed");
 	}
 
 	private static double PSI_PER_PA() {

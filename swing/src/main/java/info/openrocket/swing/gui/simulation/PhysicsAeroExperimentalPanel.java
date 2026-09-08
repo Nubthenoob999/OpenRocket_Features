@@ -37,6 +37,7 @@ import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableCac
 import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableResolver;
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.document.Simulation;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 /**
@@ -72,8 +73,8 @@ public final class PhysicsAeroExperimentalPanel extends SimulationScrollablePane
 	private final JLabel betaAxis = new JLabel();
 	private final JLabel solvePoints = new JLabel();
 
-	private final JButton build = new JButton("Build table");
-	private final JButton cancel = new JButton("Cancel");
+	private final JButton build = new JButton("Build table", Icons.SIM_RUN);
+	private final JButton cancel = new JButton("Cancel", Icons.FILE_CLOSE);
 	private final JProgressBar progress = new JProgressBar(0, 100);
 	private final JTextArea tableStatus = SimulationTabLayoutUtils.createWrappingDisplayText("");
 	private final PhysicsAeroResultsPanel results = new PhysicsAeroResultsPanel();

@@ -86,6 +86,7 @@ import info.openrocket.swing.gui.figure3d.RealisticRenderer;
 import info.openrocket.swing.gui.figure3d.RocketRenderer;
 import info.openrocket.swing.gui.figure3d.SceneGeometryRenderer;
 import info.openrocket.swing.gui.figure3d.TerrainRenderer;
+import info.openrocket.swing.gui.util.Icons;
 
 /**
  * A panel that replays a completed simulation flight in 3D.
@@ -624,7 +625,7 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         JLabel speedLabel = new JLabel("Speed:");
         speedLabel.setForeground(Color.WHITE);
 
-        JButton resetViewButton = new JButton("Reset view");
+        JButton resetViewButton = new JButton("Reset view", Icons.ZOOM_RESET);
         styleButton(resetViewButton);
         resetViewButton.addActionListener(e -> {
             cameraYaw = -Math.PI / 5.0;
@@ -679,7 +680,7 @@ public class SimulationReplayPanel extends JPanel implements GLEventListener {
         layersButton.addActionListener(e -> layerMenu.show(layersButton, 0, layersButton.getHeight()));
         sceneryControls.add(layersButton);
 
-        JButton reloadSceneButton = new JButton("Reload map");
+        JButton reloadSceneButton = new JButton("Reload map", Icons.REFRESH);
         styleButton(reloadSceneButton);
         reloadSceneButton.addActionListener(e -> { if (realWorldScene) startRealWorldSceneLoad(); });
         sceneryControls.add(reloadSceneButton);

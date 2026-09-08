@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Rectangle;
 import java.awt.Window;
 import java.util.ArrayList;
 import java.util.Hashtable;
@@ -27,12 +28,15 @@ import javax.swing.JSeparator;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
+import javax.swing.JViewport;
+import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import info.openrocket.core.document.OpenRocketDocument;
+import info.openrocket.core.material.Material;
 import info.openrocket.core.rocketcomponent.BodyTube;
 import info.openrocket.core.rocketcomponent.NoseCone;
 import info.openrocket.core.rocketcomponent.Parachute;
@@ -51,6 +55,7 @@ import info.openrocket.core.util.ejection.ShearPinLookupTable;
 import info.openrocket.core.util.ejection.ShearPinSpec;
 import info.openrocket.core.util.ejection.StrengthSource;
 import info.openrocket.swing.gui.util.GUIUtil;
+import info.openrocket.swing.gui.util.Icons;
 
 import net.miginfocom.swing.MigLayout;
 
@@ -62,6 +67,11 @@ import net.miginfocom.swing.MigLayout;
  */
 public class EjectionChargeDialog extends JDialog {
 	private static final long serialVersionUID = 2L;
+	private static final int FORM_PREFERRED_WIDTH = 900;
+	private static final int FORM_MAX_WIDTH = 1040;
+	private static final Dimension DIALOG_DEFAULT_SIZE = new Dimension(920, 700);
+	private static final Dimension DIALOG_MINIMUM_SIZE = new Dimension(820, 620);
+	private static final int MAX_RESTORED_WIDTH = 1120;
 
 	private static final double IN_PER_M = 39.3700787;
 	private static final double M_PER_IN = 0.0254;
@@ -172,14 +182,17 @@ public class EjectionChargeDialog extends JDialog {
 
 		validate();
 		pack();
-		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
+		setSize(DIALOG_DEFAULT_SIZE);
 
 		setLocationByPlatform(true);
 
 		GUIUtil.setDisposableDialogOptions(this, calculateButton);
 		GUIUtil.rememberWindowPosition(this);
 		GUIUtil.rememberWindowSize(this);
-		GUIUtil.constrainWindowToScreen(this, new Dimension(980, 700));
+		if (getWidth() > MAX_RESTORED_WIDTH) {
+			setSize(MAX_RESTORED_WIDTH, getHeight());
+		}
+		GUIUtil.constrainWindowToScreen(this, DIALOG_MINIMUM_SIZE);
 	}
 
 	// =====================================================================
@@ -187,17 +200,19 @@ public class EjectionChargeDialog extends JDialog {
 	// =====================================================================
 
 	private JPanel buildMainPanel() {
-		JPanel root = new JPanel(new MigLayout("fillx, insets 10, wrap 1", "[grow,fill]"));
+		JPanel root = new CalculatorFormPanel();
+		root.setLayout(new MigLayout("fillx, insets 8, gapy 6, wrap 1", "[grow,fill]"));
 
-		root.add(buildComponentSection(),    "growx");
-		root.add(buildInputsSection(),       "growx");
-		root.add(buildPressureSection(),     "growx");
-		root.add(buildResultsSection(),      "growx");
-		root.add(buildDetailsSection(),      "growx");
-		root.add(buildWarningsSection(),     "growx");
+		root.add(buildComponentSection(), "growx, wmin 0");
+		root.add(buildInputsSection(), "growx, wmin 0");
+		root.add(buildPressureSection(), "growx, wmin 0");
+		root.add(buildResultsSection(), "growx, wmin 0");
+		root.add(buildDetailsSection(), "growx, wmin 0");
+		root.add(buildWarningsSection(), "growx, wmin 0");
 
 		JScrollPane scroll = new JScrollPane(root);
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
+		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		scroll.setBorder(null);
 
 		JPanel wrap = new JPanel(new BorderLayout());
@@ -206,19 +221,31 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	private JPanel buildComponentSection() {
-		JPanel p = titled("Component selection");
-		p.setLayout(new MigLayout("fillx, insets 6", "[][grow,fill]"));
+		JPanel p = titled("1. Select components");
+		p.setLayout(new MigLayout("fillx, insets 6, gapy 4", "[right][240:420:560,fill]"));
+		p.add(wrappedNote("Choose components to fill the dimensions automatically. "
+				+ "You can review or override every value below.", 650),
+				"span 2, growx, wmin 0, wrap");
+
 		p.add(new JLabel("Bay component:"));
 		componentSelector = new JComboBox<>();
 		componentSelector.addActionListener(e -> onComponentSelected());
-		p.add(componentSelector, "growx, wrap");
+		p.add(componentSelector, "wrap");
 
-		p.add(new JLabel("Mating tube/coupler:"));
+		computedBayLengthLabel = new JLabel("Effective bay length: \u2014");
+		p.add(computedBayLengthLabel, "skip 1, growx, wrap");
+		p.add(wrappedNote("\u26a0 Verify the detected bay length before flight; measure and override it below if needed.",
+				650), "span 2, growx, wmin 0, wrap");
+
+		p.add(new JLabel("Mating component:"));
 		matingComponentSelector = new JComboBox<>();
 		matingComponentSelector.addActionListener(e -> onMatingComponentSelected());
-		p.add(matingComponentSelector, "growx, wrap");
+		p.add(matingComponentSelector, "wrap");
 
-		p.add(new JLabel("Charge fires:"));
+		computedOverlapLabel = new JLabel("Computed engagement (overlap): \u2014");
+		p.add(computedOverlapLabel, "skip 1, growx, wrap");
+
+		p.add(new JLabel("Charge direction:"));
 		firingDirectionSelector = new JComboBox<>(EjectionFiringDirection.values());
 		firingDirectionSelector.setSelectedItem(EjectionFiringDirection.FORWARD);
 		firingDirectionSelector.setToolTipText(
@@ -245,36 +272,20 @@ public class EjectionChargeDialog extends JDialog {
 			userOverrodePressure = false;
 			runCalculation();
 		});
-		p.add(firingDirectionSelector, "growx, wrap");
-
-		computedOverlapLabel = new JLabel("Computed engagement (overlap): \u2014");
-		p.add(computedOverlapLabel, "span 2, growx, wrap");
-
-		computedBayLengthLabel = new JLabel("Effective bay length: \u2014");
-		p.add(computedBayLengthLabel, "span 2, growx, wrap");
-
-		p.add(new JLabel("<html><i>\u26a0 If the bay length seems unreasonable, "
-				+ "use calipers to measure and enter that length manually.</i></html>"),
-				"span 2, growx, wrap");
+		p.add(firingDirectionSelector, "wrap");
 
 		p.add(new JLabel("Parachute:"));
 		parachuteSelector = new JComboBox<>();
 		parachuteSelector.addActionListener(e -> onParachuteSelected());
-		p.add(parachuteSelector, "growx, wrap");
+		p.add(parachuteSelector, "wrap");
 
 		computedPackedVolumeLabel = new JLabel("Computed packed chute volume: \u2014");
-		p.add(computedPackedVolumeLabel, "span 2, growx, wrap");
-
-		p.add(new JLabel("<html><i>Selecting a body tube auto-fills airframe geometry. "
-				+ "Selecting a mating tube/coupler computes the engagement length "
-				+ "from the axial overlap. Selecting a parachute uses its packed "
-				+ "length and diameter for the packed volume.</i></html>"),
-				"span 2, growx");
+		p.add(computedPackedVolumeLabel, "skip 1, growx");
 		return p;
 	}
 
 	private JPanel buildInputsSection() {
-		JPanel p = titled("Inputs");
+		JPanel p = titled("2. Review inputs");
 		p.setLayout(new MigLayout("fillx, insets 6", "[grow,fill]15[grow,fill]"));
 
 		p.add(buildAirframePanel(), "grow");
@@ -288,24 +299,26 @@ public class EjectionChargeDialog extends JDialog {
 
 	private JPanel buildAirframePanel() {
 		JPanel p = titled("Airframe (outer tube)");
-		p.setLayout(new MigLayout("fillx, insets 4", "[][grow,fill][]"));
+		p.setLayout(new MigLayout("fillx, insets 4", "[right][120:170:220,fill][]"));
 
 		bayInnerDiameterSpinner  = inSpinner(4.00, 0.10, 24.0, 0.05);
 		bayOuterDiameterSpinner  = inSpinner(4.10, 0.10, 25.0, 0.05);
 		bayLengthSpinner         = inSpinner(8.00, 0.0, 96.0, 0.25);
 		bayMaterialSelector      = new JComboBox<>(AirframeMaterial.values());
 		bayMaterialSelector.setSelectedItem(AirframeMaterial.FIBERGLASS);
+		bayMaterialSelector.setToolTipText(
+				"Friction category; selected component stiffness and strength come from its material record.");
 
 		row(p, "Inner diameter:",   bayInnerDiameterSpinner,  "in");
 		row(p, "Outer diameter:",   bayOuterDiameterSpinner,  "in");
 		row(p, "Bay length:",       bayLengthSpinner,         "in");
-		row(p, "Material:",         bayMaterialSelector,      "");
+		row(p, "Friction category:", bayMaterialSelector,      "");
 		return p;
 	}
 
 	private JPanel buildCouplerPanel() {
 		JPanel p = titled("Coupler / nose-cone shoulder");
-		p.setLayout(new MigLayout("fillx, insets 4", "[][grow,fill][]"));
+		p.setLayout(new MigLayout("fillx, insets 4", "[right][120:170:220,fill][]"));
 
 		couplerOuterDiameterSpinner = inSpinner(3.99, 0.10, 24.0, 0.05);
 		couplerInnerDiameterSpinner = inSpinner(3.85, 0.05, 24.0, 0.05);
@@ -321,6 +334,8 @@ public class EjectionChargeDialog extends JDialog {
 		});
 		couplerMaterialSelector     = new JComboBox<>(AirframeMaterial.values());
 		couplerMaterialSelector.setSelectedItem(AirframeMaterial.FIBERGLASS);
+		couplerMaterialSelector.setToolTipText(
+				"Friction category; selected component stiffness comes from its material record.");
 		interferenceSpinner         = inSpinner(0.001, 0.0, 0.020, 0.0005);
 		frictionDeratingSelector    = new JComboBox<>(FrictionDerating.values());
 		frictionDeratingSelector.setSelectedItem(FrictionDerating.MEDIUM);
@@ -338,7 +353,7 @@ public class EjectionChargeDialog extends JDialog {
 		row(p, "Outer diameter:",  couplerOuterDiameterSpinner, "in");
 		row(p, "Inner diameter:",  couplerInnerDiameterSpinner, "in");
 		row(p, "Engagement (auto):", couplerEngagementSpinner,  "in");
-		row(p, "Material:",        couplerMaterialSelector,     "");
+		row(p, "Friction category:", couplerMaterialSelector,     "");
 		row(p, "Diametral δ:",     interferenceSpinner,         "in");
 		row(p, "Friction de-rating:", frictionDeratingSelector,  "");
 		return p;
@@ -346,7 +361,7 @@ public class EjectionChargeDialog extends JDialog {
 
 	private JPanel buildPinsPanel() {
 		JPanel p = titled("Shear pins");
-		p.setLayout(new MigLayout("fillx, insets 4", "[][grow,fill][]"));
+		p.setLayout(new MigLayout("fillx, insets 4", "[right][120:170:220,fill][]"));
 
 		pinDesignationSelector = new JComboBox<>();
 		for (String d : ShearPinLookupTable.getAllDesignations()) {
@@ -367,23 +382,21 @@ public class EjectionChargeDialog extends JDialog {
 
 	private JPanel buildChutePanel() {
 		JPanel p = titled("Packed chute");
-		p.setLayout(new MigLayout("fillx, insets 4", "[][grow,fill][]"));
+		p.setLayout(new MigLayout("fillx, insets 4", "[right][120:170:220,fill][]"));
 
 		chuteVolumeFractionSpinner = new JSpinner(
 				new SpinnerNumberModel(0.10, 0.00, 0.95, 0.01));
 		chuteVolumeFractionSpinner.setToolTipText(
 				"Fallback estimate used only when no parachute is selected.");
 		row(p, "Volume fraction:", chuteVolumeFractionSpinner, "of bay");
-		p.add(new JLabel("<html><i>When a parachute is selected above, its packed "
-				+ "length and diameter are used directly. Otherwise this fraction "
-				+ "of the bay volume is reserved for the chute.</i></html>"),
-				"span 3, growx");
+		p.add(wrappedNote("Used only when no parachute is selected above.", 300),
+				"span 3, growx, wmin 0");
 		return p;
 	}
 
 	private JPanel buildPressureSection() {
-		JPanel p = titled("Pressure & safety factor");
-		p.setLayout(new MigLayout("fillx, insets 6", "[][grow,fill][]"));
+		JPanel p = titled("3. Set pressure & safety factor");
+		p.setLayout(new MigLayout("fillx, insets 6", "[right][220:340:480,fill][]"));
 
 		minPressureLabel = new JLabel("—");
 		minPressureLabel.setFont(minPressureLabel.getFont().deriveFont(Font.BOLD));
@@ -424,7 +437,7 @@ public class EjectionChargeDialog extends JDialog {
 			userOverrodePressure = true;
 			runCalculation();
 		});
-		resetPressureButton = new JButton("Reset to recommended");
+		resetPressureButton = new JButton("Reset to recommended", Icons.RESET);
 		resetPressureButton.addActionListener(e -> {
 			userOverrodePressure = false;
 			runCalculation();
@@ -438,7 +451,7 @@ public class EjectionChargeDialog extends JDialog {
 	}
 
 	private JPanel buildResultsSection() {
-		JPanel p = titled("Recommended BP charge");
+		JPanel p = titled("4. Recommended BP charge");
 		p.setLayout(new MigLayout("fillx, insets 6", "[grow,fill]"));
 
 		bpHeadlineLabel = new JLabel("—");
@@ -457,9 +470,8 @@ public class EjectionChargeDialog extends JDialog {
 		p.add(effectiveVolumeLabel, "wrap");
 
 		p.add(new JSeparator(), "growx, gaptop 6, gapbottom 4, wrap");
-		p.add(new JLabel("<html><i>\u26a0 This is only an estimate. Ensure ground testing "
-				+ "is performed prior to flight. Proceed at your own risk.</i></html>"),
-				"growx, wrap");
+		p.add(wrappedNote("\u26a0 Estimate only. Ground-test the complete recovery system before flight.", 650),
+				"growx, wmin 0, wrap");
 
 		return p;
 	}
@@ -481,7 +493,7 @@ public class EjectionChargeDialog extends JDialog {
 		container.add(showDetailsCheckbox, "growx, wrap");
 
 		detailsPanel = titled("Breakdown");
-		detailsPanel.setLayout(new MigLayout("fillx, insets 6", "[][grow,fill]"));
+		detailsPanel.setLayout(new MigLayout("fillx, insets 6", "[right][200:360:520,fill]"));
 		detailsPanel.setVisible(false);
 
 		detailShearLabel = new JLabel("—");
@@ -512,9 +524,9 @@ public class EjectionChargeDialog extends JDialog {
 
 	private JPanel buildButtonBar() {
 		JPanel p = new JPanel(new MigLayout("fillx, insets 8", "[grow][][]"));
-		calculateButton = new JButton("Calculate");
+		calculateButton = new JButton("Calculate", Icons.SIM_RUN);
 		calculateButton.addActionListener(e -> runCalculation());
-		closeButton = new JButton("Close");
+		closeButton = new JButton("Close", Icons.FILE_CLOSE);
 		closeButton.addActionListener(e -> dispose());
 		p.add(Box.createHorizontalGlue(), "growx");
 		p.add(calculateButton);
@@ -561,6 +573,7 @@ public class EjectionChargeDialog extends JDialog {
 				setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
 				setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
 				applyEffectiveBayLength(tube);
+				selectMaterialCategory(bayMaterialSelector, tube.getMaterial());
 			} else if (sel.component instanceof NoseCone) {
 				NoseCone nose = (NoseCone) sel.component;
 				RocketComponent parent = nose.getParent();
@@ -569,6 +582,7 @@ public class EjectionChargeDialog extends JDialog {
 					setSpinnerIn(bayInnerDiameterSpinner, tube.getInnerRadius() * 2.0);
 					setSpinnerIn(bayOuterDiameterSpinner, tube.getOuterRadius() * 2.0);
 					applyEffectiveBayLength(tube);
+					selectMaterialCategory(bayMaterialSelector, tube.getMaterial());
 				}
 			}
 			populateCouplerFieldsFromSelection();
@@ -656,6 +670,7 @@ public class EjectionChargeDialog extends JDialog {
 			setSpinnerIn(couplerOuterDiameterSpinner, coupler.getOuterRadius() * 2.0);
 			setSpinnerIn(couplerInnerDiameterSpinner, coupler.getInnerRadius() * 2.0);
 			setSpinnerIn(couplerEngagementSpinner,    coupler.getLength() * 0.5);
+			selectMaterialCategory(couplerMaterialSelector, coupler.getMaterial());
 			return;
 		}
 		NoseCone shoulder = findBridgeShoulder(ca, cb);
@@ -666,6 +681,14 @@ public class EjectionChargeDialog extends JDialog {
 			setSpinnerIn(couplerOuterDiameterSpinner, shOD);
 			setSpinnerIn(couplerInnerDiameterSpinner, shID);
 			setSpinnerIn(couplerEngagementSpinner,    shoulder.getShoulderLength());
+			selectMaterialCategory(couplerMaterialSelector, shoulder.getMaterial());
+		}
+	}
+
+	private static void selectMaterialCategory(JComboBox<AirframeMaterial> selector, Material material) {
+		AirframeMaterial category = AirframeMaterial.fromMaterial(material);
+		if (category != null) {
+			selector.setSelectedItem(category);
 		}
 	}
 
@@ -968,11 +991,28 @@ public class EjectionChargeDialog extends JDialog {
 		in.setBayOuterDiameter_m(bayOD_in * M_PER_IN);
 		in.setBayLength_m(bayL_in * M_PER_IN);
 		in.setBayMaterial((AirframeMaterial) bayMaterialSelector.getSelectedItem());
+		ComponentItem selectedBay = (ComponentItem) componentSelector.getSelectedItem();
+		BodyTube bayTube = resolveBayTube(selectedBay == null ? null : selectedBay.component);
+		if (bayTube != null) {
+			in.setBayComponentMaterial(bayTube.getMaterial());
+		}
 
 		in.setCouplerOuterDiameter_m(((Double) couplerOuterDiameterSpinner.getValue()) * M_PER_IN);
 		in.setCouplerInnerDiameter_m(((Double) couplerInnerDiameterSpinner.getValue()) * M_PER_IN);
 		in.setCouplerEngagementLength_m(((Double) couplerEngagementSpinner.getValue()) * M_PER_IN);
 		in.setCouplerMaterial((AirframeMaterial) couplerMaterialSelector.getSelectedItem());
+		ComponentItem selectedMate = (ComponentItem) matingComponentSelector.getSelectedItem();
+		RocketComponent bayComponent = selectedBay == null ? null : selectedBay.component;
+		RocketComponent matingComponent = selectedMate == null ? null : selectedMate.component;
+		TubeCoupler coupler = findBridgeCoupler(bayComponent, matingComponent);
+		if (coupler != null) {
+			in.setCouplerComponentMaterial(coupler.getMaterial());
+		} else {
+			NoseCone shoulder = findBridgeShoulder(bayComponent, matingComponent);
+			if (shoulder != null) {
+				in.setCouplerComponentMaterial(shoulder.getMaterial());
+			}
+		}
 		in.setDiametralInterference_m(((Double) interferenceSpinner.getValue()) * M_PER_IN);
 
 		in.setShearPinDesignation((String) pinDesignationSelector.getSelectedItem());
@@ -1075,8 +1115,8 @@ public class EjectionChargeDialog extends JDialog {
 		JLabel tagLbl = new JLabel(tag);
 		tagLbl.setFont(tagLbl.getFont().deriveFont(Font.BOLD));
 		row.add(tagLbl);
-		JLabel msg = new JLabel("<html>" + escape(w.getMessage()) + "</html>");
-		row.add(msg, "growx");
+		JLabel msg = wrappedLabel(escape(w.getMessage()), 650, false);
+		row.add(msg, "growx, wmin 0");
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return row;
 	}
@@ -1084,6 +1124,59 @@ public class EjectionChargeDialog extends JDialog {
 	// =====================================================================
 	// Helpers
 	// =====================================================================
+
+	private static JLabel wrappedNote(String text, int width) {
+		return wrappedLabel(text, width, true);
+	}
+
+	private static JLabel wrappedLabel(String text, int width, boolean italic) {
+		String content = italic ? "<i>" + text + "</i>" : text;
+		JLabel label = new JLabel("<html><table width='" + width + "'><tr><td>"
+				+ content + "</td></tr></table></html>");
+		label.setName("wrappedGuidance");
+		label.setVerticalAlignment(SwingConstants.TOP);
+		return label;
+	}
+
+	/**
+	 * Tracks compact and normal dialog widths, but stops expanding once the
+	 * calculator has enough room.  This keeps controls readable on a maximized
+	 * window without introducing a horizontal scrollbar on smaller screens.
+	 */
+	private static final class CalculatorFormPanel extends JPanel implements Scrollable {
+		private static final long serialVersionUID = 1L;
+
+		@Override
+		public Dimension getPreferredSize() {
+			Dimension preferred = super.getPreferredSize();
+			return new Dimension(FORM_MAX_WIDTH, preferred.height);
+		}
+
+		@Override
+		public Dimension getPreferredScrollableViewportSize() {
+			return new Dimension(FORM_PREFERRED_WIDTH, getPreferredSize().height);
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+			return Math.max(16, visibleRect.height - 16);
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth() {
+			return !(getParent() instanceof JViewport viewport) || viewport.getWidth() <= FORM_MAX_WIDTH;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight() {
+			return false;
+		}
+	}
 
 	private static JPanel titled(String title) {
 		JPanel p = new JPanel();

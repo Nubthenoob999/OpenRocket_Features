@@ -4,6 +4,8 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 
+import info.openrocket.core.material.Material;
+
 /**
  * Hoop-direction Young's modulus (psi) and Poisson's ratio for rocketry
  * airframe materials, used by the Lamé interference-fit calculation.
@@ -13,6 +15,7 @@ import java.util.Map;
  * are not suitable for interference-fit analysis with these constants.
  */
 public final class RocketryMaterialProperties {
+	private static final double PA_PER_PSI = 6894.757;
 
 	/** Index 0: E_hoop in psi.  Index 1: Poisson's ratio (dimensionless). */
 	private static final Map<AirframeMaterial, double[]> TABLE = buildTable();
@@ -38,6 +41,9 @@ public final class RocketryMaterialProperties {
 		t.put(AirframeMaterial.HARDWOOD,     new double[] { 1_450_000.0, 0.36 });
 		t.put(AirframeMaterial.BLUE_TUBE,    new double[] { 1_500_000.0, 0.33 });
 		t.put(AirframeMaterial.PLASTIC_NC,   new double[] {   360_000.0, 0.38 });
+		// Conservative 6061-class fallback for manual entries.  A selected
+		// component material record takes precedence over this generic category.
+		t.put(AirframeMaterial.METAL,        new double[] {10_000_000.0, 0.33 });
 		return Collections.unmodifiableMap(t);
 	}
 
@@ -51,6 +57,7 @@ public final class RocketryMaterialProperties {
 		t.put(AirframeMaterial.HARDWOOD,     10_000.0);
 		t.put(AirframeMaterial.BLUE_TUBE,    10_000.0);
 		t.put(AirframeMaterial.PLASTIC_NC,    5_000.0);
+		t.put(AirframeMaterial.METAL,        35_000.0);
 		return Collections.unmodifiableMap(t);
 	}
 
@@ -68,6 +75,51 @@ public final class RocketryMaterialProperties {
 			throw new IllegalArgumentException("No UTS data for: " + mat);
 		}
 		return v;
+	}
+
+	/** Young's modulus from the selected material record, with legacy category fallback. */
+	public static double getYoungsModulus_psi(Material material, AirframeMaterial fallback) {
+		if (material != null && isPositive(material.getYoungsModulus())) {
+			return material.getYoungsModulus() / PA_PER_PSI;
+		}
+		return getYoungsModulus_psi(fallback);
+	}
+
+	/** Poisson ratio from the selected material record, with legacy category fallback. */
+	public static double getPoissonsRatio(Material material, AirframeMaterial fallback) {
+		if (material != null && isValidPoissonRatio(material.getPoissonRatio())) {
+			return material.getPoissonRatio();
+		}
+		return getPoissonsRatio(fallback);
+	}
+
+	/**
+	 * Tensile limit from the selected material record, with the legacy category
+	 * hoop-strength estimate as fallback.  The database field may represent a
+	 * yield limit for ductile metals or an ultimate value for brittle materials.
+	 */
+	public static double getTensileLimit_psi(Material material, AirframeMaterial fallback) {
+		if (material != null && isPositive(material.getTensileStrength())) {
+			return material.getTensileStrength() / PA_PER_PSI;
+		}
+		return getHoopUts_psi(fallback);
+	}
+
+	public static boolean hasElasticProperties(Material material) {
+		return material != null && isPositive(material.getYoungsModulus())
+				&& isValidPoissonRatio(material.getPoissonRatio());
+	}
+
+	public static boolean hasTensileLimit(Material material) {
+		return material != null && isPositive(material.getTensileStrength());
+	}
+
+	private static boolean isPositive(double value) {
+		return Double.isFinite(value) && value > 0.0;
+	}
+
+	private static boolean isValidPoissonRatio(double value) {
+		return Double.isFinite(value) && value > 0.0 && value < 0.5;
 	}
 
 	private static double[] getProperties(AirframeMaterial mat) {

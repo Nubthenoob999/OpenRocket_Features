@@ -31,6 +31,7 @@ import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.GeoPoint;
 import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MapMarker;
 import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MapPolyline;
 import info.openrocket.swing.gui.simulation.OpenStreetMapPanel.MarkerType;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 /** OpenStreetMap view of Monte Carlo landing coordinates and KML-equivalent dispersion rings. */
@@ -137,20 +138,24 @@ final class MonteCarloLandingMapPanel extends JPanel {
 		toolbar.add(showTwoSigma);
 		toolbar.add(showThreeSigma);
 
-		JButton zoomOut = new JButton("\u2212");
+		JButton zoomOut = new JButton(Icons.ZOOM_OUT);
+		zoomOut.setName("zoomOutButton");
 		zoomOut.setToolTipText("Zoom out");
+		zoomOut.getAccessibleContext().setAccessibleName("Zoom out");
 		zoomOut.addActionListener(event -> mapPanel.zoomOut());
 		toolbar.add(zoomOut);
-		JButton zoomIn = new JButton("+");
+		JButton zoomIn = new JButton(Icons.ZOOM_IN);
+		zoomIn.setName("zoomInButton");
 		zoomIn.setToolTipText("Zoom in");
+		zoomIn.getAccessibleContext().setAccessibleName("Zoom in");
 		zoomIn.addActionListener(event -> mapPanel.zoomIn());
 		toolbar.add(zoomIn);
-		JButton fit = new JButton("Fit");
+		JButton fit = new JButton("Fit", Icons.ZOOM_RESET);
 		fit.setToolTipText("Fit the launch site, landings, and visible dispersion rings.");
 		fit.addActionListener(event -> mapPanel.fitToOverlays());
 		toolbar.add(fit, "wrap");
 
-		JButton reloadTiles = new JButton("Reload map");
+		JButton reloadTiles = new JButton("Reload map", Icons.REFRESH);
 		reloadTiles.setToolTipText("Retry any OpenStreetMap tiles that failed to download.");
 		reloadTiles.addActionListener(event -> {
 			statusLabel.setText("Retrying OpenStreetMap tiles...");

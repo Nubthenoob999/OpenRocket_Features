@@ -30,6 +30,7 @@ import info.openrocket.core.rocketcomponent.ParallelStage;
 import info.openrocket.core.rocketcomponent.PodSet;
 import info.openrocket.core.rocketcomponent.RailButton;
 import info.openrocket.core.rocketcomponent.RingTailFinSet;
+import info.openrocket.core.rocketcomponent.RocketComponent;
 import info.openrocket.core.rocketcomponent.ShockCord;
 import info.openrocket.core.rocketcomponent.Streamer;
 import info.openrocket.core.rocketcomponent.Transition;
@@ -223,6 +224,13 @@ public class ComponentIcons {
 		if (c.isAssignableFrom(MassComponent.class)) {
 		}
 		return SMALL_ICONS.get(c);
+	}
+
+	public static Icon getSmallIcon(RocketComponent component) {
+		if (component instanceof MassComponent massComponent) {
+			return getSmallMassTypeIcon(massComponent.getMassComponentType());
+		}
+		return getSmallIcon(component.getClass());
 	}
 
 	public static Icon getSmallMassTypeIcon(MassComponentType t) {

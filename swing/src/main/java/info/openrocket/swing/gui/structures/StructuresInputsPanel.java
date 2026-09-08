@@ -135,11 +135,13 @@ public final class StructuresInputsPanel extends JPanel {
 			rows.add(row(section, "Density", Double.isFinite(material.getDensity()) ?
 					UnitGroup.UNITS_DENSITY_BULK.toStringUnit(material.getDensity()) : "Missing", "Component definition"));
 			rows.add(row(section, "E", pressure(material.getYoungsModulus()), materialSource(material.getYoungsModulus())));
-			rows.add(row(section, "Sy tensile", pressure(material.getYieldStrength()), materialSource(material.getYieldStrength())));
-			rows.add(row(section, "Sy compressive", pressure(material.getCompressiveStrength()),
+			rows.add(row(section, "Tensile limit", pressure(material.getTensileAllowable()),
+					materialSource(material.getTensileAllowable())));
+			rows.add(row(section, "Compression limit", pressure(material.getCompressiveStrength()),
 					materialSource(material.getCompressiveStrength())));
-			rows.add(row(section, "Tau shear", pressure(0.6 * material.getYieldStrength()),
-					materialSource(material.getYieldStrength())));
+			rows.add(row(section, "Shear estimate (0.6 x tensile)",
+					pressure(0.6 * material.getTensileAllowable()),
+					materialSource(material.getTensileAllowable())));
 			rows.add(row(section, "Poisson ratio", material.getPoissonRatio() == null ? "Missing" :
 					String.format("%.3f", material.getPoissonRatio()), material.getPoissonRatio() == null ?
 					"Not stored on assigned component material" : "Assigned component material"));

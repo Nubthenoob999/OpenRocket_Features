@@ -3,9 +3,9 @@ package info.openrocket.core.structures.materials;
 /**
  * Adapts the material assigned to a rocket component for the structures tool.
  *
- * <p>OpenRocket materials currently persist density and in-plane shear modulus,
- * but not Young's modulus, tensile/compressive allowables, or Poisson ratio.
- * Those unavailable properties intentionally remain unknown here.  In
+ * <p>OpenRocket materials persist density, in-plane shear modulus, Young's
+ * modulus, tensile/compressive allowables, and Poisson ratio.  Properties that
+ * are unavailable on a particular record intentionally remain unknown here. In
  * particular, this class must never infer them from a material name: a name
  * match is a tool-level override and can produce an unsafe result for a
  * component that uses a different laminate, grade, infill, or orientation.</p>

@@ -25,6 +25,7 @@ import info.openrocket.core.logging.WarningSet;
 import info.openrocket.core.plugin.PluginModule;
 import info.openrocket.core.rocketcomponent.Rocket;
 import info.openrocket.core.rocketcomponent.RocketComponent;
+import info.openrocket.core.rocketcomponent.ShockCord;
 import info.openrocket.core.startup.Application;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -107,7 +108,12 @@ public class RASAeroSaverTest {
             // Test children counts
             List<RocketComponent> originalChildren = originalDocument.getRocket().getAllChildren();
             List<RocketComponent> importedChildren = importedRocket.getAllChildren();
-            assertEquals(originalChildren.size(), importedChildren.size(), " Number of total children doesn't match");
+            long exportableChildren = originalChildren.stream()
+                    .filter(component -> !(component instanceof ShockCord))
+                    .count();
+            assertEquals(exportableChildren, importedChildren.size(),
+                    " Number of total children doesn't match; original=" + originalChildren
+                            + "; imported=" + importedChildren);
 
             // TODO: check all components
         } catch (IllegalStateException ise) {

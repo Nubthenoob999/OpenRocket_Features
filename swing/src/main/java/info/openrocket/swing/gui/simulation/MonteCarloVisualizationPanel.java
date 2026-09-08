@@ -10,6 +10,7 @@ import info.openrocket.core.montecarlo.MonteCarloRunRecord;
 import info.openrocket.core.l10n.Translator;
 import info.openrocket.core.simulation.SimulationOptions;
 import info.openrocket.core.startup.Application;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 import org.jfree.chart.ChartFactory;
@@ -301,12 +302,12 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		splitBodies.addActionListener(e -> refreshLandingChart());
 		bar.add(splitBodies);
 
-		JButton fit = new JButton("Fit");
+		JButton fit = new JButton("Fit", Icons.ZOOM_RESET);
 		fit.setToolTipText("Reset the view to the landing cloud and visible dispersion ellipses.");
 		fit.addActionListener(e -> refreshLandingChart());
 		bar.add(fit, "cell 4 0");
 
-		JButton saveImage = new JButton("Save image...");
+		JButton saveImage = new JButton("Save image...", Icons.SCREENSHOT);
 		saveImage.setToolTipText("Save the landing-dispersion chart as a PNG file.");
 		saveImage.addActionListener(e -> saveChartImage(landingChartPanel));
 		bar.add(saveImage, "cell 5 0");
@@ -339,18 +340,18 @@ public class MonteCarloVisualizationPanel extends JPanel {
 		binSpinner.addChangeListener(e -> refreshChart());
 		bar.add(binSpinner, "growx, wmin 0");
 
-		JButton reload = new JButton("Reload");
+		JButton reload = new JButton("Reload", Icons.REFRESH);
 		reload.setToolTipText("Reload the most recent batch results for this simulation.");
 		reload.addActionListener(e -> setResults(simulation.getMonteCarloAnalysis() == null
 				? List.of() : simulation.getMonteCarloAnalysis().getRecords()));
 		JPanel actions = new JPanel(new MigLayout("ins 0, fillx, gap 6 4, novisualpadding", "[][grow][][]"));
-		JButton fit = new JButton("Fit");
+		JButton fit = new JButton("Fit", Icons.ZOOM_RESET);
 		fit.setToolTipText("Reset both axes to show the complete statistical plot.");
 		fit.addActionListener(e -> chartPanel.restoreAutoBounds());
 		actions.add(fit);
 		actions.add(reload, "cell 2 0");
 
-		JButton saveImage = new JButton("Save image...");
+		JButton saveImage = new JButton("Save image...", Icons.SCREENSHOT);
 		saveImage.setToolTipText("Save the current statistical chart as a PNG file.");
 		saveImage.addActionListener(e -> saveChartImage(chartPanel));
 		actions.add(saveImage, "cell 3 0");

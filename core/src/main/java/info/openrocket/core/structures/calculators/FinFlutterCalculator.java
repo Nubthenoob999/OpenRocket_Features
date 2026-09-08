@@ -13,6 +13,7 @@ import info.openrocket.core.structures.materials.StructuralMaterial;
 public final class FinFlutterCalculator {
 	private static final double SEA_LEVEL_PRESSURE = 101325.0;
 	private static final double SEA_LEVEL_SPEED_OF_SOUND = 340.294;
+	private static final double NACA_PRESSURE_COEFFICIENT = 1.337;
 
 	public StructuresResult calculate(FinGeometryStructural fin, StructuralMaterial material, FlightLoadSeries loadSeries,
 			double requiredFactorOfSafety) {
@@ -27,41 +28,47 @@ public final class FinFlutterCalculator {
 		}
 
 		FlightLoadCase maxVelocity = loadSeries.getMaxVelocityCase();
-		double pressureRatio = finiteOr(maxVelocity.getAirPressure(), SEA_LEVEL_PRESSURE) / SEA_LEVEL_PRESSURE;
-		if (pressureRatio <= 0) {
-			pressureRatio = 1.0;
+		double staticPressure = finiteOr(maxVelocity.getAirPressure(), SEA_LEVEL_PRESSURE);
+		if (staticPressure <= 0) {
+			staticPressure = SEA_LEVEL_PRESSURE;
 		}
 		double speedOfSound = finiteOr(maxVelocity.getSpeedOfSound(), SEA_LEVEL_SPEED_OF_SOUND);
-		double flutterVelocity = flutterVelocity(fin, material.getShearModulus(), speedOfSound, pressureRatio,
+		double flutterVelocity = flutterVelocity(fin, material.getShearModulus(), speedOfSound, staticPressure,
 				fin.getThickness());
 		double maxFlightVelocity = Math.abs(maxVelocity.getVelocity());
 		double factorOfSafety = flutterVelocity / maxFlightVelocity;
 		StructuresStatus status = StructuresStatusDecider.forFactorOfSafety(factorOfSafety, requiredFactorOfSafety);
-		double minimumThickness = minimumThicknessForTarget(fin, material.getShearModulus(), speedOfSound, pressureRatio,
+		double minimumThickness = minimumThicknessForTarget(fin, material.getShearModulus(), speedOfSound, staticPressure,
 				maxFlightVelocity * requiredFactorOfSafety);
 
 		Map<String, Double> values = new LinkedHashMap<>();
 		values.put("flutterVelocity_mps", flutterVelocity);
 		values.put("maxFlightVelocity_mps", maxFlightVelocity);
 		values.put("minimumThicknessForTargetFoS_m", minimumThickness);
-		values.put("pressureRatio", pressureRatio);
+		values.put("staticPressure_Pa", staticPressure);
+		values.put("pressureRatio", staticPressure / SEA_LEVEL_PRESSURE);
 		values.put("requiredFoS", requiredFactorOfSafety);
 		return new StructuresResult(fin.getComponentName(), "Fin flutter", factorOfSafety, status,
 				"Max velocity case", values, java.util.Collections.singletonList(
-						"Flutter equation uses SI-consistent NACA-style pressure ratio form."));
+						"NACA TN 4197 equation 18 is a preliminary screening model; G and static pressure use pascals."));
 	}
 
 	static double flutterVelocity(FinGeometryStructural fin, double shearModulus, double speedOfSound,
-			double pressureRatio, double thickness) {
+			double staticPressure, double thickness) {
 		double aspectRatio = fin.getSemiSpan() * fin.getSemiSpan() / fin.getPlanformArea();
 		double taperRatio = fin.getTipChord() / fin.getRootChord();
 		double thicknessRatio = thickness / fin.getRootChord();
-		double denominator = 1.337 * pressureRatio * Math.pow(aspectRatio, 3.0) / (taperRatio + 1.0);
-		return speedOfSound * Math.sqrt(shearModulus / denominator) * Math.pow(thicknessRatio, 1.5);
+		// NACA TN 4197 equation 18, rearranged to use absolute pressure in the
+		// same units as G.  The 1.337 coefficient incorporates epsilon=0.25,
+		// gamma=1.4, and the equation's (lambda+1)/2 term.
+		double denominator = NACA_PRESSURE_COEFFICIENT * staticPressure * Math.pow(aspectRatio, 3.0)
+				* (taperRatio + 1.0)
+				/ ((aspectRatio + 2.0) * Math.pow(thicknessRatio, 3.0));
+		return speedOfSound * Math.sqrt(shearModulus / denominator);
 	}
 
 	private static double minimumThicknessForTarget(FinGeometryStructural fin, double shearModulus, double speedOfSound,
-			double pressureRatio, double targetVelocity) {
+			double staticPressure, double targetVelocity) {
 		if (targetVelocity <= 0) {
 			return Double.NaN;
 		}
@@ -69,7 +76,7 @@ public final class FinFlutterCalculator {
 		double high = Math.max(fin.getRootChord(), fin.getThickness() * 4.0);
 		for (int i = 0; i < 80; i++) {
 			double mid = 0.5 * (low + high);
-			double velocity = flutterVelocity(fin, shearModulus, speedOfSound, pressureRatio, mid);
+			double velocity = flutterVelocity(fin, shearModulus, speedOfSound, staticPressure, mid);
 			if (velocity >= targetVelocity) {
 				high = mid;
 			} else {

@@ -43,6 +43,7 @@ import info.openrocket.core.montecarlo.MonteCarloAnalysis;
 import info.openrocket.core.montecarlo.MonteCarloExtension;
 import info.openrocket.core.montecarlo.MonteCarloRunRecord;
 import info.openrocket.core.util.TestRockets;
+import info.openrocket.swing.gui.util.Icons;
 import info.openrocket.swing.util.BaseTestCase;
 
 public class MonteCarloSimulationPanelTest extends BaseTestCase {
@@ -548,7 +549,7 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		JCheckBox threeSigma = findAll(map, JCheckBox.class).stream()
 				.filter(box -> "3\u03c3".equals(box.getText())).findFirst().orElseThrow();
 		JButton zoomOut = findAll(map, JButton.class).stream()
-				.filter(button -> "\u2212".equals(button.getText())).findFirst().orElseThrow();
+				.filter(button -> "zoomOutButton".equals(button.getName())).findFirst().orElseThrow();
 		JPanel toolbar = (JPanel) threeSigma.getParent();
 		toolbar.setSize(1400, toolbar.getPreferredSize().height);
 		toolbar.doLayout();
@@ -557,6 +558,22 @@ public class MonteCarloSimulationPanelTest extends BaseTestCase {
 		assertTrue(threeSigma.getX() - twoSigma.getX() < 100,
 				"3\u03c3 must remain grouped with 1\u03c3 and 2\u03c3 before the flexible toolbar gap");
 		assertTrue(threeSigma.getX() < zoomOut.getX());
+	}
+
+	@Test
+	public void testNewMonteCarloActionsReuseTheSharedApplicationIcons() {
+		MonteCarloVisualizationPanel results = new MonteCarloVisualizationPanel(newSimulation());
+		assertSame(Icons.ZOOM_RESET, findButton(results, "Fit").getIcon());
+		assertSame(Icons.REFRESH, findButton(results, "Reload").getIcon());
+		assertSame(Icons.SCREENSHOT, findButton(results, "Save image...").getIcon());
+
+		MonteCarloLandingMapPanel map = findFirst(results, MonteCarloLandingMapPanel.class);
+		JButton zoomIn = findAll(map, JButton.class).stream()
+				.filter(button -> "zoomInButton".equals(button.getName())).findFirst().orElseThrow();
+		JButton zoomOut = findAll(map, JButton.class).stream()
+				.filter(button -> "zoomOutButton".equals(button.getName())).findFirst().orElseThrow();
+		assertSame(Icons.ZOOM_IN, zoomIn.getIcon());
+		assertSame(Icons.ZOOM_OUT, zoomOut.getIcon());
 	}
 
 	@Test

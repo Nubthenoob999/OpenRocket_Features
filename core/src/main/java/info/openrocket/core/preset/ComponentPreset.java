@@ -482,6 +482,10 @@ public class ComponentPreset implements Comparable<ComponentPreset>, Serializabl
 		boolean userDefined;
 		Double density;
 		Double inPlaneShearModulus;
+		Double youngsModulus;
+		Double tensileStrength;
+		Double compressiveStrength;
+		Double poissonRatio;
 		String group;
 	}
 
@@ -501,6 +505,10 @@ public class ComponentPreset implements Comparable<ComponentPreset>, Serializabl
 				m.type = material.getType().name();
 				m.density = material.getDensity();
 				m.inPlaneShearModulus = material.getInPlaneShearModulus();
+				m.youngsModulus = optionalMaterialProperty(material.getYoungsModulus());
+				m.tensileStrength = optionalMaterialProperty(material.getTensileStrength());
+				m.compressiveStrength = optionalMaterialProperty(material.getCompressiveStrength());
+				m.poissonRatio = optionalMaterialProperty(material.getPoissonRatio());
 				m.userDefined = material.isUserDefined();
 				m.group = material.getGroup().getDatabaseString();
 				value = m;
@@ -531,7 +539,12 @@ public class ComponentPreset implements Comparable<ComponentPreset>, Serializabl
 						m.group, Material.Type.valueOf(m.type), m.name, m.density);
 				double shearModulus = m.inPlaneShearModulus != null ? m.inPlaneShearModulus : 0.0;
 				value = Material.newMaterial(Material.Type.valueOf(m.type), m.name, m.density,
-						shearModulus, group, m.userDefined, true);
+						shearModulus,
+						m.youngsModulus == null ? Double.NaN : m.youngsModulus,
+						m.tensileStrength == null ? Double.NaN : m.tensileStrength,
+						m.compressiveStrength == null ? Double.NaN : m.compressiveStrength,
+						m.poissonRatio == null ? Double.NaN : m.poissonRatio,
+						group, m.userDefined, true);
 			}
 			if (TYPE.getName().equals(keyName)) {
 				this.properties.put(TYPE, (ComponentPreset.Type) value);
@@ -547,5 +560,9 @@ public class ComponentPreset implements Comparable<ComponentPreset>, Serializabl
 		}
 
 		this.computeDigest();
+	}
+
+	private static Double optionalMaterialProperty(double value) {
+		return Double.isFinite(value) ? value : null;
 	}
 }

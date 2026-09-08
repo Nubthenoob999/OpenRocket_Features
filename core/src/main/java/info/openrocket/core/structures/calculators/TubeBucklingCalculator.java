@@ -29,11 +29,12 @@ public final class TubeBucklingCalculator {
 		double radiusOfGyration = Math.sqrt(inertia / area);
 		double effectiveLength = effectiveLengthFactor * tube.getUnsupportedLength();
 		double slenderness = effectiveLength / radiusOfGyration;
+		double columnStrength = material.getColumnStrength();
 		double criticalSlenderness = Math.sqrt(2.0 * Math.PI * Math.PI * material.getYoungsModulus()
-				/ material.getYieldStrength());
+				/ columnStrength);
 		double euler = Math.PI * Math.PI * material.getYoungsModulus() * inertia / (effectiveLength * effectiveLength);
-		double johnson = area * material.getYieldStrength() *
-				(1.0 - material.getYieldStrength() / (4.0 * Math.PI * Math.PI * material.getYoungsModulus())
+		double johnson = area * columnStrength *
+				(1.0 - columnStrength / (4.0 * Math.PI * Math.PI * material.getYoungsModulus())
 						* slenderness * slenderness);
 		double criticalLoad;
 		String method;

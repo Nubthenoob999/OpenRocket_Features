@@ -16,6 +16,7 @@ import info.openrocket.core.unit.UnitGroup;
 import info.openrocket.swing.gui.SpinnerEditor;
 import info.openrocket.swing.gui.adaptors.DoubleModel;
 import info.openrocket.swing.gui.components.UnitSelector;
+import info.openrocket.swing.gui.util.Icons;
 import info.openrocket.swing.simulation.extension.impl.MonteCarloPdfExporter;
 import net.miginfocom.swing.MigLayout;
 
@@ -556,8 +557,8 @@ public class MonteCarloSetupPanel extends SimulationScrollablePanel {
 		p.add(runDetailsScroll, "span 4, growx, wmin 0, hmin 180, wrap");
 
 		// Buttons
-		final JButton runBatch = new JButton("Run Monte Carlo Batch");
-		final JButton exportAll = new JButton("Export All Results (CSV + KML + PNG + PDF)");
+		final JButton runBatch = new JButton("Run Monte Carlo Batch", Icons.SIM_RUN);
+		final JButton exportAll = new JButton("Export All Results (CSV + KML + PNG + PDF)", Icons.FILE_EXPORT);
 
 		// Style the run button to stand out
 		runBatch.setFont(runBatch.getFont().deriveFont(Font.BOLD));

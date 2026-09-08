@@ -8,16 +8,14 @@ public final class AxialLoadModel {
 
 	public static double conservativeAxialLoad(FlightLoadCase loadCase) {
 		double mass = finiteOrZero(loadCase.getMass());
-		double acceleration = loadCase.getAxialAcceleration();
-		if (!Double.isFinite(acceleration)) {
-			acceleration = STANDARD_GRAVITY;
-		}
 
-		// Conservative first-iteration force estimate. This intentionally replaces the
-		// spreadsheet's dimensionally-invalid drag + thrust + mass assumption.
+		// Match the workbook's thrust + drag + vehicle-weight envelope while keeping
+		// the calculation dimensionally valid in SI.  Acceleration is not added here:
+		// for a whole-vehicle free-body diagram it is a response to the applied forces,
+		// so adding m*a would count the same launch load a second time.
 		return Math.abs(finiteOrZero(loadCase.getThrust())) +
 				Math.abs(finiteOrZero(loadCase.getDrag())) +
-				Math.abs(mass * acceleration);
+				Math.abs(mass * STANDARD_GRAVITY);
 	}
 
 	private static double finiteOrZero(double value) {

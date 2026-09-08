@@ -67,6 +67,11 @@ public class SimulationConditions implements Monitorable, Cloneable {
 	private double booster1NozzleExitDiameter = Double.NaN;
 	private double booster2NozzleExitDiameter = Double.NaN;
 
+	private double recoverySpeedWarning = 20.0;
+	private double drogueLowSpeedWarning = 3.048;
+	private double recoveryDrogueMainHighSpeedWarning = 30.48;
+	private double recoveryDrogueMainLowSpeedWarning = 15.24;
+
 	private List<SimulationListener> simulationListeners = new ArrayList<>();
 
 	private int randomSeed = 0;
@@ -267,6 +272,42 @@ public class SimulationConditions implements Monitorable, Cloneable {
 			case 2 -> booster2NozzleExitDiameter = diameter;
 			default -> throw new IllegalArgumentException("Unsupported axial stage number: " + stageNumber);
 		}
+		this.modID = new ModID();
+	}
+
+	public double getRecoverySpeedWarning() {
+		return recoverySpeedWarning;
+	}
+
+	public void setRecoverySpeedWarning(double value) {
+		recoverySpeedWarning = value;
+		this.modID = new ModID();
+	}
+
+	public double getDrogueLowSpeedWarning() {
+		return drogueLowSpeedWarning;
+	}
+
+	public void setDrogueLowSpeedWarning(double value) {
+		drogueLowSpeedWarning = value;
+		this.modID = new ModID();
+	}
+
+	public double getRecoveryDrogueMainHighSpeedWarning() {
+		return recoveryDrogueMainHighSpeedWarning;
+	}
+
+	public void setRecoveryDrogueMainHighSpeedWarning(double value) {
+		recoveryDrogueMainHighSpeedWarning = value;
+		this.modID = new ModID();
+	}
+
+	public double getRecoveryDrogueMainLowSpeedWarning() {
+		return recoveryDrogueMainLowSpeedWarning;
+	}
+
+	public void setRecoveryDrogueMainLowSpeedWarning(double value) {
+		recoveryDrogueMainLowSpeedWarning = value;
 		this.modID = new ModID();
 	}
 

@@ -53,23 +53,67 @@ public class Databases {
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Polycarbonate (Lexan)", 1200, 0.786e9, MaterialGroup.PLASTICS));	// www.matweb.com/search/DataSheet.aspx?MatGUID=37807ef5e0134a0b80ca0a862bee2314 &
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Polystyrene", 1050, 1.23e9, MaterialGroup.PLASTICS));				// https://www.matweb.com/search/DataSheet.aspx?MatGUID=df6b1ef50ce84e7995bdd1f6fd1b04c9
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "PVC", 1390, 2.28e9, MaterialGroup.PLASTICS));			// https://www.matweb.com/search/DataSheet.aspx?MatGUID=bb6e739c553d4a34b199f0185e92f6f7 & https://www.lookpolymers.com/polymer_Overview-of-materials-for-PVC-Rigid-Grade.php?utm_source=chatgpt.com
+		// Legacy component libraries use 946 kg/m3 for this blow-moulded material.
+		// E and tensile yield use INEOS Eltex TUB433-NA00; compression uses
+		// Densetec copolymer PP sheet.  G is derived from E with nu=0.45.
+		// https://www.ineos.com/Show-Document/?BU=INEOS+O+%26+P+Europe&DocumentType=Technical+Data+Sheet&Grade=433-NA00
+		// https://polymerindustries.com/wp-content/uploads/2018/03/Typical-Properties-PP-Copolymer.pdf
+		// https://documents.dnrec.delaware.gov/Admin/Documents/dnrec-hearings/2020-P-W-0014/operations/2012-Operation-and-Maintenance-Manual-Part-1.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Polypropylene, bulk", 946, 0.517e9,
+				1.50e9, 28e6, 30.3e6, 0.45, MaterialGroup.PLASTICS));
 
-		// 3D Printing Plastics (Assumed 100% infill isotropic approximation)
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "PLA - 100% infill", 1250, 2.4e9, MaterialGroup.PLASTICS));
+		// Tested Verbatim FDM PLA, print direction 1.  These values are a specific
+		// 100%-infill print basis, not isotropic bulk-resin properties.
+		// https://pmc.ncbi.nlm.nih.gov/articles/PMC7660314/
+		// https://www.verbatim-europe.com/en/3d-printing-filaments/products/verbatim-pla-filament-175mm-1kg-black-55318
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "PLA - 100% infill", 1250, 1.24e9,
+				2.71e9, 50e6, Double.NaN, 0.328, MaterialGroup.PLASTICS));
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "PLA (Verbatim FDM, 100% infill, direction 1)", 1240, 1.24e9,
+				2.71e9, 50e6, Double.NaN, 0.328, MaterialGroup.PLASTICS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "PETG - 100% infill", 1250, 0.8e9, MaterialGroup.PLASTICS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "ABS - 100% infill", 1050, 0.875e9, MaterialGroup.PLASTICS));		// https://designerdata.nl/materials/plastics/thermo-plastics/acrylonitril-butadieen-styreen-general-purpose
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "ASA - 100% infill", 1050, 0.8e9, MaterialGroup.PLASTICS));		// https://designerdata.nl/materials/plastics/thermo-plastics/acrylonitrile---styrene---acrylester
 
 		// Metals
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Aluminum", 2700, 26.0e9, MaterialGroup.METALS)); 	// 6061-T6, https://www.matweb.com/search/DataSheet.aspx?MatGUID=b8d536e0b9b54bd7b69e4124d8f1d20a
+		// Kaiser minimum yield for 6061-T6 sheet/plate is used instead of the
+		// higher typical value.  G is derived from E and Poisson ratio.
+		// https://online.kaiseraluminum.com/depot/PublicProductInformation/Document/1010/Kaiser_Aluminum_Sheet___Plate.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Aluminum", 2700, 25.68e9,
+				68.3e9, 241e6, Double.NaN, 0.33, MaterialGroup.METALS));
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Aluminum 6061-T6", 2700, 25.68e9,
+				68.3e9, 241e6, Double.NaN, 0.33, MaterialGroup.METALS));
+		// Minimum for bare 7075-T6 sheet, 0.008-0.011 in (63 ksi yield).
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Aluminum 7075-T6", 2810, 26.95e9,
+				71.7e9, 434e6, Double.NaN, 0.33, MaterialGroup.METALS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Brass", 8600, 38.9e9, MaterialGroup.METALS));		// https://www.matweb.com/search/DataSheet.aspx?MatGUID=d3bd4617903543ada92f4c101c2a20e5
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Steel", 7850, 79.7e9, MaterialGroup.METALS));		// https://www.matweb.com/search/DataSheet.aspx?MatGUID=210fcd12132049d0a3e0cabe7d091eef
+		// Normalized at 870 C, air cooled, 13 mm round.
+		// https://asm.matweb.com/search/SpecificMaterial.asp?bassnum=M4130B
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Steel 4130 normalized", 7850, 80e9,
+				205e9, 460e6, Double.NaN, 0.29, MaterialGroup.METALS));
+		// Outokumpu Core 304 hot-rolled/plate minimum proof strength; G is derived.
+		// https://www.outokumpu.com/en/products/product-ranges/-/media/files/products/core/outokumpu-core-range-datasheet.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Stainless steel 304 annealed", 7900, 76.92e9,
+				200e9, 210e6, Double.NaN, 0.30, MaterialGroup.METALS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Titanium", 4500, 43.0e9, MaterialGroup.METALS)); 	// https://www.matweb.com/search/DataSheet.aspx?MatGUID=66a15d609a3f4c829cb6ad08f0dafc01
 
 		// Woods (Values are approximate G_LT / In-plane shear)
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Balsa", 170, 0.23e9, MaterialGroup.WOODS));		// Peak of Flight issue 615
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Basswood", 500, 0.331e9, MaterialGroup.WOODS));	// GLT/EL = 0.046, EL = 7.2 GPa
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Birch", 670, 0.70e9, MaterialGroup.WOODS));		// GLT/EL = 0.068, EL = 10.3 GPa
+		// Longitudinal E and strength approximation at 170 kg/m3.  USDA reports
+		// multiple direction-specific Poisson ratios, so no scalar value is stored.
+		// https://www.fpl.fs.usda.gov/documnts/fplgtr/fplgtr282/fpl_gtr282.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Balsa", 170, 0.111e9,
+				3.0e9, 14e6, 7e6, Double.NaN, MaterialGroup.WOODS));
+		// American basswood at 12% moisture.  The structures tool uses modulus
+		// of rupture as the conservative scalar plate/fin bending limit.
+		// https://www.fpl.fs.usda.gov/documnts/fplgtr/fplgtr282/fpl_gtr282.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Basswood", 500, 0.331e9,
+				10.1e9, 60e6, 32.6e6, Double.NaN, MaterialGroup.WOODS));
+		// Yellow birch at approximately 12% moisture.  Tensile limit uses the
+		// conservative modulus of rupture because this scalar model also serves
+		// plate bending; G_LT/E_L = 0.068.
+		// https://www.fpl.fs.usda.gov/documnts/fplgtr/fplgtr282/fpl_gtr282.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Birch", 670, 0.945e9,
+				13.9e9, 114e6, 56.3e6, Double.NaN, MaterialGroup.WOODS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Cork", 240, 0.01e9, MaterialGroup.WOODS)); 	// https://www.makeitfrom.com/material-properties/Cork
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Maple", 755, 0.71e9, MaterialGroup.WOODS));	// GLT/EL = 0.074, EL = 9.6 GPa
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Pine", 530, 0.71e9, MaterialGroup.WOODS));	// GLT/EL = 0.081, EL = 8.8 GPa
@@ -77,14 +121,45 @@ public class Databases {
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Spruce", 450, 1.1e9, MaterialGroup.WOODS));	// GLT/EL = 0.12, EL = 9.2 GPa
 
 		// Composites
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Carbon fiber", 1780, 4.14e9, MaterialGroup.COMPOSITES)); // Quasi-isotropic, Peak of Flight issue 615
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Fiberglass", 1850, 4.14e9, MaterialGroup.COMPOSITES)); // https://www.matweb.com/search/DataSheet.aspx?MatGUID=7bfc3c023dab4b288a29a29052734788 & Peak of Flight issue 615
+		// Hexcel typical high-strength carbon fabric laminate values (~60% Vf).
+		// The generic name remains as a compatibility alias for existing designs.
+		// https://www.hexcel.com/wp-content/uploads/2026/01/Prepreg_Technology-2.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Carbon fiber", 1600, 5.5e9,
+				70e9, 800e6, 700e6, 0.05, MaterialGroup.COMPOSITES));
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Carbon fiber/epoxy fabric (approx. 60% fiber volume)",
+				1600, 5.5e9, 70e9, 800e6, 700e6, 0.05, MaterialGroup.COMPOSITES));
+		// G10/FR4 in-plane elastic constants (NASA) with conservative crosswise
+		// tensile and flatwise compression values from Atlas Fibre.  The generic
+		// name remains as a compatibility alias for existing designs.
+		// https://ntrs.nasa.gov/api/citations/19910006819/downloads/19910006819.pdf
+		// https://www.atlasfibre.com/material/g-10/
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Fiberglass", 1800, 6.20e9,
+				14.37e9, 262e6, 448e6, 0.159, MaterialGroup.COMPOSITES));
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Fiberglass (G10/FR4 laminate, in-plane)", 1800, 6.20e9,
+				14.37e9, 262e6, 448e6, 0.159, MaterialGroup.COMPOSITES));
+		// Compatibility record for the legacy NASA Huntsville design.  Use the
+		// room-temperature-dry measured means for a qualified 6781 S2-glass/
+		// epoxy fabric laminate, not the much higher bare-fiber values listed in
+		// the Structures workbook.  The saved 2000 kg/m3 density is retained.
+		// https://www.wichita.edu/industry_and_defense/NIAR/Research/cytec-mtm45-1/Style-6781-S2-Glass-2.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "S2Fiberglass", 2000, 3.79e9,
+				28.5e9, 551e6, 561e6, 0.138, MaterialGroup.COMPOSITES));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Kraft phenolic", 950, 1.78e9, MaterialGroup.COMPOSITES)); // Paper phenolic
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Blue tube", 1300, 0, MaterialGroup.COMPOSITES));
+		// Vulcanized-fibre supplier strength data, conservative cross direction
+		// (CD), supplemented by measured Dynal vulcanized-fibre G12 and nu21.
+		// https://alwaysreadyrocketry.com/wp-content/uploads/2020/01/Blue-Tube-Engineering-Data.pdf
+		// https://www.dynamore.de/en/training/conferences/past/13th-european-ls-dyna-conference-2021/2021-eu-proceedings.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Blue tube", 1200, 2.529e9,
+				5.516e9, 62.05e6, 241.3e6, 0.227, MaterialGroup.COMPOSITES));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Quantum tubing", 1050, 0, MaterialGroup.PLASTICS));
 
 		// Paper/Foams (Low shear modulus, often negligible, but non-zero values provided where applicable)
-		BULK_MATERIAL.add(newMaterial(Type.BULK, "Cardboard", 680, 0.4e9, MaterialGroup.PAPER)); // Solid paperboard
+		// Conservative short-duration paper-tube values.  The compression value
+		// comes from a rocket-body-tube test at a matching 689 kg/m3 density.
+		// https://pmc.ncbi.nlm.nih.gov/articles/PMC12430042/
+		// https://engineering.ucdenver.edu/docs/librariesprovider29/college-of-engineering-and-applied-science/sp2020-capstone/mech4-report.pdf
+		BULK_MATERIAL.add(newMaterial(Type.BULK, "Cardboard", 680, 0.4e9,
+				1.5e9, 8e6, 11.05e6, Double.NaN, MaterialGroup.PAPER));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Paper (office)", 820, 0.0, MaterialGroup.PAPER));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Depron (XPS)", 40, 0.0027e9, MaterialGroup.FOAMS));
 		BULK_MATERIAL.add(newMaterial(Type.BULK, "Styrofoam (generic EPS)", 20, 0.002e9, MaterialGroup.FOAMS));
@@ -106,8 +181,8 @@ public class Databases {
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (round 2 mm, 1/16 in)", 0.0018, MaterialGroup.ELASTICS));
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 6 mm, 1/4 in)", 0.0043, MaterialGroup.ELASTICS));
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 12 mm, 1/2 in)", 0.008, MaterialGroup.ELASTICS));
-		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 19 mm, 3/4 in)", 0.0012, MaterialGroup.ELASTICS));
-		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 25 mm, 1 in)", 0.0016, MaterialGroup.ELASTICS));
+		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 19 mm, 3/4 in)", 0.012, MaterialGroup.ELASTICS));
+		LINE_MATERIAL.add(newMaterial(Type.LINE, "Elastic cord (flat 25 mm, 1 in)", 0.016, MaterialGroup.ELASTICS));
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Braided nylon (2 mm, 1/16 in)", 0.001, MaterialGroup.NYLONS));
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Braided nylon (3 mm, 1/8 in)", 0.0035, MaterialGroup.NYLONS));
 		LINE_MATERIAL.add(newMaterial(Type.LINE, "Tubular nylon (11 mm, 7/16 in)", 0.013, MaterialGroup.NYLONS));
@@ -188,6 +263,19 @@ public class Databases {
 	}
 
 	/**
+	 * Builds a default material with the structural properties used by the structures tool.
+	 * Unknown properties must be represented by {@link Double#NaN}; values are never
+	 * inferred from the material name at runtime.
+	 */
+	private static Material newMaterial(Type type, String baseName, double density, double inPlaneShearModulus,
+			double youngsModulus, double tensileStrength, double compressiveStrength, double poissonRatio,
+			MaterialGroup group) {
+		String name = trans.get("material", baseName);
+		return Material.newMaterial(type, name, density, inPlaneShearModulus, youngsModulus, tensileStrength,
+				compressiveStrength, poissonRatio, group, false, false);
+	}
+
+	/**
 	 * builds a new material based on the parameters given
 	 * @param type		The type of material
 	 * @param baseName	the name of material
@@ -239,6 +327,45 @@ public class Databases {
 			}
 		}
 		return Material.newMaterial(type, name, density, inPlaneShearModulus, group, true, true);
+	}
+
+	/**
+	 * Loads a pre-structural-properties material record.  When its stable database
+	 * name and density identify a known material, use the current database
+	 * mechanical properties while retaining the file's density for mass
+	 * compatibility.  The density bound prevents an unrelated custom material
+	 * with a reused name from receiving an unsafe override.
+	 */
+	public static Material findLegacyMaterial(Material.Type type, String baseName, double density,
+			Double inPlaneShearModulus, MaterialGroup group) {
+		Material loaded = inPlaneShearModulus == null
+				? findMaterial(type, baseName, density, group)
+				: findMaterial(type, baseName, density, inPlaneShearModulus, group);
+		if (type != Material.Type.BULK || hasStructuralProperties(loaded)) {
+			return loaded;
+		}
+
+		Material reference = findMaterial(type, baseName);
+		if (reference == null || !hasStructuralProperties(reference)
+				|| !legacyDensityMatches(density, reference.getDensity())) {
+			return loaded;
+		}
+		return Material.newMaterial(type, loaded.getName(), density, reference.getInPlaneShearModulus(),
+				reference.getYoungsModulus(), reference.getTensileStrength(), reference.getCompressiveStrength(),
+				reference.getPoissonRatio(), reference.getGroup(), true, true);
+	}
+
+	private static boolean hasStructuralProperties(Material material) {
+		return material != null && optionalPositive(material.getYoungsModulus()) > 0
+				&& optionalPositive(material.getTensileStrength()) > 0;
+	}
+
+	private static boolean legacyDensityMatches(double loadedDensity, double referenceDensity) {
+		if (!Double.isFinite(loadedDensity) || !Double.isFinite(referenceDensity)
+				|| loadedDensity <= 0 || referenceDensity <= 0) {
+			return false;
+		}
+		return Math.abs(loadedDensity - referenceDensity) / referenceDensity <= 0.15;
 	}
 
 	/**

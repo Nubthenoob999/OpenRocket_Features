@@ -1,5 +1,7 @@
 package info.openrocket.core.util.ejection;
 
+import info.openrocket.core.material.Material;
+
 /**
  * All inputs required to size a black-powder ejection charge. All linear
  * dimensions are in metres; mass and force values are SI; the calculator
@@ -12,6 +14,7 @@ public final class EjectionChargeInputs {
 	private double bayInnerDiameter_m;
 	private double bayLength_m;
 	private AirframeMaterial bayMaterial = AirframeMaterial.FIBERGLASS;
+	private Material bayComponentMaterial;
 	private double bayOuterDiameter_m;
 
 	// --- Coupler (or nose-cone shoulder) ---
@@ -19,6 +22,7 @@ public final class EjectionChargeInputs {
 	private double couplerInnerDiameter_m;
 	private double couplerEngagementLength_m;
 	private AirframeMaterial couplerMaterial = AirframeMaterial.FIBERGLASS;
+	private Material couplerComponentMaterial;
 	private double diametralInterference_m;
 
 	// --- Shear pins ---
@@ -52,6 +56,10 @@ public final class EjectionChargeInputs {
 	public AirframeMaterial getBayMaterial() { return bayMaterial; }
 	public void setBayMaterial(AirframeMaterial v) { this.bayMaterial = v; }
 
+	/** Selected component material; its mechanical properties override category fallbacks. */
+	public Material getBayComponentMaterial() { return bayComponentMaterial; }
+	public void setBayComponentMaterial(Material v) { this.bayComponentMaterial = v; }
+
 	public double getBayOuterDiameter_m() { return bayOuterDiameter_m; }
 	public void setBayOuterDiameter_m(double v) { this.bayOuterDiameter_m = v; }
 
@@ -67,6 +75,10 @@ public final class EjectionChargeInputs {
 
 	public AirframeMaterial getCouplerMaterial() { return couplerMaterial; }
 	public void setCouplerMaterial(AirframeMaterial v) { this.couplerMaterial = v; }
+
+	/** Selected component material; its mechanical properties override category fallbacks. */
+	public Material getCouplerComponentMaterial() { return couplerComponentMaterial; }
+	public void setCouplerComponentMaterial(Material v) { this.couplerComponentMaterial = v; }
 
 	public double getDiametralInterference_m() { return diametralInterference_m; }
 	public void setDiametralInterference_m(double v) { this.diametralInterference_m = v; }

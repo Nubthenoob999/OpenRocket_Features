@@ -29,6 +29,7 @@ import info.openrocket.core.aerodynamics.physicsaero.runtime.PhysicsAeroTableRes
 import info.openrocket.core.aerodynamics.physicsaero.table.AerodynamicTable;
 import info.openrocket.core.aerodynamics.physicsaero.table.RuntimeCorrectionData;
 import info.openrocket.core.document.Simulation;
+import info.openrocket.swing.gui.util.Icons;
 import net.miginfocom.swing.MigLayout;
 
 /** Read-only inspector for the deterministic coefficient table used by a simulation. */
@@ -42,8 +43,8 @@ final class PhysicsAeroTableDiagnosticPanel extends JPanel {
 	private final JSpinner poweredFraction = new JSpinner(new SpinnerNumberModel(0.0, 0.0, 1.0, 0.05));
 	private final JCheckBox applyReynolds = new JCheckBox("Apply runtime Reynolds correction");
 	private final JSpinner reynolds = new JSpinner(new SpinnerNumberModel(1_000_000.0, 1.0, 1.0e12, 100_000.0));
-	private final JButton query = new JButton("Query table");
-	private final JButton reload = new JButton("Reload cached table");
+	private final JButton query = new JButton("Query table", Icons.SIM_RUN);
+	private final JButton reload = new JButton("Reload cached table", Icons.REFRESH);
 	private final JLabel tableSummary = new JLabel("No table loaded");
 	private final JLabel queryStatus = new JLabel("Build or reload a table to inspect coefficients.");
 	private final ReadOnlyTableModel coefficientModel = new ReadOnlyTableModel(

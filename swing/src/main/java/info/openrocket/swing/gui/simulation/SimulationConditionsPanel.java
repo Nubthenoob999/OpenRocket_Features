@@ -565,7 +565,8 @@ public class SimulationConditionsPanel extends SimulationScrollablePanel {
 			});
 		}
 
-		// Set initial selection based on current wind model
+		// Keep the selector synchronized when options are changed programmatically,
+		// for example by the Reset to default button.
 		if (target instanceof SimulationOptions) {
 			SimulationOptions options = (SimulationOptions) target;
 			if (options.isLiveWeatherDataSelected() && liveWeatherButton != null) {

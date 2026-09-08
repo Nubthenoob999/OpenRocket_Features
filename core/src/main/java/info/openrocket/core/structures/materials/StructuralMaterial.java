@@ -4,22 +4,31 @@ public final class StructuralMaterial {
 	private final String name;
 	private final double youngsModulus;
 	private final double shearModulus;
-	private final double yieldStrength;
+	private final double tensileAllowable;
 	private final double ultimateStrength;
 	private final double compressiveStrength;
 	private final double density;
 	private final Double poissonRatio;
+	private final double shearStrength;
 
-	public StructuralMaterial(String name, double youngsModulus, double shearModulus, double yieldStrength,
+	public StructuralMaterial(String name, double youngsModulus, double shearModulus, double tensileAllowable,
 			double ultimateStrength, double compressiveStrength, double density, Double poissonRatio) {
+		this(name, youngsModulus, shearModulus, tensileAllowable, ultimateStrength, compressiveStrength,
+				density, poissonRatio, Double.NaN);
+	}
+
+	public StructuralMaterial(String name, double youngsModulus, double shearModulus, double tensileAllowable,
+			double ultimateStrength, double compressiveStrength, double density, Double poissonRatio,
+			double shearStrength) {
 		this.name = name;
 		this.youngsModulus = youngsModulus;
 		this.shearModulus = shearModulus;
-		this.yieldStrength = yieldStrength;
+		this.tensileAllowable = tensileAllowable;
 		this.ultimateStrength = ultimateStrength;
 		this.compressiveStrength = compressiveStrength;
 		this.density = density;
 		this.poissonRatio = poissonRatio;
+		this.shearStrength = shearStrength;
 	}
 
 	public String getName() {
@@ -34,8 +43,16 @@ public final class StructuralMaterial {
 		return shearModulus;
 	}
 
+	/**
+	 * Legacy accessor.  The stored value is a tensile design limit: yield for
+	 * ductile entries and a tensile failure limit for brittle entries.
+	 */
 	public double getYieldStrength() {
-		return yieldStrength;
+		return tensileAllowable;
+	}
+
+	public double getTensileAllowable() {
+		return tensileAllowable;
 	}
 
 	public double getUltimateStrength() {
@@ -54,14 +71,34 @@ public final class StructuralMaterial {
 		return poissonRatio;
 	}
 
+	/** Transverse shear allowable in Pascals, or NaN when unavailable. */
+	public double getShearStrength() {
+		return shearStrength;
+	}
+
 	public double getBestAllowableStress() {
-		if (Double.isFinite(yieldStrength) && yieldStrength > 0) {
-			return yieldStrength;
+		double tensile = positiveOrNaN(tensileAllowable);
+		double compression = positiveOrNaN(compressiveStrength);
+		if (Double.isFinite(tensile) && Double.isFinite(compression)) {
+			return Math.min(tensile, compression);
 		}
-		if (Double.isFinite(compressiveStrength) && compressiveStrength > 0) {
-			return compressiveStrength;
+		if (Double.isFinite(tensile)) {
+			return tensile;
 		}
-		return ultimateStrength;
+		if (Double.isFinite(compression)) {
+			return compression;
+		}
+		return positiveOrNaN(ultimateStrength);
+	}
+
+	/** Strength used by column/buckling calculations. */
+	public double getColumnStrength() {
+		double compression = positiveOrNaN(compressiveStrength);
+		return Double.isFinite(compression) ? compression : getBestAllowableStress();
+	}
+
+	private static double positiveOrNaN(double value) {
+		return Double.isFinite(value) && value > 0.0 ? value : Double.NaN;
 	}
 
 	public boolean hasRequiredStrengthAndStiffness() {

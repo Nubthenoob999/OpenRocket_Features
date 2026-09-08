@@ -18,7 +18,7 @@ public final class CompositePropertyCalculator {
 		double matrixFraction = 1.0 - fiberVolumeFraction;
 		double tensileStrength = knockdownFactor * zeroDegreePlyFraction *
 				(fiberVolumeFraction * fiberStrength + matrixFraction * resinStrength);
-		double tensileModulus = knockdownFactor *
+		double tensileModulus = knockdownFactor * zeroDegreePlyFraction *
 				(fiberVolumeFraction * fiberModulus + matrixFraction * resinModulus);
 		double compressionStrength = tensileStrength * compressionFactor;
 		double flexuralStrength = tensileStrength * flexuralFactor;
